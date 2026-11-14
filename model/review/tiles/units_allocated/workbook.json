@@ -2,14 +2,14 @@
   "kind": "tile",
   "name": "units_allocated",
   "module": "unit_projection",
-  "built_at": "2026-11-14T10:31:59+00:00",
+  "built_at": "2026-11-14T21:09:12+00:00",
   "stamp": {
     "code": "7cc071d1987071cf1a4b199b49260c1fa52da43169e63349a26e2026917fc9a2",
     "spec": "13f7ec99ec54bf053d9cbb49c460c615201bbf22790df71ab8bba5692de49d5a",
     "upstream": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "cases": "a42493b46f4e2e1d7ec9309bfd93f977df0cf13535b4eaf45c63ac35f8dc13dc",
     "params": "05fab2750280bae719ccdeae45603fce740d04232cbcda23e56fa79d7c849932",
-    "translator": "7b0b6232790fd2c96c1ceb6d79634cd6d2ecd2a2e6c2f527ca64ec6b8907cd9a"
+    "translator": "85ca37244a9a88223a28309b6eb53ed0af322f2884af42ac6efc6eabe05d2f36"
   },
   "workbook": "workbook.xlsx",
   "formula": "={premium}*allocation_rate/{unit_price}",
@@ -60,7 +60,7 @@
   "near_ties": {},
   "content_digest": "e73ebd9148fad6cfd4b30bd5961f2b9b32cf69d8127b4a1794649aab44017808",
   "content_stat": {
-    "mtime_ns": 1794652319727160222,
+    "mtime_ns": 1794690552012305588,
     "size": 53766
   }
 }

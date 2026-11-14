@@ -5,6 +5,7 @@ import { tileView, moduleView, modelView } from './views.js';
 import * as agent from './agentlog.js';
 import * as RD from './real.js';
 import { createSpecLine } from './specline.js';
+import { createTrace } from './trace.js';
 import { paintSource } from './codeview.js';
 import { PREFILL, paintLaunch, newModelDialog, commitDialog, settingsDialog } from './launch.js';
 
@@ -18,6 +19,7 @@ let reviewerName = null;
 let openModel = null;               // the open model: {id, dir}, or null (the launch page only)
 let grid;
 let spec = null;
+let trace = null;
 let settings = { showRibbon: false, showFormulaBar: true, showLeftBar: true, sections: {}, centre: {} };
 const codeMem = new Map();           // tile -> the source last seen
 const codeWas = new Map();           // tile -> the source it had before it last changed ("Was" in the Code segment)
@@ -418,13 +420,20 @@ async function boot() {
   window.addEventListener('hashchange', () => render());
   try { openModel = await api.launch.current(); } catch { openModel = null; }
   if (!location.hash || (!openModel && !location.hash.startsWith('#/launch'))) location.hash = openModel ? '#/model' : '#/launch';
-  grid = createGrid($('gridhost'), { author: await reviewer(), settings: () => settings, onError: m => { S.actionError = m; render(); }, onEdit: info => spec && spec.onEdit(info) });
+  grid = createGrid($('gridhost'), { author: await reviewer(), settings: () => settings, onError: m => { S.actionError = m; render(); }, onEdit: info => spec && spec.onEdit(info), onInspect: ins => trace && trace.onInspect(ins) });
   spec = createSpecLine({
     bar: $('sheetbar'), grid, enabled: () => !!api.agent,
     tile: () => { const r = parseRoute(); return r.view === 'tile' && !S.real ? r.id : null; },
     caseId: sheet => (S.cases.find(c => (c.name || c.id) === sheet) || {}).id || null,
     canSend: () => !!api.agent && !agent.isBusy(),
     send: (text, extra) => agent.send(text, extra),
+  });
+  // The trace line (trace.js): where the selected row's value comes from. The other lines come first.
+  trace = createTrace({
+    bar: $('tracebar'), grid, S: () => S, route: parseRoute, idle: () => chain, watch: [$('stalebar'), $('sheetbar'), $('nogrid'), $('codewrap')],
+    covered: () => !$('stalebar').hidden || !$('sheetbar').hidden || !$('nogrid').hidden || !$('codewrap').hidden,
+    caseSheet: () => S.real ? 'Policy ' + S.real.policy : L.caseName(S, selectedCase(parseRoute())),
+    setCase: (key, sheet) => { const c = S.cases.find(x => (x.name || x.id) === sheet); if (c) caseSel[key] = c.id; },
   });
   agent.configure({
     afterTurn: async () => { await refresh(); await render(); },

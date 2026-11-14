@@ -85,3 +85,16 @@ class Xlsx:
     def fonts(self):
         """Each <font> element of styles.xml as raw XML text, in order."""
         return re.findall(r"<font>.*?</font>", self.styles_xml)
+
+    def font(self, cell):
+        """The raw <font> XML of a cell from `cells()` (its colour, weight, name and size)."""
+        cell_xfs = re.search(r"<cellXfs[^>]*>(.*?)</cellXfs>", self.styles_xml, re.S).group(1)
+        xfs = re.findall(r"<xf [^>]*?(?:/>|>.*?</xf>)", cell_xfs, re.S)
+        return self.fonts()[int(re.search(r'fontId="(\d+)"', xfs[cell["style"]]).group(1))]
+
+    def row_named(self, sheet, name):
+        """The row number whose code-name cell (any column but B) holds `name`."""
+        for ref, cell in self.cells(sheet).items():
+            if cell["value"] == name and not ref.startswith("B"):
+                return int(re.search(r"\d+", ref).group(0))
+        raise KeyError(name)

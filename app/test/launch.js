@@ -15,6 +15,8 @@ const OUT = path.join(__dirname, 'out');
 fs.mkdirSync(OUT, { recursive: true });
 const REPO = path.resolve(__dirname, '../..');
 const REAL_MODEL = path.join(REPO, 'model');
+const cacheBeforeFile = path.join(REAL_MODEL, 'review', '.cache', 'content.json');
+const cacheBefore = (() => { try { const st = fs.statSync(cacheBeforeFile); return st.size + ':' + st.mtimeMs; } catch { return 'absent'; } })();
 const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'tessera-launch-')));
 // git for the tests: no user or system configuration, a fixed identity
 process.env.GIT_CONFIG_GLOBAL = '/dev/null'; process.env.GIT_CONFIG_NOSYSTEM = '1';
@@ -85,6 +87,9 @@ function copyExample(dst) {
   const settingsOnDisk = () => JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
   const chatLines = () => ev(`[...document.querySelectorAll('#agentlog-log .alog-line:not(.alog-working)')].map(l => l.querySelector('.alog-txt').innerText)`);
 
+  // The example model's status cache may already exist (the real app writes it once the model has been opened).
+  // What matters is that the launch page neither creates nor changes it.
+  const cacheState = () => { const f = path.join(REAL_MODEL, 'review', '.cache', 'content.json'); try { const st = fs.statSync(f); return st.size + ':' + st.mtimeMs; } catch { return 'absent'; } };
   // ------------------------------------------------------------ 1. start: the launch page, with the example model on the first launch
   check('start with no model: the window is on #/launch and no model is open', await onLaunch() && ctl.cfg.modelDir === null);
   check('launch: top bar has the logo and Tessera and no module or tile rows', await ev(`!!document.querySelector('#topbar #logo') && document.getElementById('brand').textContent==='Tessera' && getComputedStyle(document.getElementById('mods')).display==='none' && getComputedStyle(document.getElementById('tiles')).display==='none' && getComputedStyle(document.getElementById('modelname')).display==='none'`));
@@ -93,7 +98,7 @@ function copyExample(dst) {
   const ex = await waitTile('Unit-linked pricing', t => /tiles signed off|could not read/.test(t.review) && !/Checking/.test(t.git));
   check('the example tile fills in its review progress in words', ex && /^\d+ of 26 tiles signed off/.test(ex.review), JSON.stringify(ex));
   check('the example model lives inside this repository, so the tile says it has no repository of its own', ex && /not a git repository of its own/.test(ex.git), JSON.stringify(ex));
-  check('the example model has not been opened or written to by the launch page', !fs.existsSync(path.join(REAL_MODEL, 'review', '.cache')) && ctl.cfg.modelDir === null);
+  check('the example model has not been opened or written to by the launch page', cacheState() === cacheBefore && ctl.cfg.modelDir === null);
   check('a new tile is dashed and last, with Add existing folder… beside it', await ev(`(()=>{const c=[...document.querySelectorAll('#models .mcell')]; const last=c[c.length-1]; return !!last.querySelector('#newmodel') && getComputedStyle(last.querySelector('#newmodel')).borderStyle.includes('dashed') && !!last.querySelector('#addfolder')})()`));
   check('the example is in the settings file list', settingsOnDisk().models.length === 1 && settingsOnDisk().models[0].dir === REAL_MODEL);
 

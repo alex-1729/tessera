@@ -2,14 +2,14 @@
   "kind": "tile",
   "name": "sum_at_risk",
   "module": "cashflows",
-  "built_at": "2026-11-14T10:32:00+00:00",
+  "built_at": "2026-11-14T21:09:13+00:00",
   "stamp": {
     "code": "56750801a7a7705b3331a2811a7284ed95b1a58010bab84ae6ad3f2770448a05",
     "spec": "179ee3781ed9026a75c6f8601e64d997120bc0ca3ab8f688c91cdf3af97be82c",
     "upstream": "30afea4aed244ccab3c8f3fac8aebe9301b6280c6fb00ab9f8a21a996e6216a5",
     "cases": "a42493b46f4e2e1d7ec9309bfd93f977df0cf13535b4eaf45c63ac35f8dc13dc",
     "params": "05fab2750280bae719ccdeae45603fce740d04232cbcda23e56fa79d7c849932",
-    "translator": "7b0b6232790fd2c96c1ceb6d79634cd6d2ecd2a2e6c2f527ca64ec6b8907cd9a"
+    "translator": "85ca37244a9a88223a28309b6eb53ed0af322f2884af42ac6efc6eabe05d2f36"
   },
   "workbook": "workbook.xlsx",
   "formula": "=MAX({sum_assured}-{fund_value_eop},0)",
@@ -78,7 +78,7 @@
   "near_ties": {},
   "content_digest": "bda4c7b15dc064867974facf0de43ef4f9ae29ec04646bea5f68f9491136e9a3",
   "content_stat": {
-    "mtime_ns": 1794652320880240347,
-    "size": 49301
+    "mtime_ns": 1794690553316123096,
+    "size": 49292
   }
 }

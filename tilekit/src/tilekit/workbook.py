@@ -41,6 +41,7 @@ TOLERANCE_REL = 1e-12
 SCRATCH = "Scratch"
 FONT_NAME, FONT_SIZE = "Open Sans", 10
 BLUE, MAROON, GREY = "#0000FF", "#800000", "#808080"
+GREEN = "#006100"  # bold: a value that comes from elsewhere in the model (another tile, module or sheet)
 EDGE_PX = 20  # width of column A and height of row 1
 CHAR_PX = 7  # GridCraft's pixel widths assume a 7 px character
 DEFAULT_COLUMN_PX = 64
@@ -165,7 +166,9 @@ class Line:
     label: str
     content: tuple  # ("values", data) | ("formula", template) | ("state", initial, source) | ("link", name)
     fmt: str  # number format code
-    style: str = "calc"  # input | calc | output | link | grey
+    # input (bold blue: a true input) | elsewhere (bold dark green: pasted from another tile or module) |
+    # link (bold dark green: a live link to another sheet) | calc | output | grey
+    style: str = "calc"
     name: str | None = None  # code name shown in maroon
     define: bool = False  # define a named range for it
     scalar: bool = False
@@ -450,6 +453,9 @@ def render_sheet(plan, locator, renames):
         if line.style == "input":
             cmds.append(_cmd("home.bold", range=values))
             cmds.append(_cmd("home.fontColor", range=values, color=BLUE))
+        elif line.style in ("elsewhere", "link"):
+            cmds.append(_cmd("home.bold", range=values))
+            cmds.append(_cmd("home.fontColor", range=values, color=GREEN))
         elif line.style == "output":
             cmds.append(_cmd("home.bold", range=f"B{row}:{value_end}{row}"))
         elif line.style == "grey":
@@ -747,8 +753,15 @@ class ModelInfo:
         return outputs
 
 
-def _value_line(info, data, name, style="input", define=True, key=None):
-    """A row of Python values (pasted input) for a quantity."""
+def _pasted_style(info, name):
+    """How a pasted row is shown: a true input (an input series) in bold blue, anything the model
+    calculated (another tile's output, a carried-forward state) in bold dark green."""
+    return "input" if info.kind(name) == "input" else "elsewhere"
+
+
+def _value_line(info, data, name, style=None, define=True, key=None):
+    """A row of Python values pasted in for a quantity, styled by where the quantity comes from."""
+    style = style or _pasted_style(info, name)
     if info.is_scalar(name):
         value = data.scalar(name)
         return Line(key or name, info.label(name), ("values", value), number_format(info.fmt(name), [value]),

@@ -221,8 +221,8 @@
         },
         {
           "id": 37,
-          "text": "Dark green for values from another module or tile, and tracing them back in the app (separate session)",
-          "status": "doing"
+          "text": "Bold dark green for values from another module or tile, and tracing them back in the app",
+          "status": "done"
         },
         {
           "id": 38,

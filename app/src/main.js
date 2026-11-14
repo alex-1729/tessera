@@ -99,8 +99,8 @@ function buildMenu(settings, onSetting, withAgent, actions = {}) {
       { id: 'centreCode', label: 'Code', accelerator: 'CmdOrCtrl+2', click: () => actions.centre && actions.centre('code') },
       { id: 'centreTest', label: 'Test', accelerator: 'CmdOrCtrl+3', click: () => actions.centre && actions.centre('test') },
       { type: 'separator' },
-      { id: 'showLeftBar', label: 'Show left bar', type: 'checkbox', accelerator: 'CmdOrCtrl+[', checked: settings.showLeftBar !== false, click: i => onSetting('showLeftBar', i.checked) },
-      { id: 'showRightBar', label: 'Show right bar', type: 'checkbox', accelerator: 'CmdOrCtrl+]', checked: settings.showRightBar !== false, click: i => onSetting('showRightBar', i.checked) },
+      { id: 'showLeftBar', label: 'Show left bar', type: 'checkbox', accelerator: 'CmdOrCtrl+Shift+[', checked: settings.showLeftBar !== false, click: i => onSetting('showLeftBar', i.checked) },
+      { id: 'showRightBar', label: 'Show right bar', type: 'checkbox', accelerator: 'CmdOrCtrl+Shift+]', checked: settings.showRightBar !== false, click: i => onSetting('showRightBar', i.checked) },
       ...(withAgent ? [{ type: 'separator' }, { label: 'Agent model', submenu: [
         { label: 'Sonnet (faster)', type: 'radio', checked: settings.agentModel !== STRONG_MODEL, click: () => onSetting('agentModel', DEFAULT_MODEL) },
         { label: 'Opus (stronger)', type: 'radio', checked: settings.agentModel === STRONG_MODEL, click: () => onSetting('agentModel', STRONG_MODEL) }] }] : []),
