@@ -4,7 +4,7 @@ import { q, tileStatus, mapWord, moduleMapWord } from './logic.js';
 import { layeredLayout } from './layout.js';
 
 const NS = 'http://www.w3.org/2000/svg';
-const MONO = 6.7;
+const MONO = 6.6;
 function s(tag, attrs, ...kids) {
   const e = document.createElementNS(NS, tag);
   for (const [k, v] of Object.entries(attrs || {})) if (v !== null && v !== undefined) e.setAttribute(k, v);
@@ -14,26 +14,27 @@ function s(tag, attrs, ...kids) {
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text) e.textContent = text; return e; };
 
 const DOTTED = '1.5 3';
+const INK = '#14213d', FAINT = '#a9a08c', SOFT = '#7a838c';
 function outline(state, light, proposed) {
-  if (proposed || state === 'not_built') return { stroke: '#000', 'stroke-width': 1, 'stroke-dasharray': DOTTED };
-  if (light) return { stroke: '#999', 'stroke-width': 1 };
-  if (state === 'signed_off') return { stroke: '#000', 'stroke-width': 1 };
-  if (state === 'stale') return { stroke: '#000', 'stroke-width': 1, 'stroke-dasharray': '4 3' };
-  return { stroke: '#000', 'stroke-width': 2 };
+  if (proposed || state === 'not_built') return { stroke: INK, 'stroke-width': 1, 'stroke-dasharray': DOTTED };
+  if (light) return { stroke: FAINT, 'stroke-width': 1 };
+  if (state === 'signed_off') return { stroke: INK, 'stroke-width': 1 };
+  if (state === 'stale') return { stroke: INK, 'stroke-width': 1, 'stroke-dasharray': '4 3' };
+  return { stroke: INK, 'stroke-width': 2 };
 }
 
 function arrowDefs() {
   return s('defs', {},
     s('marker', { id: 'arr', viewBox: '0 0 10 10', refX: '9', refY: '5', markerWidth: '7', markerHeight: '7', orient: 'auto' },
-      s('path', { d: 'M0,1 L9,5 L0,9 z', fill: '#000' })),
+      s('path', { d: 'M0,1 L9,5 L0,9 z', fill: INK })),
     s('marker', { id: 'arrg', viewBox: '0 0 10 10', refX: '9', refY: '5', markerWidth: '7', markerHeight: '7', orient: 'auto' },
-      s('path', { d: 'M0,1 L9,5 L0,9 z', fill: '#777' })));
+      s('path', { d: 'M0,1 L9,5 L0,9 z', fill: SOFT })));
 }
 
 function box(n, { name, status, state, light, href, mono = true, proposed = false }) {
   const inner = [
     s('rect', { x: n.x, y: n.y, width: n.w, height: n.h, fill: '#fff', ...outline(state, light, proposed) }),
-    s('text', { x: n.x + n.w / 2, y: n.y + (n.h > 38 ? 17 : 15), 'text-anchor': 'middle', class: mono ? 'nm' : 'ti', style: light ? 'fill:#555' : null }, name),
+    s('text', { x: n.x + n.w / 2, y: n.y + (n.h > 38 ? 17 : 15), 'text-anchor': 'middle', class: (mono ? 'nm' : 'ti') + (light ? ' dim' : '') }, name),
     s('text', { x: n.x + n.w / 2, y: n.y + n.h - 8, 'text-anchor': 'middle', class: 'st' }, status),
   ];
   return href ? s('a', { href, style: 'cursor:pointer' }, inner) : s('g', {}, inner);
@@ -41,10 +42,10 @@ function box(n, { name, status, state, light, href, mono = true, proposed = fals
 
 // A small list box: "Parameters" heading and the names under it.
 function listBox(n, title, names) {
-  const g = [s('rect', { x: n.x, y: n.y, width: n.w, height: n.h, fill: '#fff', stroke: '#999', 'stroke-width': 1 }),
+  const g = [s('rect', { x: n.x, y: n.y, width: n.w, height: n.h, fill: '#fff', stroke: FAINT, 'stroke-width': 1 }),
     s('text', { x: n.x + 6, y: n.y + 12, class: 'st' }, title)];
   const cols = n.cols || 1, per = Math.ceil(names.length / cols), colW = (n.w - 12) / cols;
-  names.forEach((nm, i) => g.push(s('text', { x: n.x + 6 + Math.floor(i / per) * colW, y: n.y + 26 + (i % per) * 13, class: 'nm', style: 'fill:#555;font-size:10.5px' }, nm)));
+  names.forEach((nm, i) => g.push(s('text', { x: n.x + 6 + Math.floor(i / per) * colW, y: n.y + 26 + (i % per) * 13, class: 'nm dim', style: 'font-size:10.5px' }, nm)));
   return s('g', {}, g);
 }
 
@@ -100,7 +101,7 @@ export function moduleMap(S, mod, avail = 700, proposed = []) {
   const params = [...info.values()].filter(n => n.kind === 'param');
   const grouped = params.length >= 4;
   const nodes = [], edges = [];
-  const w = nm => Math.max(104, Math.ceil(nm.length * MONO + 22));
+  const w = nm => Math.max(96, Math.ceil(nm.length * MONO + 18));
   for (const [id, n] of info) {
     if (grouped && n.kind === 'param') continue;
     nodes.push({ id, w: w(id), h: n.own || n.kind === 'tile' ? 40 : 36, rank: rankOf.get(id), n });
@@ -114,8 +115,8 @@ export function moduleMap(S, mod, avail = 700, proposed = []) {
       g.tiles.add(t);
     }
     for (const g of groups.values()) {
-      const cols = g.names.length > 6 ? 2 : 1, per = Math.ceil(g.names.length / cols);
       const longest = Math.max(...g.names.map(x => x.length));
+      const cols = g.names.length > 6 && 2 * (longest * 6.3 + 10) + 12 <= avail * 0.7 ? 2 : 1, per = Math.ceil(g.names.length / cols);
       nodes.push({ id: g.id, w: Math.max(104, cols * (longest * 6.3 + 10) + 12), h: 20 + per * 13 + 4, rank: g.rank, group: g, cols });
       for (const t of g.tiles) edges.push({ from: g.id, to: t, light: true });
     }
@@ -138,12 +139,12 @@ export function moduleMap(S, mod, avail = 700, proposed = []) {
   for (const e of edges) {
     const pts = lay.routes.get(e); if (!pts) continue;
     pts[pts.length - 1] = [pts[pts.length - 1][0], pts[pts.length - 1][1] - 1];
-    svg.append(s('path', { d: polyline(pts), fill: 'none', stroke: e.light ? '#777' : '#000', 'stroke-width': 1, 'stroke-dasharray': e.proposed ? DOTTED : null, 'marker-end': e.light ? 'url(#arrg)' : 'url(#arr)' }));
+    svg.append(s('path', { d: polyline(pts), fill: 'none', stroke: e.light ? SOFT : INK, 'stroke-width': 1, 'stroke-dasharray': e.proposed ? DOTTED : null, 'marker-end': e.light ? 'url(#arrg)' : 'url(#arr)' }));
   }
   carries.forEach((c, i) => {
     const a = lay.pos.get(c.from), b = lay.pos.get(c.to);
     const pts = outsideRoute(a, b, lay.rows, lay.W + 10, i, 36);
-    svg.append(s('path', { d: polyline(pts), fill: 'none', stroke: '#000', 'stroke-width': 1, 'stroke-dasharray': '5 3', 'marker-end': 'url(#arr)' }));
+    svg.append(s('path', { d: polyline(pts), fill: 'none', stroke: INK, 'stroke-width': 1, 'stroke-dasharray': '5 3', 'marker-end': 'url(#arr)' }));
     const onMargin = pts.filter(p => p[0] === lay.W + 10 + i * 8);
     const my = (onMargin[0][1] + onMargin[onMargin.length - 1][1]) / 2;
     svg.append(s('text', { x: lay.W + 10 + i * 8 + 5, y: my + 3, class: 'lbl' }, 'next period'));
@@ -212,7 +213,8 @@ export function modelMap(S, avail = 700, proposed = []) {
   if (inBand) {
     const n = nodes.find(x => x.inputs);
     const names = inputNames;
-    const cols = names.length > 6 ? 2 : 1, per = Math.ceil(names.length / cols);
+    const lg = Math.max(...names.map(x => x.length));
+    const cols = names.length > 6 && 2 * (lg * 6.3 + 10) + 12 <= avail * 0.5 ? 2 : 1, per = Math.ceil(names.length / cols);
     n.cols = cols; n.names = names; n.w = Math.max(104, cols * (Math.max(...names.map(x => x.length)) * 6.3 + 10) + 12); n.h = 20 + per * 13 + 4;
     for (const m of g.modules) if ((m.inputs || []).some(i => (q(S, i) || {}).kind === 'input')) edges.push({ from: 'inputs', to: m.id, light: true });
   }
@@ -235,17 +237,17 @@ export function modelMap(S, avail = 700, proposed = []) {
     if (bi > 0) {
       const prev = rowsOf(bands[bi - 1]);
       const y = (Math.max(...prev.map(r => lay.rows[r].bottom)) + top) / 2;
-      svg.append(s('line', { x1: 0, y1: y, x2: W, y2: y, stroke: '#c8c8c8', 'stroke-width': 1 }));
+      svg.append(s('line', { x1: 0, y1: y, x2: W, y2: y, stroke: '#cfc6b4', 'stroke-width': 1 }));
     }
   });
   for (const e of edges) {
     const pts = lay.routes.get(e); if (!pts) continue;
     pts[pts.length - 1] = [pts[pts.length - 1][0], pts[pts.length - 1][1] - 1];
-    svg.append(s('path', { d: polyline(pts), fill: 'none', stroke: e.light ? '#777' : '#000', 'stroke-width': 1, 'stroke-dasharray': e.proposed ? DOTTED : null, 'marker-end': e.light ? 'url(#arrg)' : 'url(#arr)' }));
+    svg.append(s('path', { d: polyline(pts), fill: 'none', stroke: e.light ? SOFT : INK, 'stroke-width': 1, 'stroke-dasharray': e.proposed ? DOTTED : null, 'marker-end': e.light ? 'url(#arrg)' : 'url(#arr)' }));
   }
   backs.forEach((e, i) => {
     const pts = outsideRoute(lay.pos.get(e.from), lay.pos.get(e.to), lay.rows, lay.W + 6, i, 30);
-    svg.append(s('path', { d: polyline(pts), fill: 'none', stroke: '#000', 'stroke-width': 1, 'stroke-dasharray': '5 3', 'marker-end': 'url(#arr)' }));
+    svg.append(s('path', { d: polyline(pts), fill: 'none', stroke: INK, 'stroke-width': 1, 'stroke-dasharray': '5 3', 'marker-end': 'url(#arr)' }));
   });
   for (const n of nodes) {
     const p = { ...lay.pos.get(n.id) };

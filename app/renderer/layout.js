@@ -8,7 +8,7 @@
 //
 // Output: {pos: Map id -> {x, y, w, h, row}, rows: [{top, bottom}], routes: Map edge -> [[x, y], ...], back, W, H}
 
-export function layeredLayout({ nodes, edges, maxWidth = 700, gx = 16, gy = 34, pad = 8, dummyW = 12, left = 0, reserveRight = 0 }) {
+export function layeredLayout({ nodes, edges, maxWidth = 700, gx = 16, gy = 34, pad = 8, dummyW = 6, left = 0, reserveRight = 0 }) {
   const N = new Map();
   nodes.forEach((n, i) => N.set(n.id, { id: n.id, w: n.w, h: n.h, rank: n.rank, real: true, seq: i }));
   const used = [...new Set(nodes.map(n => n.rank))].sort((a, b) => a - b);
@@ -93,34 +93,42 @@ export function layeredLayout({ nodes, edges, maxWidth = 700, gx = 16, gy = 34, 
   let g = build();
   order(g, 10);
 
-  // Split over-wide ranks into several rows, in the order found.
-  const cap = Math.max(60, maxWidth - left - pad * 2 - reserveRight);
-  let split = false;
-  const seed = new Map();
-  let newRank = 0;
-  for (const r of g.ranks) {
-    const reals = r.filter(n => n.real);
-    const total = reals.reduce((s, n) => s + n.w, 0) + gx * Math.max(0, reals.length - 1);
-    const k = Math.max(1, Math.ceil(total / cap));
-    if (k > 1) split = true;
-    const target = total / k;
-    let row = 0, acc = 0;
-    for (const n of reals) {
-      if (acc > 0 && acc + n.w > target * 1.15 && row < k - 1) { row++; acc = 0; }
-      n.rank = newRank + row; acc += n.w + gx;
-      seed.set(n.id, seed.size);
+  // Split over-wide ranks into several rows, in the order found. Edges that pass through a row occupy room in it
+  // too (one dummy each), so when the rows come out wider than the room the split is redone with less room for boxes.
+  const room = Math.max(60, maxWidth - left - pad * 2 - reserveRight);
+  const gp = (a, b) => (a.real || b.real ? gx : 4);
+  const widthOf = gr => Math.max(1, ...gr.ranks.map(r => r.reduce((s, n, i) => s + n.w + (i ? gp(r[i - 1], n) : 0), 0)));
+  const rank0 = new Map([...N.values()].map(n => [n.id, n.rank]));
+  const g0 = g;
+  const base = g.ranks.map(r => r.slice());
+  let cap = room;
+  for (let attempt = 0; attempt < 10; attempt++) {
+    for (const n of N.values()) n.rank = rank0.get(n.id);
+    const ordered = base.map(r => r.filter(n => n.real).map(n => N.get(n.id)));  // the order found for the unsplit graph
+    const seed = new Map();
+    let newRank = 0, split = false;
+    for (const reals of ordered) {
+      const total = reals.reduce((s, n) => s + n.w, 0) + gx * Math.max(0, reals.length - 1);
+      const k = Math.max(1, Math.ceil(total / cap));
+      if (k > 1) split = true;
+      const target = total / k;
+      let row = 0, acc = 0;
+      for (const n of reals) {
+        if (acc > 0 && acc + n.w > target * 1.15 && row < k - 1) { row++; acc = 0; }
+        n.rank = newRank + row; acc += n.w + gx;
+        seed.set(n.id, seed.size);
+      }
+      newRank += reals.length ? row + 1 : 1;
     }
-    newRank += reals.length ? row + 1 : 1;
-  }
-  if (split) {
-    // ranks without real nodes cannot occur after compression, so every new rank is non-empty
-    g = build(seed);
-    order(g, 8);
+    if (split) { g = build(seed); order(g, 8); } else g = g0;
+    const widest = widthOf(g);
+    if (widest <= room || cap <= 60) break;
+    cap = Math.max(60, cap - (widest - room));
   }
   const ranks = g.ranks;
 
   // ---- x placement
-  const gap = (a, b) => (a.real || b.real ? gx : 8);
+  const gap = (a, b) => (a.real || b.real ? gx : 4);
   const rowW = r => r.reduce((s, n, i) => s + n.w + (i ? gap(r[i - 1], n) : 0), 0);
   const innerW = Math.max(1, ...ranks.map(rowW));
   const x0 = left + pad;

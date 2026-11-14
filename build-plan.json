@@ -172,11 +172,16 @@
       ]
     },
     {
-      "name": "Follow-up: display",
+      "name": "Follow-up",
       "steps": [
         {
           "id": 28,
           "text": "Build GridCraft from source so the grid shows Open Sans and bold",
+          "status": "done"
+        },
+        {
+          "id": 29,
+          "text": "Restyle the app as Tessera: module tabs, a tile strip, reviewer's sheet on the left, mosaic icon",
           "status": "done"
         }
       ]

@@ -38,15 +38,18 @@ const check = (name, ok, detail) => { summary.checks.push({ name, ok: !!ok, ...(
   const waitFor = async (js, ms = 8000) => { const t = Date.now(); while (Date.now() - t < ms) { try { const v = await ev(js); if (v) return v; } catch { /* retry */ } await sleep(100); } return false; };
   const text = () => ev('document.getElementById("left").innerText');
   const has = async (name, needle) => { const t = await text(); check(name, t.includes(needle), `missing "${needle}" in: ${t.slice(0, 300)}`); };
+  // section labels are set in capitals by the style sheet, so headings are compared without regard to case
+  const hasH = async (name, needle) => { const t = (await text()).toLowerCase(); check(name, t.includes(needle.toLowerCase()), `missing heading "${needle}" in: ${t.slice(0, 300)}`); };
   const shot = async name => { const img = await win.webContents.capturePage(); const f = path.join(OUT, name + '.png'); fs.writeFileSync(f, img.toPNG()); summary.shots.push(f); };
-  const go = async hash => { await ev(`location.hash=${JSON.stringify(hash)}`); await waitFor(`(()=>{const h=location.hash;const t=document.getElementById(h.startsWith('#/tile/')?'tilename':'title');return t&&(h.startsWith('#/tile/')?h.endsWith('/'+t.textContent):true)&&document.getElementById('crumbs').textContent.length>0})()`); await ev('window.__app.idle()'); await sleep(200); };
+  const go = async hash => { await ev(`location.hash=${JSON.stringify(hash)}`); await waitFor(`(()=>{const h=location.hash;const t=document.getElementById(h.startsWith('#/tile/')?'tilename':'title');return t&&(h.startsWith('#/tile/')?h.endsWith('/'+t.textContent):true)&&document.querySelector('#mods a.cur')!==null})()`); await ev('window.__app.idle()'); await sleep(200); };
   const gc = js => ev(`(async()=>{const g=document.querySelector('#gridhost iframe').contentWindow.gridcraft; return await (${js})(g)})()`);
   const sheets = () => gc('async g => (await g.docInspect()).sheets.map(s => s.name)');
 
   async function fullSet() {
     const lt = () => ev('document.getElementById("left").innerText');
     const hasF = async (name, needle) => { const x = await lt(); check(name, x.includes(needle), `missing "${needle}" in: ${x.slice(0, 400)}`); };
-    const notF = async (name, needle) => { const x = await lt(); check(name, !x.includes(needle), `unexpected "${needle}"`); };
+    const hasFH = async (name, needle) => { const x = (await lt()).toLowerCase(); check(name, x.includes(needle.toLowerCase()), `missing heading "${needle}" in: ${x.slice(0, 400)}`); };
+    const notF = async (name, needle) => { const x = (await lt()).toLowerCase(); check(name, !x.includes(needle.toLowerCase()), `unexpected "${needle}"`); };
     const svgBoxes = () => ev(`(()=>{const svg=document.querySelector('svg.map');return [...svg.querySelectorAll('rect')].map(r=>({x:+r.getAttribute('x'),y:+r.getAttribute('y'),w:+r.getAttribute('width'),h:+r.getAttribute('height')}))})()`);
     // every route polyline segment must stay out of every box (except at its own end points)
     const crossing = async () => ev(`(()=>{
@@ -75,6 +78,7 @@ const check = (name, ok, detail) => { summary.checks.push({ name, ok: !!ok, ...(
     let c = await crossing(); check('full model map: no arrow through a box', c.bad === 0 && c.n >= 5, JSON.stringify(c));
     check('full model map: no overlapping boxes', (await overlaps()) === 0);
     check('full model map fits the panel', await ev(`document.querySelector('svg.map').getBoundingClientRect().width <= document.getElementById('left').clientWidth`));
+    check('full model map is not scrolled sideways, not shrunk', await ev(`(()=>{const w=document.querySelector('.mapwrap'), v=document.querySelector('svg.map'); return w.scrollWidth<=w.clientWidth+1 && v.getBoundingClientRect().width >= v.viewBox.baseVal.width-1})()`));
     await hasF('full model: run tests button', 'Run tests');
     await hasF('full model: stale check wording', 'not run since last change');
     await ev('document.getElementById("runtests").click()');
@@ -88,6 +92,7 @@ const check = (name, ok, detail) => { summary.checks.push({ name, ok: !!ok, ...(
     check('full cashflows map: parameters grouped', await ev(`[...document.querySelectorAll('svg.map text')].filter(t=>t.textContent==='Parameters').length >= 1`));
     check('full cashflows map: params are listed once per group, not boxed', await ev(`[...document.querySelectorAll('svg.map text')].filter(t=>t.textContent==='parameter').length===0`));
     check('full cashflows map: fits the panel', await ev(`document.querySelector('svg.map').getBoundingClientRect().width <= document.getElementById('left').clientWidth`));
+    check('full cashflows map: not scrolled sideways, not shrunk', await ev(`(()=>{const w=document.querySelector('.mapwrap'), v=document.querySelector('svg.map'); return w.scrollWidth<=w.clientWidth+1 && v.getBoundingClientRect().width >= v.viewBox.baseVal.width-1})()`));
     check('full cashflows: workbook out of date line', await ev(`!document.getElementById('stalebar').hidden && document.getElementById('stalebar').innerText.includes('This workbook is out of date. Rebuild to see current numbers.')`));
     await shot('module-full');
     await go('#/module/decrements');
@@ -101,17 +106,15 @@ const check = (name, ok, detail) => { summary.checks.push({ name, ok: !!ok, ...(
     // tile views
     await go('#/tile/allocation_margin');
     await hasF('stale formula sentence', "Stale: this tile's formula changed since sign-off.");
-    await hasF('changed since sign-off section', 'Changed since sign-off');
+    await hasFH('changed since sign-off section', 'Changed since sign-off');
     check('was and now formulas', await ev(`document.querySelector('.was').textContent==='=premium*(1-allocation_rate)'`) && await ev(`document.querySelector('.now').textContent.includes('in_force_eop')`));
     await shot('tile-formula-drift-full');
-    await ev('document.getElementById("signoff").click()'); await waitFor('!!document.getElementById("dialog")');
-    check('blocked by can_sign_off: reason listed, no Confirm', await ev(`!document.getElementById('confirm') && document.getElementById('dialog').innerText.includes('formula changed since sign-off')`));
-    await ev('document.getElementById("cancel").click()');
+    check('blocked by can_sign_off: Sign off disabled, first blocker is its title, blocker listed in Checks', await ev(`(()=>{const b=document.getElementById('signoff'); return b.disabled && b.title.includes('formula changed since sign-off') && document.getElementById('left').innerText.includes('formula changed since sign-off') && !document.getElementById('dialog')})()`));
     await go('#/tile/amc_income');
     await hasF('stale values sentence', 'Stale: upstream values changed since sign-off.');
     check('out of date bar on stale workbook', await ev(`!document.getElementById('stalebar').hidden`));
     check('old workbook still shown', await ev(`document.querySelector('#gridhost iframe').style.visibility==='visible' && document.getElementById('nogrid').hidden`));
-    await notF('no Changed section without drift', 'Changed since sign-off');
+    check('no Changed section without drift', await ev(`!document.getElementById('changed') && [...document.querySelectorAll('#panel h3.sec')].every(h => h.textContent !== 'Changed since sign-off')`));
     await shot('tile-stale-full');
     await go('#/tile/premium_income');
     await hasF('new case sentence', 'Signed off. New case to review: High charge.');
@@ -119,10 +122,9 @@ const check = (name, ok, detail) => { summary.checks.push({ name, ok: !!ok, ...(
     await hasF('values only sentence', 'Values only: this tile cannot be written as an Excel formula.');
     check('no formula shown for values-only tile', await ev(`!document.querySelector('.formula')`));
     await go('#/tile/in_force_eop');
-    await ev('document.getElementById("signoff").click()'); await waitFor('!!document.getElementById("dialog")');
-    check('failing difference blocks sign-off with its sentence', await ev(`!document.getElementById('confirm') && document.getElementById('dialog').innerText.includes('0.0021')`));
-    await ev('document.getElementById("cancel").click()');
+    check('failing difference blocks sign-off with its sentence', await ev(`(()=>{const b=document.getElementById('signoff'); return b.disabled && b.title.includes('0.0021') && document.getElementById('left').innerText.includes('0.0021')})()`));
     await go('#/tile/sum_at_risk'); await hasF('uncovered branch blocker visible in checks', 'Branch not covered');
+    check('sidebar sections of a tile, in order', await ev(`(()=>{const t=[...document.querySelectorAll('#panel h3.sec')].map(h=>h.textContent); const want=['Spec','Formula reviewed','Assumptions to confirm','Cases agreed to Python','Relies on','Feeds into','Checks','Code']; let i=-1; return want.every(w=>{const j=t.indexOf(w); const ok=j>i; i=j; return ok})})()`));
     await go('#/tile/gross_profit');
     await shot('tile-full');
     await go('#/tile/maintenance_expense');
@@ -177,7 +179,7 @@ const check = (name, ok, detail) => { summary.checks.push({ name, ok: !!ok, ...(
   await has('model: sentence', 'Not signed off. 0 of 1 modules signed off.');
   await has('model: layer band', 'Liability');
   await has('model: module box', 'Unit projection');
-  await has('model: checks', 'Model checks');
+  await hasH('model: checks', 'Model checks');
   const opened = await waitFor('window.__gridLog.opens.length >= 1');
   check('workbook opened', opened);
   const sh = await sheets();
@@ -205,45 +207,51 @@ const check = (name, ok, detail) => { summary.checks.push({ name, ok: !!ok, ...(
   check('tile: input and parameter names are not links', await ev(`[...document.querySelectorAll('#left a')].every(a => !['amc_pm','amc_cap_units'].includes(a.textContent))`));
   await has('tile: formula plain', 'MIN(units_after_alloc*amc_pm,amc_cap_units)');
   check('tile: no braces in formula', !(await ev('document.querySelector(".formula").textContent')).includes('{'));
-  await has('tile: assumptions', 'Assumed, to confirm at sign-off:');
+  await hasH('tile: assumptions heading', 'Assumptions to confirm');
+  await has('tile: assumption text', "The charge is on units after the same month's allocation");
   await has('tile: input status', 'parameter');
-  await has('tile: feeds into', 'Feeds into');
+  await hasH('tile: feeds into', 'Feeds into');
+  await hasH('tile: relies on', 'Relies on');
+  await hasH('tile: formula reviewed', 'Formula reviewed');
+  await hasH('tile: cases agreed to Python', 'Cases agreed to Python');
+  await has('tile: reference', 'UP-3');
   await has('tile: case names', 'Zero premium');
   check('tile: case ids are not shown', !(await text()).includes('zero_premium'));
   await has('tile: checks', 'All checks pass.');
   await has('tile: code', 'def units_amc');
   await sleep(500);
+
+  // sign-off, inline in the side bar
+  const dlg = await text();
+  check('side bar lists assumption, cases, relies on, reviewer', dlg.includes("The charge is on units after the same month's allocation") && dlg.includes('Base') && dlg.includes('units_after_alloc') && dlg.includes('Reviewed by') && dlg.includes('Prepared by'), dlg);
+  check('no sign-off dialog exists', await ev('!document.getElementById("dialog") && !document.getElementById("confirm")'));
+  check('reviewer is prefilled', await ev('document.getElementById("reviewer").value.trim().length > 0'));
+  check('Sign off disabled until the assumption is ticked', await ev('document.getElementById("signoff").disabled'));
+  check('the case lines say agrees', await ev(`[...document.querySelectorAll('a[data-case]')].every(a => /agrees/.test(a.parentElement.innerText))`));
   await shot('tile');
+  await go('#/model'); await go('#/tile/units_amc');
+  check('Sign off still disabled after leaving and returning', await ev('document.getElementById("signoff").disabled'));
+  await has('tile: still not signed off', 'Not signed off.');
 
-  // sign-off dialog: cancel
+  // sign-off for real (fixture); the tick survives a refresh
+  await ev('document.querySelector("#panel input.assume").click()');
+  check('Sign off enabled after ticking', !(await ev('document.getElementById("signoff").disabled')));
+  await ev('window.__app.refresh().then(()=>window.__app.render())'); await ev('window.__app.idle()'); await sleep(200);
+  check('tick and Sign off survive a refresh', await ev('document.querySelector("#panel input.assume").checked && !document.getElementById("signoff").disabled'));
+  await ev('document.getElementById("reviewer").value=""; document.getElementById("reviewer").dispatchEvent(new Event("input",{bubbles:true}))');
+  check('Sign off disabled without a reviewer name', await ev('document.getElementById("signoff").disabled'));
+  await ev('document.getElementById("reviewer").value="Smoke Reviewer"; document.getElementById("reviewer").dispatchEvent(new Event("input",{bubbles:true}))');
+  await ev('document.getElementById("comment").value="Smoke test"; document.getElementById("comment").dispatchEvent(new Event("input",{bubbles:true}))');
+  await shot('tile-ready-to-sign');
   await ev('document.getElementById("signoff").click()');
-  check('dialog opens', await waitFor('!!document.getElementById("dialog")'));
-  const dlg = await ev('document.getElementById("dialog").innerText');
-  check('dialog lists assumption, cases, upstream', dlg.includes("the charge is on units after the same month's allocation") && dlg.includes('Base') && dlg.includes('Reviewer'), dlg);
-  check('confirm disabled until ticked', await ev('document.getElementById("confirm").disabled'));
-  await shot('dialog');
-  await ev('document.getElementById("cancel").click()');
-  await sleep(200);
-  check('cancel closes dialog', await ev('!document.getElementById("dialog")'));
-  await has('tile: still not signed off after cancel', 'Not signed off.');
-
-  // sign-off for real (fixture)
-  await ev('document.getElementById("signoff").click()');
-  await waitFor('!!document.getElementById("dialog")');
-  await ev('(()=>{const c=document.querySelector("#dialog input[type=checkbox]"); c.click();})()');
-  check('confirm enabled after ticking', !(await ev('document.getElementById("confirm").disabled')));
-  await ev('document.getElementById("comment").value="Smoke test"; document.getElementById("confirm").click()');
   check('sentence changes after sign-off', await waitFor(`document.getElementById('sentence') && document.getElementById('sentence').textContent.startsWith('Signed off by')`));
-  check('dialog closed after confirm', await ev('!document.getElementById("dialog")'));
+  check('signed sheet shows the recorded reviewer and date, no fields', await waitFor(`(()=>{const r=document.getElementById('reviewedby'); return !!r && r.innerText.includes('Smoke Reviewer') && /\\d{4}-\\d{2}-\\d{2}/.test(r.innerText) && !document.getElementById('reviewer') && document.getElementById('signoff').disabled})()`), await text());
   await shot('tile-signed');
 
-  // blocked dialog: stale tile cannot be signed off
+  // a stale tile cannot be signed off: the blocker is the button's title and is listed under Checks
   await go('#/tile/units_eop');
   await has('stale tile sentence', 'Stale: upstream values changed since sign-off.');
-  await ev('document.getElementById("signoff").click()');
-  await waitFor('!!document.getElementById("dialog")');
-  check('blocked dialog has no Confirm', await ev('!document.getElementById("confirm") && document.getElementById("dialog").innerText.includes("Cannot be signed off")'));
-  await ev('document.getElementById("cancel").click()');
+  check('blocked: Sign off disabled with the first blocker as title, listed in Checks', await ev(`(()=>{const b=document.getElementById('signoff'); return b.disabled && b.title.includes('stale because upstream values changed') && document.getElementById('left').innerText.includes('stale because upstream values changed')})()`));
 
   // module re-confirm then module sign-off
   await go('#/module/unit_projection');

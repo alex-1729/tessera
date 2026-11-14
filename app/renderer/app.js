@@ -1,4 +1,4 @@
-import { h, link, sleep } from './util.js';
+import { h, sleep } from './util.js';
 import * as L from './logic.js';
 import { createGrid } from './grid.js';
 import { tileView, moduleView, modelView } from './views.js';
@@ -75,22 +75,68 @@ async function act(fn) {
 let chain = Promise.resolve();
 function render() { chain = chain.then(doRender).catch(e => { S.actionError = String(e && e.message || e); }); return chain; }
 
-function crumbs(route) {
-  const box = $('crumbs'); box.textContent = '';
-  const parts = [];
-  if (!S.graph) { box.append('Model'); return; }
-  const here = (node) => { node.classList.add('here'); return node; };
-  if (route.view === 'model') parts.push(here(h('span', {}, 'Model')));
-  else {
-    parts.push(link('#/model', 'Model', 'grey'));
-    const mod = route.view === 'module' ? L.moduleOf(S, route.id) : (L.q(S, route.id) && L.moduleOf(S, L.q(S, route.id).module));
-    if (mod) {
-      parts.push(link('#/model', mod.layer, 'grey'));
-      parts.push(route.view === 'module' ? here(h('span', {}, mod.title)) : link('#/module/' + encodeURIComponent(mod.id), mod.title, 'grey'));
-    }
-    if (route.view === 'tile') parts.push(here(h('span', { class: 'mono' }, route.id)));
-  }
-  parts.forEach((p, i) => { if (i) box.append(h('span', { class: 'sep' }, '/')); box.append(p); });
+// The two rows of tabs. Row 1: Model, then one tab per module in dependency order. Row 2 (a module or one of its tiles):
+// the module sheet, then one tab per tile in dependency order. Row 2 scrolls sideways and keeps the current tab in view.
+const tab = (href, cls, kids, current) => h('a', { href, class: cls || null, ...(current ? { 'aria-current': 'page' } : {}) }, kids);
+
+function paintNav(route) {
+  const mods = $('mods'), tiles = $('tiles');
+  if (!S.graph || !S.status) { mods.replaceChildren(tab('#/model', 'cur', 'Model', true)); tiles.hidden = true; return; }
+  $('modelname').textContent = S.graph.model.name || '';
+  const q = route.view === 'tile' ? L.q(S, route.id) : null;
+  const curMod = route.view === 'module' ? L.moduleOf(S, route.id) : (q && q.kind === 'tile' ? L.moduleOf(S, q.module) : null);
+  const m1 = mods.scrollLeft;
+  mods.replaceChildren(tab('#/model', !curMod ? 'cur' : '', 'Model', !curMod),
+    ...L.orderedModules(S).map(m => {
+      const ms = S.status.modules[m.id] || {};
+      return tab('#/module/' + encodeURIComponent(m.id), curMod && curMod.id === m.id ? 'cur' : '', [m.title, h('small', {}, `${ms.tiles_signed_off ?? 0} of ${ms.tiles_total ?? m.tiles.length}`)], curMod && curMod.id === m.id);
+    }));
+  mods.scrollLeft = m1;
+  keepInView(mods);
+  tiles.hidden = !curMod;
+  if (!curMod) return;
+  const before = tiles.dataset.mod === curMod.id ? tiles.scrollLeft : 0;
+  tiles.dataset.mod = curMod.id;
+  const onSheet = route.view === 'module';
+  const ordered = L.orderedTiles(S, curMod);
+  const uses = (later, earlier) => ((L.q(S, later) || {}).args || []).includes(earlier);
+  const inputs = (curMod.inputs || []).filter(i => (L.q(S, i) || {}).kind === 'input');
+  const arrow = on => h('span', { class: 'arr' }, on ? '\u2192' : '');
+  const strip = [
+    h('a', { href: '#/module/' + encodeURIComponent(curMod.id), class: 'sheet' + (onSheet ? ' cur' : ''), ...(onSheet ? { 'aria-current': 'page' } : {}) },
+      [h('b', {}, 'Module sheet'), h('i', {}, `all ${curMod.tiles.length} linked`)]),
+    h('span', { class: 'vr' }),
+    h('span', { class: 't io' }, [h('b', {}, 'inputs'), h('i', {}, inputs.length > 2 ? `${inputs.length} series` : (inputs.join(', ') || 'parameters'))]),
+  ];
+  strip.push(arrow(ordered.length > 0 && (L.q(S, ordered[0]).args || []).some(a => !((L.q(S, a) || {}).kind === 'tile'))));
+  ordered.forEach((t, i) => {
+    const st = (L.tileStatus(S, t) || {}).state;
+    const cur = route.view === 'tile' && route.id === t;
+    const cls = ['t', cur ? 'cur' : '', st === 'stale' ? 'stale' : '', st === 'not_built' ? 'notbuilt' : ''].filter(Boolean).join(' ');
+    if (i) strip.push(arrow(uses(t, ordered[i - 1])));
+    strip.push(h('a', { href: '#/tile/' + encodeURIComponent(t), class: cls, ...(cur ? { 'aria-current': 'page' } : {}) }, [h('b', {}, t), h('i', {}, L.mapWord(st))]));
+  });
+  const proposed = (S.drafts || []).filter(d => d.kind === 'tiles' && d.scope && d.scope.level === 'module' && d.scope.id === curMod.id)
+    .flatMap(d => d.items || []).filter(p => !L.q(S, p.name));
+  proposed.forEach(p => {
+    strip.push(arrow(uses(p.name, ordered[ordered.length - 1]) || (p.args || []).includes(ordered[ordered.length - 1])));
+    strip.push(h('span', { class: 't notbuilt' }, [h('b', {}, p.name), h('i', {}, 'proposed')]));
+  });
+  const nexts = (curMod.feeds || []).map(f => L.moduleOf(S, f)).filter(Boolean);
+  nexts.forEach((m, i) => {
+    strip.push(arrow(i === 0));
+    strip.push(h('a', { href: '#/module/' + encodeURIComponent(m.id), class: 't io next' }, [h('b', {}, m.title), h('i', {}, 'next module')]));
+  });
+  tiles.replaceChildren(...strip);
+  tiles.scrollLeft = before;
+  keepInView(tiles);
+}
+function keepInView(nav) {
+  const cur = nav.querySelector('a.cur');
+  if (!cur) return;
+  const left = cur.offsetLeft, right = left + cur.offsetWidth;
+  if (left < nav.scrollLeft) nav.scrollLeft = Math.max(0, left - 14);
+  else if (right > nav.scrollLeft + nav.clientWidth) nav.scrollLeft = right - nav.clientWidth + 14;
 }
 
 async function doRender() {
@@ -101,13 +147,13 @@ async function doRender() {
   $('notice').hidden = !S.notice; $('notice').textContent = S.notice || '';
   paintWorking();
   if (!S.graph || !S.status) {
-    crumbs(route); panel.replaceChildren(h('p', {}, 'The model could not be loaded.'),
+    paintNav(route); panel.replaceChildren(h('p', {}, 'The model could not be loaded.'),
       h('button', { type: 'button', id: 'retry', onclick: () => act(async () => {}) }, 'Try again'));
     return;
   }
 
   const ctx = {
-    S, act, busy: () => S.busy || working > 0 || agent.isBusy(), reviewer, api, setWorking,
+    S, act, busy: () => S.busy || working > 0 || agent.isBusy(), reviewer, reviewerName: () => reviewerName || '', api, setWorking,
     pendingDrafts: () => S.drafts || [],
     real: () => S.real,
     selectPolicy: (run, policy, mp) => { S.real = { run, policy, mp }; render(); },
@@ -118,7 +164,7 @@ async function doRender() {
       await act(async () => {});
       S.notice = `Case ${v.name || v.id} created. Tiles that were signed off show it as a new case to review.`; render();
     },
-    panelWidth: () => Math.max(320, left.clientWidth - 30),
+    panelWidth: () => Math.max(300, left.clientWidth - 32),
     selectedCase: () => selectedCase(route),
     selectCase: id => { caseSel[route.key] = id; S.real = null; render(); grid.forceActivate(caseCandidates(id)); },
   };
@@ -147,7 +193,7 @@ async function doRender() {
   panel.replaceChildren(...nodes);
   left.scrollTop = top;
   agent.restoreView(view);
-  crumbs(route);
+  paintNav(route);
 
   const real = S.real;
   if (real) {

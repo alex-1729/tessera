@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow, Menu, dialog, ipcMain } = require('electron');
+const { app, BrowserWindow, Menu, dialog, ipcMain, nativeImage } = require('electron');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -7,6 +7,10 @@ const { execFile } = require('child_process');
 const { startServer } = require('./server');
 const { createRunner, COMMANDS } = require('./tilekit');
 const { createAgentService, DEFAULT_MODEL, STRONG_MODEL } = require('./agent');
+
+// The app is called Tessera. Keep the settings folder where it already is: its name came from the old app name.
+app.setPath('userData', app.getPath('userData'));
+app.setName('Tessera');
 
 const APP_DIR = path.resolve(__dirname, '..');
 const REPO_ROOT = path.resolve(APP_DIR, '..');
@@ -58,7 +62,9 @@ function saveSettings(file, s) {
 function buildMenu(settings, onSetting, withAgent) {
   const isMac = process.platform === 'darwin';
   return Menu.buildFromTemplate([
-    ...(isMac ? [{ role: 'appMenu' }] : []),
+    ...(isMac ? [{ label: 'Tessera', submenu: [
+      { role: 'about', label: 'About Tessera' }, { type: 'separator' }, { role: 'services' }, { type: 'separator' },
+      { role: 'hide', label: 'Hide Tessera' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit', label: 'Quit Tessera' }] }] : []),
     { label: 'Edit', submenu: [
       { role: 'undo' }, { role: 'redo' }, { type: 'separator' },
       { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' }] },
@@ -208,9 +214,10 @@ async function start(options = {}) {
   const { server, port } = await startServer({ gridcraftDir: path.join(REPO_ROOT, 'vendor/gridcraft/web'), rendererDir: path.join(APP_DIR, 'renderer') });
   await app.whenReady();
   Menu.setApplicationMenu(buildMenu(settings, onSettingChosen, withAgent));
+  try { if (app.dock) app.dock.setIcon(nativeImage.createFromPath(path.join(APP_DIR, 'assets/icon.png'))); } catch { /* the Dock icon is cosmetic */ }
 
   win = new BrowserWindow({
-    width: 1500, height: 950, show: options.show !== false, title: 'Model review',
+    width: 1500, height: 950, show: options.show !== false, title: 'Tessera', icon: path.join(APP_DIR, 'assets/icon-256.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true, nodeIntegration: false, backgroundThrottling: false,

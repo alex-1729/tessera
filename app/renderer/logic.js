@@ -181,3 +181,47 @@ export const canReconfirm = (S, tiles) => tiles.filter(t => {
 
 // A workbook (module or model) that is not built, or that no longer matches the Python.
 export const workbookStale = st => !!st && (st.state === 'unbuilt' || st.workbook_current === false);
+
+// ---- navigation facts (tabs, references)
+
+// Modules in dependency order: a module comes after the modules that feed it; ties keep the listed order.
+export function orderedModules(S) {
+  const mods = S.graph.modules, ids = new Set(mods.map(m => m.id));
+  const indeg = new Map(mods.map(m => [m.id, 0]));
+  for (const m of mods) for (const f of m.feeds || []) if (ids.has(f) && f !== m.id) indeg.set(f, indeg.get(f) + 1);
+  const out = [], left = [...mods];
+  while (left.length) {
+    let i = left.findIndex(m => indeg.get(m.id) === 0);
+    if (i < 0) i = 0;                       // a cycle cannot happen in a valid graph; do not loop forever
+    const [m] = left.splice(i, 1);
+    out.push(m);
+    for (const f of m.feeds || []) if (indeg.has(f)) indeg.set(f, indeg.get(f) - 1);
+  }
+  return out;
+}
+
+// A module's tiles in dependency order.
+export function orderedTiles(S, mod) {
+  const order = S.graph.order || mod.tiles;
+  return [...mod.tiles].sort((a, b) => order.indexOf(a) - order.indexOf(b));
+}
+
+// Two or more words: their initials (unit_projection is UP). One word: its first two letters.
+export function moduleRef(mod) {
+  const words = String(mod.id).split(/[^A-Za-z0-9]+/).filter(Boolean);
+  return (words.length > 1 ? words.map(w => w[0]).slice(0, 3).join('') : String(words[0] || mod.id).slice(0, 2)).toUpperCase();
+}
+// UP-3: the module's initials and the tile's place in its dependency order.
+export function tileRef(S, name) {
+  const x = q(S, name), mod = x && moduleOf(S, x.module);
+  if (!mod) return '';
+  return `${moduleRef(mod)}-${orderedTiles(S, mod).indexOf(name) + 1}`;
+}
+export const upFirst = s => s ? s[0].toUpperCase() + s.slice(1) : '';
+
+// What a case line says about a tile.
+export function caseWord(S, name, c, shownId) {
+  const r = caseResult(S, name, c);
+  const w = r === 'passes' ? 'agrees' : r === 'fails' ? 'differs' : r;
+  return c.id === shownId ? `${w}, shown` : w;
+}

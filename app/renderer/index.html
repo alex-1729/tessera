@@ -2,17 +2,22 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Model review</title>
+<title>Tessera</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<div id="topbar">
+<header id="topbar">
+  <svg id="logo" width="22" height="22" viewBox="0 0 64 64" aria-hidden="true"><rect x="6" y="6" width="24" height="24" fill="#f4efe6"/><rect x="34" y="6" width="24" height="24" fill="none" stroke="#f4efe6" stroke-width="4"/><rect x="6" y="34" width="24" height="24" fill="none" stroke="#f4efe6" stroke-width="4"/><rect x="34" y="34" width="24" height="24" fill="#e08a5c"/></svg>
+  <span id="brand">Tessera</span>
+  <small id="modelname"></small>
+  <span class="sp"></span>
   <button id="back" type="button">Back</button>
   <button id="forward" type="button">Forward</button>
-  <nav id="crumbs"></nav>
-</div>
+</header>
+<nav id="mods" aria-label="Modules"></nav>
+<nav id="tiles" aria-label="Tiles" hidden></nav>
 <div id="main">
-  <div id="left"><div id="working" hidden>Working…</div><div id="error" hidden></div><div id="notice" hidden></div><div id="panel"></div></div>
+  <aside id="left"><div id="working" hidden>Working…</div><div id="error" hidden></div><div id="notice" hidden></div><div id="panel"></div></aside>
   <div id="right"><div id="realbar" hidden></div><div id="stalebar" hidden></div><div id="sheetbar" hidden></div><div id="gridwrap"><div id="gridhost"></div><div id="nogrid" hidden></div></div></div>
 </div>
 <script type="module" src="app.js"></script>

@@ -64,7 +64,7 @@ function listFiles(dir) {   // path -> mtime, for "nothing was written here"
   const shot = async name => { await sleep(300); const img = await win.webContents.capturePage(); const f = path.join(OUT, name + '.png'); fs.writeFileSync(f, img.toPNG()); summary.shots.push(f); };
   const go = async hash => {
     await ev(`location.hash=${JSON.stringify(hash)}`);
-    await waitFor(`(()=>{const h=location.hash;const t=document.getElementById(h.startsWith('#/tile/')?'tilename':'title');return t&&(h.startsWith('#/tile/')?h.endsWith('/'+t.textContent):true)&&document.getElementById('crumbs').textContent.length>0})()`);
+    await waitFor(`(()=>{const h=location.hash;const t=document.getElementById(h.startsWith('#/tile/')?'tilename':'title');return t&&(h.startsWith('#/tile/')?h.endsWith('/'+t.textContent):true)&&document.querySelector('#mods a.cur')!==null})()`);
     await idle(); await sleep(300);
   };
   const click = async id => { await ev(`document.getElementById(${JSON.stringify(id)}).click()`); };
@@ -75,17 +75,15 @@ function listFiles(dir) {   // path -> mtime, for "nothing was written here"
   const tk = (cmd, args = []) => ev(`window.api.tk(${JSON.stringify(cmd)}, ${JSON.stringify(args)})`);
   const setField = (id, v) => ev(`(()=>{const e=document.getElementById(${JSON.stringify(id)}); e.value=${JSON.stringify(v)}; e.dispatchEvent(new Event(e.tagName==='SELECT'?'change':'input',{bubbles:true}))})()`);
 
+  // Sign-off is inline in the side bar: tick every assumption, add a comment, press Sign off.
   async function signoffTile(name) {
     await go('#/tile/' + name);
+    await ev('document.querySelectorAll("#panel input.assume").forEach(c => c.click())');
+    const ready = await waitFor('!!document.getElementById("signoff") && !document.getElementById("signoff").disabled', 3000);
+    if (!ready) { check('sign off ' + name, false, await ev('document.getElementById("signoff") ? document.getElementById("signoff").title + " | " + document.getElementById("left").innerText.slice(0,600) : "no button"')); return false; }
+    await ev('(()=>{const c=document.getElementById("comment"); c.value="Live test"; c.dispatchEvent(new Event("input",{bubbles:true}))})()');
     await click('signoff');
-    const opened = await waitFor('!!document.getElementById("dialog")');
-    const canConfirm = await ev('!!document.getElementById("confirm")');
-    if (!opened || !canConfirm) { check('sign off ' + name, false, await ev('document.body.innerText.slice(0,600)')); await click('cancel').catch(() => {}); return false; }
-    await ev('document.querySelectorAll("#dialog input[type=checkbox]").forEach(c => c.click())');
-    await ev('document.getElementById("comment").value = "Live test"');
-    const enabled = await waitFor('!document.getElementById("confirm").disabled', 3000);
-    await click('confirm');
-    const ok = enabled && await waitFor(`document.getElementById('sentence') && document.getElementById('sentence').textContent.startsWith('Signed off')`, 30000);
+    const ok = await waitFor(`document.getElementById('sentence') && document.getElementById('sentence').textContent.startsWith('Signed off')`, 30000);
     check('sign off ' + name, ok, await text());
     await idle();
     return ok;
@@ -181,10 +179,8 @@ function listFiles(dir) {   // path -> mtime, for "nothing was written here"
   for (const t of ['deaths', 'lapses', 'in_force_eop']) await signoffTile(t);
   await go('#/module/decrements');
   await has('module: 3 of 3 tiles', '3 of 3 tiles signed off');
+  check('module Sign off module is enabled with a prefilled reviewer', await ev('!document.getElementById("signoff").disabled && document.getElementById("signoff").textContent === "Sign off module" && document.getElementById("reviewer").value.trim().length > 0'), await ev('document.getElementById("signoff").title'));
   await click('signoff');
-  await waitFor('!!document.getElementById("dialog")');
-  check('module sign-off dialog can be confirmed', await ev('!!document.getElementById("confirm")'), await ev('document.getElementById("dialog").innerText'));
-  await click('confirm');
   check('module sentence after sign-off', await waitFor(`document.getElementById('sentence').textContent.startsWith('Signed off by')`, 30000), await text());
   await idle();
   await shot('live-module-signed');
@@ -225,7 +221,7 @@ function listFiles(dir) {   // path -> mtime, for "nothing was written here"
   // ------------------------------------------------------------ Part 2: real model points
   await go('#/model');
   await has('Runs section: none yet', 'No runs yet.');
-  check('no Real model points list before any run', !(await text()).includes('Real model points'));
+  check('no Real model points list before any run', !(await text()).toLowerCase().includes('real model points'));
   // a CSV with a bad value: the run is refused and the rows are listed in the dialog
   const bad = path.join(tmp, 'bad.csv');
   fs.writeFileSync(bad, 'policy_id,premium_pm,premium_months,age_at_entry,sum_assured\nA1,100,120,40,50000\nA2,abc,120,41,50000\nA3,100,120,42,60000\n');
@@ -314,7 +310,8 @@ function listFiles(dir) {   // path -> mtime, for "nothing was written here"
   ins = await waitSheets(i => i.sheets.includes('Policy ' + polId));
   check('tile: sheet is named Policy <ID>', !ins.fail && ins.active === 'Policy ' + polId, JSON.stringify(ins));
   check('tile: real line visible', await ev(`document.getElementById('realbar').hidden===false`));
-  await has('tile: sign-off and rebuild buttons still act on the cases', 'Sign off…');
+  await has('tile: rebuild button still acts on the cases', 'Rebuild');
+  check('tile: Sign off button still there', await ev('document.getElementById("signoff").textContent === "Sign off"'));
   check('selection kept across views', (await S()).real && (await S()).real.policy === polId);
   await shot('live-real-tile');
   // an edit to a real-data workbook is saved under real-data/ and nothing is written under review/

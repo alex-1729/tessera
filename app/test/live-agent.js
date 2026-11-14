@@ -81,7 +81,7 @@ function hashTree(...dirs) {
   const shot = async name => { await sleep(300); const img = await win.webContents.capturePage(); const f = path.join(OUT, name + '.png'); fs.writeFileSync(f, img.toPNG()); summary.shots.push(f); };
   const go = async hash => {
     await ev(`location.hash=${JSON.stringify(hash)}`);
-    await waitFor(`(()=>{const h=location.hash;const t=document.getElementById(h.startsWith('#/tile/')?'tilename':'title');return t&&(h.startsWith('#/tile/')?h.endsWith('/'+t.textContent):true)&&document.getElementById('crumbs').textContent.length>0})()`);
+    await waitFor(`(()=>{const h=location.hash;const t=document.getElementById(h.startsWith('#/tile/')?'tilename':'title');return t&&(h.startsWith('#/tile/')?h.endsWith('/'+t.textContent):true)&&document.querySelector('#mods a.cur')!==null})()`);
     await idle(); await sleep(300);
   };
   const click = id => ev(`document.getElementById(${JSON.stringify(id)}).click()`);
@@ -198,16 +198,13 @@ function hashTree(...dirs) {
   const t4 = ['units_allocated', 'units_after_alloc'].find(t => st4[t] && st4[t].state !== 'signed_off' && st4[t].can_sign_off !== false) || 'units_allocated';
   await go('#/tile/' + t4);
   if (st4[t4] && ['stale', 'unbuilt'].includes(st4[t4].state)) { await click('rebuild'); await sleep(500); await idle(); }
-  await click('signoff');
-  const opened = await waitFor('!!document.getElementById("dialog")', 10000);
-  if (opened && await ev('!!document.getElementById("confirm")')) {
-    await ev('document.querySelectorAll("#dialog input[type=checkbox]").forEach(c => c.click())');
-    await ev('document.getElementById("comment").value = "Agent test"');
-    await waitFor('!document.getElementById("confirm").disabled', 3000);
-    await click('confirm');
+  await ev('document.querySelectorAll("#panel input.assume").forEach(c => c.click())');
+  if (await waitFor('!!document.getElementById("signoff") && !document.getElementById("signoff").disabled', 5000)) {
+    await ev('(()=>{const c=document.getElementById("comment"); c.value="Agent test"; c.dispatchEvent(new Event("input",{bubbles:true}))})()');
+    await click('signoff');
     await waitFor(`document.getElementById('sentence').textContent.startsWith('Signed off')`, 60000);
     await idle();
-  } else { check('turn 4: tile could be signed off', false, await ev('document.body.innerText.slice(0, 500)')); await click('cancel').catch(() => {}); }
+  } else check('turn 4: tile could be signed off', false, await ev('document.getElementById("signoff").title + " | " + document.getElementById("left").innerText.slice(0, 500)'));
   check('turn 4: the tile is signed off', (await S()).tiles[t4].state === 'signed_off');
   const hash4 = hashTree('src', 'tests', 'cases');
   confirmAnswer = 1; confirms.length = 0;
