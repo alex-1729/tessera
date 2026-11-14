@@ -57,6 +57,8 @@ contextBridge.exposeInMainWorld('api', {
     setSettings: (id, values) => call('launch:setSettings', String(id), values),
     addFolder: () => call('launch:addFolder'),
     newModel: values => call('launch:new', values),
+    github: () => call('launch:github'),
+    checkRepoName: text => call('launch:checkRepoName', String(text)),
     commitInfo: id => call('launch:commitInfo', String(id)),
     commit: (id, message, push) => call('launch:commit', String(id), String(message || ''), !!push),
     onProgress: callback => {

@@ -1,6 +1,7 @@
 // The launch page: one tile per model, plus the dialogs that belong to it (New model, Settings, Commit and push, Remove).
 import { h, fmtDate } from './util.js';
 import { formDialog } from './dialog.js';
+import { repoChoice } from './newrepo.js';
 
 const api = () => window.api;
 
@@ -85,21 +86,32 @@ export async function removeDialog(m, then) {
 }
 
 export async function newModelDialog() {
-  let stop = () => {};
+  let stop = () => {}, repo = null;
   await formDialog({
     title: 'New model', confirm: 'Create',
     intro: ['A model is a local folder with a GitHub repository behind it. Give both. Nothing is pushed.'],
     fields: [
       { id: 'name', label: 'Model name', value: '' },
       { id: 'folder', label: 'Local folder', value: '', button: { id: 'pickfolder', text: 'Choose…', onclick: pickInto } },
-      { id: 'github', label: 'GitHub repository link', value: '', placeholder: 'https://github.com/owner/repo' }],
+      { id: 'github', label: 'GitHub repository link', value: '', optional: true, placeholder: 'https://github.com/owner/repo' }],
+    // the repository: an existing one by its link, or a new one made on GitHub when the button is pressed
+    onReady: check => { repo = repoChoice({ api: api(), nameInput: document.getElementById('f-name'), linkInput: document.getElementById('f-github'), confirmButton: document.getElementById('confirm'), changed: check }); },
+    canSubmit: () => !repo || repo.ready(),
     submit: async (v, progress) => {
-      const chk = await api().launch.checkLink(v.github);
-      if (!chk.ok) return [chk.error];
+      const create = repo.mode() === 'create';
+      if (!create) {
+        const chk = await api().launch.checkLink(v.github);
+        if (!chk.ok) return [chk.error];
+      }
       if (!/^\//.test(v.folder) && !/^[A-Za-z]:[\\/]/.test(v.folder)) return ['Choose the local folder with Choose…, or type its full path.'];
       stop = api().launch.onProgress(progress);
-      try { await api().launch.newModel({ name: v.name, folder: v.folder, github: v.github }); }
-      catch (e) { stop(); return [String(e && e.message || e)]; }
+      try { await api().launch.newModel(create ? { name: v.name, folder: v.folder, create: repo.values() } : { name: v.name, folder: v.folder, github: v.github }); }
+      catch (e) {
+        stop();
+        const d = api().lastErrorDetail();
+        if (create && d && d.link) repo.useExisting(d.link);
+        return [String(e && e.message || e)];
+      }
       stop();
       return null;
     } });

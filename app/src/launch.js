@@ -7,6 +7,8 @@ const path = require('path');
 const git = require('./git');
 const { isModelDir, readName } = require('./models');
 const { createNewModel } = require('./newmodel');
+const github = require('./github');
+const { createModelInNewRepo } = require('./newrepo');
 
 function registerLaunch({ ipcMain, dialog, shell, wrap, models, cfg, getWin, switchModel, mkRunner, pickFolder }) {
   const need = id => {
@@ -91,13 +93,22 @@ function registerLaunch({ ipcMain, dialog, shell, wrap, models, cfg, getWin, swi
     return view(models.add(dir, { github: remote || '', name: readName(dir) || undefined }));
   }));
 
-  // New model
+  // The GitHub command-line tool, for the New model dialog: is it there and signed in, who is the user, is a name valid.
+  // Read-only. A repository is created only by `launch:new` below, which only the dialog's button calls.
+  ipcMain.handle('launch:github', wrap(() => github.account()));
+  ipcMain.handle('launch:checkRepoName', wrap(text => { const error = github.nameProblem(str(String(text === undefined ? '' : text), 300, 'name')); return { ok: !error, error }; }));
+
+  // New model: `create` (owner, name, visibility, description) makes a new GitHub repository first; else `github` is the
+  // link of an existing one.
   ipcMain.handle('launch:new', wrap(async v => {
     v = v && typeof v === 'object' ? v : {};
     const win = getWin();
     const progress = line => { if (win && !win.isDestroyed()) win.webContents.send('launch:progress', String(line)); };
-    const r = await createNewModel({ name: str(v.name || '', 200, 'name'), folder: str(v.folder || '', 500, 'folder'), github: str(v.github || '', 300, 'link') },
-      { runnerFor: dir => mkRunner(dir), progress });
+    const base = { name: str(v.name || '', 200, 'name'), folder: str(v.folder || '', 500, 'folder') };
+    const how = { runnerFor: dir => mkRunner(dir), progress };
+    const r = v.create !== undefined
+      ? await createModelInNewRepo({ ...base, repo: github.checkSpec(v.create) }, how)
+      : await createNewModel({ ...base, github: str(v.github || '', 300, 'link') }, how);
     const m = models.add(r.dir, { github: r.github });
     models.touch(m.id);
     progress('Opening the model…');
