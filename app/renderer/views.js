@@ -68,8 +68,9 @@ function signature(ctx, o) {
   }
   const sign = h('button', { type: 'button', id: 'signoff', class: 'pri', disabled: true, onclick: async () => {
     const values = { reviewer: reviewerBox.value.trim(), comment: commentBox.value.trim(), reason: reasonBox ? reasonBox.value.trim() : undefined };
+    const mark = ctx.queueMark ? ctx.queueMark() : null;
     await o.run(values);
-    if (!ctx.S.actionError) FORM.delete(o.key);
+    if (!ctx.S.actionError) { FORM.delete(o.key); if (mark) ctx.queueAdvance(mark); }   // signed off: on to the next item in the review queue
   } }, o.signLabel || 'Sign off');
   function refresh() {
     let why = '';

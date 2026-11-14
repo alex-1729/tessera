@@ -178,6 +178,7 @@ Run from the repo root as `uv run --project tilekit tilekit <command> --model mo
 | `build [--tile T \| --module M \| --whole-model] [--case ID] [--force]` | (Re)build stored workbooks. With no target, builds every tile (except `not_built` ones), module and the default-case model workbook that is unbuilt, stale or changed outside a build. `--case` picks the model workbook's case |
 | `build --run RUN --policy ID [--tile T \| --module M \| --whole-model]` | Workbooks for one real policy under `real-data/` (model workbook when no target) |
 | `status` | Review state of every tile, module and the model |
+| `queue` | Everything that still needs review, upstream first |
 | `signoff (--tile T \| --module M \| --whole-model) --reviewer NAME [--comment TEXT] [--values-only REASON]` | Record a sign-off. `--values-only` is the acknowledgement a values-only tile needs; refused for any other target |
 | `reconfirm --reviewer NAME [--module M] [--comment TEXT]` | Bulk re-confirm tiles with values-only drift whose checks pass |
 | `export --out FILE [--case ID]` | Copy a model workbook out |
@@ -300,6 +301,28 @@ A tile can be signed off only when its workbook is built, current and unedited, 
 - Module checks: "Sheet agrees with Python", "Tile formulas match the tile workbooks" (values-only and not-built tiles excluded), "Every tile signed off", "No rule violations". Model checks: "Workbook agrees with Python", "Every module signed off", "No rule violations", then the cached model-test checks (one per `test_invariants*` test and "Model tests pass (P of T)"; all marked `"stale": true` and failing when the cache's model stamp is out of date).
 - Blockers, as written: "The tile's workbook has not been built; build it first." / "… is out of date; rebuild it first." / "The stored workbook was changed outside a build. Rebuild it." / "The difference check fails in case X (largest difference D)." / "Rule violation (rule) at line N: message" / "No case takes the branch 'L'; add a case that does." / "A comparison is within rounding of a tie in case X, month N: Excel and Python may take different branches." / "This tile cannot be written as an Excel formula. Sign-off needs a values-only acknowledgement." / "This tile has not been built yet." Modules and the model add failed checks, near-ties of their tiles (prefixed with the tile name), pending sign-offs, rule-violation counts, failed model-test checks and, for the model, "The model workbook shows case 'X', not the default case 'Y'; rebuild it first."
 
+### `queue` output
+
+```json
+{"items": [{"level": "tile", "id": "units_amc", "module": "unit_projection", "module_title": "Unit projection",
+            "label": "AMC units", "kind": "values_drift",
+            "reason": "Only upstream values changed since sign-off: rebuild and re-confirm.",
+            "reasons": [{"kind": "values_drift", "text": "…"}], "reconfirm": "after_rebuild"}],
+ "counts": {"total": 1, "tiles": 1, "modules": 0, "model": 0,
+            "kinds": {"not_signed_off": 0, "formula_drift": 0, "values_drift": 1, "new_case": 0, "unexercised_branch": 0},
+            "reconfirm": 1}}
+```
+
+The review queue is read from `status` and decides nothing again; it writes nothing. One item per tile, module (`level: "module"`, `id` the module id) or the model (`level: "model"`, `id` null) that is not in order. Order: modules left to right (`module_dependency_order`); inside a module its tiles in dependency order, then the module itself; the model last. `kind` is the main reason and `reasons` lists them all, in plain words:
+
+- `not_signed_off`: no sign-off has ever been recorded (whatever the state of its workbook).
+- `formula_drift`: stale with `formula` drift; needs a full review.
+- `values_drift`: stale with `values` drift.
+- `new_case`: signed off, with cases added since.
+- `unexercised_branch` (tiles only, always after one of the others): no case takes a branch, which blocks sign-off.
+
+A `not_built` tile is not an item. `reconfirm` (tiles with values drift only) is `"ready"` when `reconfirm` would re-sign the tile now, `"after_rebuild"` when the only thing in the way is an out-of-date workbook, otherwise null; it uses the same test as `reconfirm` itself. `counts.kinds` counts tiles having each reason.
+
 ### Real-data runs
 
 The real-data folder is `<model>/real-data/` unless the environment variable `TILEKIT_REAL_DATA_DIR` names another one (an absolute path, created on first use; a relative one is an error). `runs.real_data_dir(model)` is the one place that decides; `run`, `runs`, `policies`, `build --run`, `promote`, the `status` runs summary and `sample-portfolio` (for a relative `--out real-data/...`) all go through it. The app sets the variable from the model's settings (below). Workbook paths in a command's output are relative to the model when they are inside it and absolute otherwise.
@@ -416,6 +439,8 @@ The app keeps its own list of models in its settings file (Electron's userData `
 Electron, plain JavaScript. The main process owns the model repo path, runs `tilekit` commands, serves GridCraft's web build and the stored workbooks over a local HTTP server, and exposes a small IPC API to the window. The window has the launch page (`#/launch`) and three model views (model, module, tile). Each view is a plain details/map panel on the left half and the workbook in GridCraft on the right half.
 
 Tracing (`app/renderer/trace.js`): in the Spreadsheet view one plain line above the spreadsheet says what the selected row is, read from the sheet's own maroon names (`app/renderer/sheetmap.js`) and `graph`. A row from elsewhere in the model (another tile's output or a carried-forward state: the dark green rows) names its source tile, module and review state, with a **Go to source** button (Ctrl+[ or Cmd+[, Excel's "go to precedents"). It opens the source tile on the same case or real policy and selects the same month in its own formula row (the month before for a carried-forward state); in the model workbook, and for a source on the same module sheet, it selects the cell inside the open workbook instead. A parameter or input row says what it is. The row a tile is calculated in lists the tiles that use it, each a link to the row where it comes in. Back and Forward return to the cell that was selected. The out-of-date, typed-formula and not-saved lines take the bar first; the real-data line stays and the trace line shows under it. Nothing links one workbook file to another. The View menu's bar items are Cmd/Ctrl+Shift+[ and ].
+
+Review queue (`app/renderer/queue.js`): the top bar of every model view shows `Review queue N`, `Previous`, `Next` and the place of the view on show (`3 of 12`). The list comes from `tilekit queue` on every refresh (`S.queue`); the window decides nothing about review state. The button drops the list down: items grouped under their module, each with the tile name, its label and the reason in words; choosing one opens that view. Next and Previous (Cmd/Ctrl+J and Cmd/Ctrl+K; Cmd/Ctrl+Shift+J shows the list; the Review menu has the same items) move through the queue, and from a view that is not in the queue they return to the place last visited. After a sign-off recorded by the signature block, or by a chat sign-off card for the item on show, the window opens the item that followed it. The queue never records a sign-off. Its one action, `Rebuild and re-confirm (N)`, is for tiles whose `reconfirm` is not null: a dialog lists them and the reviewer's name; on the reviewer's click it builds the out-of-date ones, reads `queue` again, stops if a tile that was not listed has become eligible, and then runs `tilekit reconfirm`, which itself re-signs only tiles with values drift, an unchanged formula and passing check rows. An empty queue says "Nothing needs review." `app/test/queue.js` drives all of this against a copy of the example model.
 
 Look: plain and dense, like a classic desktop tool. System font, thin rules, square corners, statuses written as words. No coloured pills, rounded cards, icons, status dots, gradients, shadows or chat bubbles.
 

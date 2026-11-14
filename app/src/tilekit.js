@@ -7,7 +7,7 @@ const path = require('path');
 
 // Allowed flags per command: name -> true when the flag takes a value, false when it is a switch.
 const SPEC = {
-  graph: {}, cases: {}, check: {}, status: {}, test: { '--file': true }, runs: {},
+  graph: {}, cases: {}, check: {}, status: {}, queue: {}, test: { '--file': true }, runs: {},
   trace: { '--case': true, '--run': true, '--policy': true },
   build: { '--tile': true, '--module': true, '--whole-model': false, '--case': true, '--force': false, '--run': true, '--policy': true },
   signoff: { '--tile': true, '--module': true, '--whole-model': false, '--reviewer': true, '--comment': true, '--values-only': true },
@@ -154,6 +154,44 @@ function createFixtureRunner(dir) {
   }
   recompute();
 
+  // A stand-in for `tilekit queue`, for fixture mode only: the real list is made by tilekit (review.queue_json).
+  function queue() {
+    const order = [], left = [...graph.modules];
+    while (left.length) {
+      let i = left.findIndex(m => (m.fed_by || []).every(f => f === m.id || order.some(o => o.id === f) || !left.some(l => l.id === f)));
+      if (i < 0) i = 0;
+      order.push(...left.splice(i, 1));
+    }
+    const items = [];
+    const add = (level, id, m, label, reasons, reconfirm) => {
+      if (reasons.length) items.push({ level, id, module: m ? m.id : null, module_title: m ? m.title : null, label, kind: reasons[0].kind,
+        reason: reasons.map(r => r.text).join(' '), reasons, reconfirm: reconfirm || null });
+    };
+    const group = (s, what) => s.state === 'signed_off' ? [] : !s.signed_off ? [{ kind: 'not_signed_off', text: `The ${what} is not signed off yet.` }]
+      : [{ kind: s.drift === 'formula' ? 'formula_drift' : 'values_drift', text: `The ${what} changed since its sign-off: sign it off again.` }];
+    for (const m of order) {
+      const names = [...m.tiles].sort((a, b) => graph.order.indexOf(a) - graph.order.indexOf(b));
+      for (const t of names) {
+        const s = status.tiles[t], reasons = [];
+        if (s.state === 'not_built') continue;
+        const values = s.state === 'stale' && s.drift === 'values' && !!s.signed_off;
+        if (!s.signed_off) reasons.push({ kind: 'not_signed_off', text: 'Not signed off yet.' });
+        else if (values) reasons.push({ kind: 'values_drift', text: 'Only upstream values changed since sign-off: rebuild and re-confirm.' });
+        else if (s.state === 'stale') reasons.push({ kind: 'formula_drift', text: 'Changed since sign-off: needs a full review again.' });
+        else if ((s.new_cases || []).length) reasons.push({ kind: 'new_case', text: `New case to review: ${s.new_cases.join(', ')}.` });
+        for (const b of s.uncovered_branches || []) reasons.push({ kind: 'unexercised_branch', text: `No case takes the branch '${b}', which blocks sign-off.` });
+        add('tile', t, m, (graph.quantities[t] || {}).label || t, reasons, values && s.checks_pass ? 'ready' : null);
+      }
+      if (status.modules[m.id]) add('module', m.id, m, m.title, group(status.modules[m.id], 'module'));
+    }
+    add('model', null, null, graph.model.name, group(status.model, 'model'));
+    const tiles = items.filter(i => i.level === 'tile');
+    const kinds = {};
+    for (const k of ['not_signed_off', 'formula_drift', 'values_drift', 'new_case', 'unexercised_branch']) kinds[k] = tiles.filter(i => i.reasons.some(r => r.kind === k)).length;
+    return { items, counts: { total: items.length, tiles: tiles.length, modules: items.filter(i => i.level === 'module').length,
+      model: items.filter(i => i.level === 'model').length, kinds, reconfirm: tiles.filter(i => i.reconfirm).length } };
+  }
+
   function targets(args) {
     const val = k => { const i = args.indexOf(k); return i >= 0 ? args[i + 1] : undefined; };
     return { tile: val('--tile'), module: val('--module'), model: args.includes('--whole-model'), reviewer: val('--reviewer'),
@@ -169,6 +207,7 @@ function createFixtureRunner(dir) {
       case 'runs': return { runs: [] };
       case 'check': return read('check.json');
       case 'status': return JSON.parse(JSON.stringify(status));
+      case 'queue': return queue();
       case 'trace': {
         const f = `trace-${a.case}.json`;
         if (!a.case || !/^[A-Za-z0-9_-]+$/.test(a.case) || !fs.existsSync(path.join(dir, f))) throw new Error(`No fixture trace for case ${a.case}.`);

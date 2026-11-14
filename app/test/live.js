@@ -88,6 +88,11 @@ function listFiles(dir) {   // path -> mtime, for "nothing was written here"
     if (!ready) { check('sign off ' + name, false, await ev('document.getElementById("signoff") ? document.getElementById("signoff").title + " | " + window.__both().slice(0,600) : "no button"')); return false; }
     await ev('(()=>{const c=document.getElementById("comment"); c.value="Live test"; c.dispatchEvent(new Event("input",{bubbles:true}))})()');
     await click('signoff');
+    // a sign-off moves on to the next item in the review queue; come back to look at the signed tile
+    await waitFor(`window.__app.S.status.tiles[${JSON.stringify(name)}].state === 'signed_off'`, 30000);
+    await idle();
+    check('sign off ' + name + ': the next item in the review queue opens', await ev(`location.hash !== ${JSON.stringify('#/tile/' + name)}`), await ev('location.hash'));
+    await go('#/tile/' + name);
     const ok = await waitFor(`document.getElementById('sentence') && document.getElementById('sentence').textContent.startsWith('Signed off')`, 30000);
     check('sign off ' + name, ok, await text());
     await idle();
@@ -294,7 +299,10 @@ function listFiles(dir) {   // path -> mtime, for "nothing was written here"
   await go('#/module/decrements');
   await has('module: 3 of 3 tiles', '3 of 3 tiles signed off');
   check('module Sign off module is enabled with a prefilled reviewer', await ev('!document.getElementById("signoff").disabled && document.getElementById("signoff").textContent === "Sign off module" && document.getElementById("reviewer").value.trim().length > 0'), await ev('document.getElementById("signoff").title'));
+  const modHash = await ev('location.hash');
   await click('signoff');
+  await waitFor(`Object.values(window.__app.S.status.modules).some(m => m.state === 'signed_off')`, 30000); await idle();
+  await go(modHash);   // the sign-off moved on to the next item in the review queue
   check('module sentence after sign-off', await waitFor(`document.getElementById('sentence').textContent.startsWith('Signed off by')`, 30000), await text());
   await idle();
   await shot('live-module-signed');

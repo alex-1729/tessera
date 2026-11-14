@@ -7,10 +7,11 @@ import * as RD from './real.js';
 import { createSpecLine } from './specline.js';
 import { createTrace } from './trace.js';
 import { paintSource } from './codeview.js';
+import { createQueue } from './queue.js';
 import { PREFILL, paintLaunch, newModelDialog, commitDialog, settingsDialog } from './launch.js';
 
 const api = window.api;
-const S = { graph: null, status: null, cases: [], runs: [], drafts: [], real: null, notice: null, actionError: null, loadError: null, busy: false };
+const S = { graph: null, status: null, queue: null, cases: [], runs: [], drafts: [], real: null, notice: null, actionError: null, loadError: null, busy: false };
 let working = 0;                // tilekit commands in flight that are not part of act()
 const realCache = new Map();    // run|policy|target -> workbook path of the real-data build
 const caseSel = {};          // route key -> selected case id
@@ -20,6 +21,7 @@ let openModel = null;               // the open model: {id, dir}, or null (the l
 let grid;
 let spec = null;
 let trace = null;
+let queue = null;
 let settings = { showRibbon: false, showFormulaBar: true, showLeftBar: true, sections: {}, centre: {} };
 const codeMem = new Map();           // tile -> the source last seen
 const codeWas = new Map();           // tile -> the source it had before it last changed ("Was" in the Code segment)
@@ -45,10 +47,10 @@ async function reviewer() {
 
 async function refresh() {
   try {
-    const [graph, status, cases] = await Promise.all([api.tk('graph'), api.tk('status'), api.tk('cases')]);
+    const [graph, status, cases, q] = await Promise.all([api.tk('graph'), api.tk('status'), api.tk('cases'), api.tk('queue').catch(() => null)]);
     const runs = status.runs && status.runs.count > 0 ? await api.tk('runs') : { runs: [] };
     S.drafts = api.agent ? ((await api.agent.drafts().catch(() => [])) || []).filter(d => d.status === 'proposed') : [];
-    S.graph = graph; S.status = status; S.cases = Array.isArray(cases) ? cases : (cases.cases || []);
+    S.graph = graph; S.status = status; S.queue = q; S.cases = Array.isArray(cases) ? cases : (cases.cases || []);
     S.runs = runs.runs || [];
     S.loadError = null;
     if (S.real && !S.runs.some(r => r.name === S.real.run)) S.real = null;
@@ -227,6 +229,7 @@ function keepInView(nav) {
 
 async function renderLaunch() {
   document.body.classList.add('launching');
+  queue.close();
   $('launch').hidden = false;
   routeKey = 'launch';
   $('error').hidden = true; $('notice').hidden = true;
@@ -245,6 +248,7 @@ async function doRender() {
   $('error').hidden = !errLine; $('error').textContent = errLine || '';
   $('notice').hidden = !S.notice; $('notice').textContent = S.notice || '';
   paintWorking();
+  queue.paint();
   if (!S.graph || !S.status) {
     paintNav(route); panel.replaceChildren(h('p', {}, 'The model could not be loaded.'),
       h('button', { type: 'button', id: 'retry', onclick: () => act(async () => {}) }, 'Try again'));
@@ -264,6 +268,7 @@ async function doRender() {
       await act(async () => {});
       S.notice = `Case ${v.name || v.id} created. Tiles that were signed off show it as a new case to review.`; render();
     },
+    queueMark: () => queue.mark(), queueAdvance: m => { queue.advance(m); render(); },
     panelWidth: () => LEFT_W - 32,
     sectionOpen, setSectionOpen,
     selectedCase: () => selectedCase(route),
@@ -395,6 +400,9 @@ function caseCandidates(id) {
 // ---------------------------------------------------------------- boot
 
 async function boot() {
+  // The review queue (queue.js): the count in the top bar, the list, Next and Previous. It never signs off.
+  queue = createQueue({ S, api, route: parseRoute, busy: () => S.busy || working > 0 || agent.isBusy(), reviewer, refresh: () => act(async () => {}) });
+  window.addEventListener('keydown', queue.onKey);
   $('back').addEventListener('click', () => history.back());
   $('forward').addEventListener('click', () => history.forward());
   $('hideleft').addEventListener('click', () => setBar('left', false));
@@ -416,6 +424,7 @@ async function boot() {
     else if (a === 'commit') { const id = needId(); if (id) void commitDialog(id, async () => {}); }
     else if (a === 'modelSettings') { const id = needId(); if (id) void settingsDialog(id, async () => {}); }
     else if (a.startsWith('centre:') && openModel) setCentre(a.slice(7));
+    else if (a.startsWith('queue:') && openModel && parseRoute().view !== 'launch') { if (a === 'queue:show') queue.toggle(); else queue.step(a === 'queue:next' ? 1 : -1); }
   });
   window.addEventListener('hashchange', () => render());
   try { openModel = await api.launch.current(); } catch { openModel = null; }
@@ -435,14 +444,16 @@ async function boot() {
     caseSheet: () => S.real ? 'Policy ' + S.real.policy : L.caseName(S, selectedCase(parseRoute())),
     setCase: (key, sheet) => { const c = S.cases.find(x => (x.name || x.id) === sheet); if (c) caseSel[key] = c.id; },
   });
+  grid.ready.then(() => { try { grid.frame.contentWindow.addEventListener('keydown', queue.onKey); } catch { /* no frame */ } });
   agent.configure({
+    queueMark: () => queue.mark(), queueAdvance: m => { queue.advance(m); render(); },
     afterTurn: async () => { await refresh(); await render(); },
     draftsChanged: async () => { await refresh(); await render(); },
     onBusy: () => { render(); },
     titleOf: sc => sc.level === 'model' ? 'Model' : sc.level === 'module' ? ((L.moduleOf(S, sc.id) || {}).title || sc.id) : sc.id,
     reviewer: () => reviewer(),
   });
-  window.__app = { S, RD, current: () => openModel, render, bars, setBar, setCentre, centre: () => centreOf(levelNow()), settings: () => settings, refresh, grid, route: parseRoute, ready: false, idle: () => chain };
+  window.__app = { S, RD, queue, current: () => openModel, render, bars, setBar, setCentre, centre: () => centreOf(levelNow()), settings: () => settings, refresh, grid, route: parseRoute, ready: false, idle: () => chain };
   try { settings = { ...settings, ...(await api.settings()) }; } catch { /* defaults */ }
   grid.applySettings(settings);
   applyBarSettings(settings);

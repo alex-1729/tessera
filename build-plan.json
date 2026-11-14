@@ -235,6 +235,36 @@
           "status": "done"
         }
       ]
+    },
+    {
+      "name": "Phase 7: Review queue",
+      "steps": [
+        {
+          "id": 40,
+          "text": "Add the queue command: every outstanding review item, upstream first, with tests",
+          "status": "done"
+        },
+        {
+          "id": 41,
+          "text": "Show the queue and its count in the top bar of every view",
+          "status": "done"
+        },
+        {
+          "id": 42,
+          "text": "Add next and previous (buttons and shortcuts) and move on after a sign-off",
+          "status": "done"
+        },
+        {
+          "id": 43,
+          "text": "Offer rebuild and re-confirm for values-only items from the queue",
+          "status": "done"
+        },
+        {
+          "id": 44,
+          "text": "Run it against the example model and run every test suite",
+          "status": "done"
+        }
+      ]
     }
   ]
 }
