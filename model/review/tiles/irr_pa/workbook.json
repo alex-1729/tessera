@@ -2,14 +2,14 @@
   "kind": "tile",
   "name": "irr_pa",
   "module": "profit",
-  "built_at": "2026-11-14T10:32:01+00:00",
+  "built_at": "2026-11-14T21:09:14+00:00",
   "stamp": {
     "code": "5153e395451bc8e5d370c7407f09d73acfc510905b2ae6e58a911f93db97b1dc",
     "spec": "9cf0fc205d256f9562e2782ba1a2a53c916388989be2d9febe18bd72fc6fdd1f",
     "upstream": "43f8a7475e81811f95ec615a801716d92733e8221a6328b1d10cdaa14abe3467",
     "cases": "a42493b46f4e2e1d7ec9309bfd93f977df0cf13535b4eaf45c63ac35f8dc13dc",
     "params": "05fab2750280bae719ccdeae45603fce740d04232cbcda23e56fa79d7c849932",
-    "translator": "7b0b6232790fd2c96c1ceb6d79634cd6d2ecd2a2e6c2f527ca64ec6b8907cd9a"
+    "translator": "85ca37244a9a88223a28309b6eb53ed0af322f2884af42ac6efc6eabe05d2f36"
   },
   "workbook": "workbook.xlsx",
   "formula": "=(1+{irr_pm})^months_per_year-1",
@@ -60,7 +60,7 @@
   "near_ties": {},
   "content_digest": "8c92ebf1f033f03d8d52359637ea4728a6dc9f0ca422fd39cbfd58ceeb5a5fea",
   "content_stat": {
-    "mtime_ns": 1794652321737506744,
-    "size": 8845
+    "mtime_ns": 1794690554367848459,
+    "size": 8856
   }
 }

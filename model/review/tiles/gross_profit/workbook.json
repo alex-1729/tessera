@@ -2,14 +2,14 @@
   "kind": "tile",
   "name": "gross_profit",
   "module": "cashflows",
-  "built_at": "2026-11-14T10:32:01+00:00",
+  "built_at": "2026-11-14T21:09:13+00:00",
   "stamp": {
     "code": "5fc6cfbfad19f34728179e0152bf57f5b4baed557d538ca02e5bd6c9399c4fed",
     "spec": "bd5ce00ba360ebac0913e7008275bce387ca3b0749bbc15c8543ac9d4d72fbbb",
     "upstream": "9b300d0c89b1939ccf58f6c5ab26ff5959c82739a39d4d6526d970e788a4ef11",
     "cases": "a42493b46f4e2e1d7ec9309bfd93f977df0cf13535b4eaf45c63ac35f8dc13dc",
     "params": "05fab2750280bae719ccdeae45603fce740d04232cbcda23e56fa79d7c849932",
-    "translator": "7b0b6232790fd2c96c1ceb6d79634cd6d2ecd2a2e6c2f527ca64ec6b8907cd9a"
+    "translator": "85ca37244a9a88223a28309b6eb53ed0af322f2884af42ac6efc6eabe05d2f36"
   },
   "workbook": "workbook.xlsx",
   "formula": "={allocation_margin}+{amc_income}+{maintenance_expense}+{acquisition_expense}+{death_strain}",
@@ -60,7 +60,7 @@
   "near_ties": {},
   "content_digest": "efc531ff7c3bf3d9b2ca93af5f6797d75d3d8d6d1506266db98de227f08b1cb7",
   "content_stat": {
-    "mtime_ns": 1794652321062182084,
-    "size": 79312
+    "mtime_ns": 1794690553522489371,
+    "size": 79237
   }
 }

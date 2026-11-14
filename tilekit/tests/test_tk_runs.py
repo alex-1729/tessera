@@ -238,6 +238,15 @@ def test_build_policy(model, capsys, tmp_path, gridcraft_cli):
     sheet = list(odd_side["cases"].values())[0]["sheet"]
     assert sheet == "Policy P 1  x" or len(sheet) <= 31 and not any(c in sheet for c in "[]:*?/\\")
 
+    # a real policy's workbooks use the same colours: computed upstream values bold dark green
+    from tilekit.xlsxread import Xlsx
+    book = Xlsx(base / "C3" / "tiles" / "balance_eop" / "workbook.xlsx")
+    cells = book.cells("Policy C3")
+    upstream = cells[f"C{book.row_named('Policy C3', 'balance_bop')}"]
+    assert upstream["formula"] is None
+    assert "FF006100" in book.font(upstream) and "<b/>" in book.font(upstream)
+    assert "FF0000FF" in book.font(cells["C5"]) and "<b/>" in book.font(cells["C5"])
+
     assert run(capsys, "status", "--model", model)[1] == before
     after = sorted(p.relative_to(model).as_posix() for p in model.rglob("*") if "real-data" not in p.parts)
     assert after == review_before and not (model / "review").exists()

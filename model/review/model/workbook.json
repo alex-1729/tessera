@@ -1,14 +1,14 @@
 {
   "kind": "model",
   "name": "Unit-linked pricing",
-  "built_at": "2026-11-14T10:32:04+00:00",
+  "built_at": "2026-11-14T21:09:17+00:00",
   "stamp": {
     "code": "173ace42346b1352ea53afd6e5a2158b7c78c2aebd91656ea82e2120b6d7713c",
     "spec": "5e3972b6ac571c489e330f86116c8dd45a3daf883d7d32394b926ac2b0484dd3",
     "upstream": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "cases": "a42493b46f4e2e1d7ec9309bfd93f977df0cf13535b4eaf45c63ac35f8dc13dc",
     "params": "812034f1892d7390615060102f5c916d6d69193909bff8f65e2131436243fc32",
-    "translator": "7b0b6232790fd2c96c1ceb6d79634cd6d2ecd2a2e6c2f527ca64ec6b8907cd9a"
+    "translator": "85ca37244a9a88223a28309b6eb53ed0af322f2884af42ac6efc6eabe05d2f36"
   },
   "workbook": "workbook.xlsx",
   "tolerance": 1e-09,
@@ -487,7 +487,7 @@
   },
   "content_digest": "1be93e3b7c54cf4e73c1b4a2be8f2491393b6f56e61dc1ac852afc713f2711be",
   "content_stat": {
-    "mtime_ns": 1794652324852103393,
-    "size": 175066
+    "mtime_ns": 1794690557873169532,
+    "size": 175141
   }
 }

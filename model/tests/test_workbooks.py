@@ -159,10 +159,11 @@ def test_layout_formats_and_names_of_the_tile_workbook(built, named_case):
     names = {(n["name"], n["scope"]): n["refers_to"] for n in book.defined_names}
     assert names[("amc_pm", "High charge")] == "'High charge'!$C$5"
     assert ("units_amc", "High charge") in names
-    # time block: bold Month header with a thin bottom border, pasted inputs in bold blue
+    # time block: bold Month header with a thin bottom border; the upstream tile's values pasted in bold dark green
     assert cells["B8"]["value"] == "Month" and cells["DR8"]["value"] == 120
     assert cells["B9"]["value"] == "Units after allocation"
-    assert "FF0000FF" in _font_of(book, cells["C9"]) and cells["C9"]["formula"] is None
+    assert "FF006100" in _font_of(book, cells["C9"]) and "<b/>" in _font_of(book, cells["C9"])
+    assert cells["C9"]["formula"] is None
     assert cells["DS9"]["value"] == "units_after_alloc" and "FF800000" in _font_of(book, cells["DS9"])
     # the tile's own row: a live formula with parameter names and cell references, bold
     assert cells["B11"]["value"] == "AMC units"
@@ -196,6 +197,80 @@ def test_formats_and_links_of_the_model_workbook(built):
     assert f"Inputs!C{premium_row}" in formulas
     assert any(f.startswith("MIN(") and f.endswith("*amc_pm,amc_cap_units)") for f in formulas)
     assert any(re.fullmatch(r"C\d+\*allocation_rate/C\d+", f) for f in formulas)
+
+
+def _is_input(font):
+    return "FF0000FF" in font and "<b/>" in font
+
+
+def _is_from_elsewhere(font):
+    return "FF006100" in font and "<b/>" in font
+
+
+def test_colours_say_where_a_value_comes_from(built):
+    """Blue bold = a true input; dark green bold = from elsewhere in the model; black = a formula on this sheet."""
+    root, _ = built
+    case = Xlsx(root / "review/tiles/units_allocated/workbook.xlsx").sheets[0]
+
+    def fonts(book, sheet, label, columns=("C", "D", "DR")):
+        cells = book.cells(sheet)
+        row = _row_of(cells, label)
+        return [(cells[f"{c}{row}"]["formula"], _font_of(book, cells[f"{c}{row}"])) for c in columns]
+
+    # tile workbooks: input series (pasted or replicated by a template on Inputs) and parameters stay blue bold
+    book = Xlsx(root / "review/tiles/units_allocated/workbook.xlsx")
+    assert all(f is None and _is_input(font) for label in ("Premium", "Unit price")
+               for f, font in fonts(book, case, label))
+    assert _is_input(_font_of(book, book.cells(case)["C5"]))
+    book = Xlsx(root / "review/tiles/deaths/workbook.xlsx")
+    assert all(f is None and _is_input(font) for f, font in fonts(book, case, "Mortality rate per month"))
+    # ... a carried-forward state and another tile's output are pasted in bold dark green
+    assert all(f is None and _is_from_elsewhere(font) for f, font in fonts(book, case, "Opening in force"))
+    book = Xlsx(root / "review/tiles/units_after_alloc/workbook.xlsx")
+    assert all(f is None and _is_from_elsewhere(font) for label in ("Opening units", "Units allocated")
+               for f, font in fonts(book, case, label))
+    # ... and a summary tile's series from other modules too
+    book = Xlsx(root / "review/tiles/pv_net_profit/workbook.xlsx")
+    assert all(f is None and _is_from_elsewhere(font) for f, font in fonts(book, case, "Net profit"))
+    for tile in TILES:  # tile workbooks never link anywhere
+        book = Xlsx(root / f"review/tiles/{tile}/workbook.xlsx")
+        assert not any("!" in c["formula"] or "[" in c["formula"]
+                       for c in book.cells(case).values() if c["formula"]), tile
+
+    # module workbook: other modules' tiles green, external input series blue, a state's first month a blue input
+    book = Xlsx(root / "review/modules/cashflows/workbook.xlsx")
+    assert all(f is None and _is_from_elsewhere(font) for label in ("Closing units", "AMC units", "Closing in force")
+               for f, font in fonts(book, case, label))
+    assert all(f is None and _is_input(font) for f, font in fonts(book, case, "Premium"))
+    book = Xlsx(root / "review/modules/unit_projection/workbook.xlsx")
+    (first_f, first_font), (later_f, later_font), _ = fonts(book, case, "Opening units")
+    assert first_f is None and _is_input(first_font)
+    assert later_f and "FF0000FF" not in later_font and "FF006100" not in later_font
+    book = Xlsx(root / "review/modules/profit/workbook.xlsx")  # summary timing
+    assert all(f is None and _is_from_elsewhere(font) for f, font in fonts(book, case, "Net profit"))
+    for module in MODULES:
+        book = Xlsx(root / f"review/modules/{module}/workbook.xlsx")
+        assert not any("!" in c["formula"] or "[" in c["formula"]
+                       for c in book.cells(case).values() if c["formula"]), module
+
+    # model workbook: a link row to another sheet is green whether it points at Inputs or at a module;
+    # formulas within the sheet are not; Inputs and Assumptions keep their blue inputs
+    book = Xlsx(root / "review/model/workbook.xlsx")
+    assert all(f.startswith("Inputs!") and _is_from_elsewhere(font) for f, font in fonts(book, "Cashflows", "Premium"))
+    assert all(f.startswith("'Unit projection'!") and _is_from_elsewhere(font)
+               for f, font in fonts(book, "Cashflows", "Closing units"))
+    assert all(f.startswith("'Quota share'!") and _is_from_elsewhere(font)
+               for f, font in fonts(book, "Profit", "Net profit"))
+    for sheet in MODULES_SHEETS:
+        for ref, cell in book.cells(sheet).items():
+            if cell["formula"]:
+                assert ("!" in cell["formula"]) == ("FF006100" in _font_of(book, cell)), (sheet, ref)
+    assert all(f is None and _is_input(font) for f, font in fonts(book, "Inputs", "Premium"))
+    assert "FF006100" not in "".join(_font_of(book, c) for s in ("Inputs", "Assumptions")
+                                     for c in book.cells(s).values())
+
+
+MODULES_SHEETS = ["Unit projection", "Decrements", "Cashflows", "Quota share", "Profit"]
 
 
 def _row_of(cells, label):

@@ -140,6 +140,69 @@ def test_build_everything(three_modules, gridcraft_cli, capsys):
     assert json.loads((root / "review/model/workbook-one.json").read_text())["case"] == "one"
 
 
+BLUE, GREEN = "FF0000FF", "FF006100"
+
+
+def _row_fonts(book, sheet, name, columns=("C", "D")):
+    row = book.row_named(sheet, name)
+    cells = book.cells(sheet)
+    return [(cells[f"{c}{row}"]["formula"], book.font(cells[f"{c}{row}"])) for c in columns]
+
+
+def _is_input(font):
+    return BLUE in font and "<b/>" in font
+
+
+def _is_from_elsewhere(font):
+    return GREEN in font and "<b/>" in font
+
+
+def test_colours_say_where_a_value_comes_from(three_modules, gridcraft_cli, capsys):
+    root = three_modules
+    assert run(capsys, "build", "--model", str(root))[0] == 0
+
+    # tile workbook: a true input series and parameters are bold blue
+    book = Xlsx(root / "review/tiles/doubled/workbook.xlsx")
+    assert all(f is None and _is_input(font) for f, font in _row_fonts(book, "One", "x"))
+    # ... another tile's output and a carried-forward state are pasted values in bold dark green
+    book = Xlsx(root / "review/tiles/balance_eop/workbook.xlsx")
+    cells = book.cells("One")
+    assert cells["D5"]["value"] in ("growth_pm", "cap") and _is_input(book.font(cells["C5"]))
+    for name in ("doubled", "balance_bop"):
+        assert all(f is None and _is_from_elsewhere(font) for f, font in _row_fonts(book, "One", name)), name
+    own = _row_fonts(book, "One", "balance_eop")
+    assert all(f and BLUE not in font and GREEN not in font for f, font in own)
+    # ... and nothing in a tile workbook is a link to another sheet or file
+    assert not any("!" in c["formula"] or "[" in c["formula"] for c in cells.values() if c["formula"])
+
+    # module workbook: another module's tile is green; the state's first month is a blue input, then formulas
+    book = Xlsx(root / "review/modules/second/workbook.xlsx")
+    assert all(f is None and _is_from_elsewhere(font) for f, font in _row_fonts(book, "One", "doubled"))
+    (first_f, first_font), (later_f, later_font) = _row_fonts(book, "One", "balance_bop")
+    assert first_f is None and _is_input(first_font)
+    assert later_f and BLUE not in later_font and GREEN not in later_font
+    assert not any("!" in c["formula"] for c in book.cells("One").values() if c["formula"])
+    book = Xlsx(root / "review/modules/first/workbook.xlsx")
+    assert all(f is None and _is_input(font) for f, font in _row_fonts(book, "One", "x"))
+    # a summary module: the series it reads from other modules are green
+    book = Xlsx(root / "review/modules/results/workbook.xlsx")
+    for name in ("doubled", "balance_eop"):
+        assert all(f is None and _is_from_elsewhere(font) for f, font in _row_fonts(book, "One", name)), name
+
+    # model workbook: every cross-sheet link row is green (to Inputs or to another module); the rest is not
+    book = Xlsx(root / "review/model/workbook.xlsx")
+    assert all(f.startswith("Inputs!") and _is_from_elsewhere(font) for f, font in _row_fonts(book, "First", "x"))
+    assert all(f.startswith("First!") and _is_from_elsewhere(font)
+               for f, font in _row_fonts(book, "Second", "doubled"))
+    assert all(f.startswith(("First!", "Second!")) and _is_from_elsewhere(font)
+               for name in ("doubled", "balance_eop") for f, font in _row_fonts(book, "Results", name))
+    assert all(f is None and _is_input(font) for f, font in _row_fonts(book, "Inputs", "x"))
+    for sheet in ("First", "Second", "Results"):
+        for ref, cell in book.cells(sheet).items():
+            if cell["formula"]:
+                assert ("!" in cell["formula"]) == (GREEN in book.font(cell)), (sheet, ref, cell["formula"])
+
+
 def test_scratch_survives_and_unchanged_build_skips(three_modules, gridcraft_cli, capsys):
     from tilekit.gridcraft import GridCraft
     root = str(three_modules)

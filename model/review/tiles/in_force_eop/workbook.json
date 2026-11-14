@@ -2,14 +2,14 @@
   "kind": "tile",
   "name": "in_force_eop",
   "module": "decrements",
-  "built_at": "2026-11-14T10:32:00+00:00",
+  "built_at": "2026-11-14T21:09:12+00:00",
   "stamp": {
     "code": "c61ba52ed7e7cde2a2a91fc03b26bebd2e1039ada9e4e791b2decb1914e147b2",
     "spec": "6917a81acc2be1f68c546a71677fe5e9fc04e87fa444c7d2f64ff5f11d19ec1f",
     "upstream": "6d840b211ea3db84377c1cb29f5719722f77435eceb38b9f18bab5bdb52a638a",
     "cases": "a42493b46f4e2e1d7ec9309bfd93f977df0cf13535b4eaf45c63ac35f8dc13dc",
     "params": "05fab2750280bae719ccdeae45603fce740d04232cbcda23e56fa79d7c849932",
-    "translator": "7b0b6232790fd2c96c1ceb6d79634cd6d2ecd2a2e6c2f527ca64ec6b8907cd9a"
+    "translator": "85ca37244a9a88223a28309b6eb53ed0af322f2884af42ac6efc6eabe05d2f36"
   },
   "workbook": "workbook.xlsx",
   "formula": "={in_force_bop}-{deaths}-{lapses}",
@@ -60,7 +60,7 @@
   "near_ties": {},
   "content_digest": "c95272c8211aa2deaf98bce25529b49ad980221ab67148f4f35b5397b83927f4",
   "content_stat": {
-    "mtime_ns": 1794652320250386226,
-    "size": 63547
+    "mtime_ns": 1794690552647038605,
+    "size": 63576
   }
 }

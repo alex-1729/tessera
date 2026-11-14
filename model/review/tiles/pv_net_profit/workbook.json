@@ -2,14 +2,14 @@
   "kind": "tile",
   "name": "pv_net_profit",
   "module": "profit",
-  "built_at": "2026-11-14T10:32:01+00:00",
+  "built_at": "2026-11-14T21:09:14+00:00",
   "stamp": {
     "code": "8d5fa583d33f29fe2acaee3cc8420a237c019fc1fc2d6e29581ccd8d590aed7b",
     "spec": "71633b185b4c7031047498f058b1bfd026453620a711ff8f475e3a936af0ff98",
     "upstream": "204f35c5f16fda3d79cdffc6b065bd497ddc573ac2eb4c3886a60947110bad9c",
     "cases": "a42493b46f4e2e1d7ec9309bfd93f977df0cf13535b4eaf45c63ac35f8dc13dc",
     "params": "05fab2750280bae719ccdeae45603fce740d04232cbcda23e56fa79d7c849932",
-    "translator": "7b0b6232790fd2c96c1ceb6d79634cd6d2ecd2a2e6c2f527ca64ec6b8907cd9a"
+    "translator": "85ca37244a9a88223a28309b6eb53ed0af322f2884af42ac6efc6eabe05d2f36"
   },
   "workbook": "workbook.xlsx",
   "formula": "=SUMPRODUCT({net_profit},{discount_factor})",
@@ -60,7 +60,7 @@
   "near_ties": {},
   "content_digest": "838d7005f21087d9469146d2c134976dfe1651fd0721a6167fb86f2620bd6fc5",
   "content_stat": {
-    "mtime_ns": 1794652321602116212,
-    "size": 41879
+    "mtime_ns": 1794690554208086433,
+    "size": 41875
   }
 }

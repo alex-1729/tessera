@@ -31,7 +31,7 @@ from pathlib import Path
 
 from tilekit.translate import TRANSLATOR_VERSION
 
-LAYOUT_VERSION = "tilekit-workbook 3"
+LAYOUT_VERSION = "tilekit-workbook 4"
 STAMP_KEYS = ("code", "spec", "upstream", "cases", "params", "translator")
 
 
