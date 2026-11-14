@@ -212,7 +212,7 @@
         {
           "id": 35,
           "text": "Models fetch the tooling from the tessera repo at a pinned version",
-          "status": "todo"
+          "status": "doing"
         },
         {
           "id": 36,
@@ -226,8 +226,13 @@
         },
         {
           "id": 38,
-          "text": "Find and fix the window reload that sometimes hangs in the tests",
-          "status": "todo"
+          "text": "Fix the window reload that sometimes hung: a covered window drew no frames",
+          "status": "done"
+        },
+        {
+          "id": 39,
+          "text": "Create the GitHub repository from New model (separate session)",
+          "status": "doing"
         }
       ]
     }

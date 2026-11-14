@@ -14,6 +14,10 @@ const { createAgentService, DEFAULT_MODEL, STRONG_MODEL } = require('./agent');
 // The app is called Tessera. Keep the settings folder where it already is: its name came from the old app name.
 app.setPath('userData', app.getPath('userData'));
 app.setName('Tessera');
+// Keep drawing frames when the window is covered by another window. The spreadsheet only answers requests when a frame
+// is drawn, and without this a page loaded (or reloaded) in a fully covered window draws none, so the first workbook
+// never opens until the window is uncovered. `backgroundThrottling: false` on the window is not enough for a fresh load.
+app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
 
 const APP_DIR = path.resolve(__dirname, '..');
 const REPO_ROOT = path.resolve(APP_DIR, '..');

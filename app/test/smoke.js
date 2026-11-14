@@ -80,9 +80,9 @@ const check = (name, ok, detail) => { summary.checks.push({ name, ok: !!ok, ...(
   const settle = async () => { await ev('window.__app.idle()'); await sleep(400); };
   const reloadWin = async () => { const t0 = Date.now(); await ev('window.__app.grid.reload().then(() => true, () => true)').catch(() => {});   // drop any unsaved edit in the grid first: a reload with one pending can leave the next start waiting
     await ev('window.__old = true'); win.webContents.reload(); await sleep(500); let ok = await waitFor('!window.__old && window.__app && window.__app.ready', 25000);
-    // Now and then a reloaded window is slow to finish starting (not seen on a first load, nor in 30 reloads of an idle
-    // window, so it is not diagnosed). Reload once more rather than wait for it, and say so in the summary.
-    for (let tries = 0; !ok && tries < 2; tries++) { (summary.reloadRetries = summary.reloadRetries || []).push(Date.now() - t0); await ev('window.__old = true').catch(() => {}); win.webContents.reload(); await sleep(500); ok = await waitFor('!window.__old && window.__app && window.__app.ready', 25000); } (summary.reloads = summary.reloads || []).push(Date.now() - t0 + (ok ? '' : ' FAILED ' + (await ev('[location.href, !!window.__old, !!(window.__app&&window.__app.ready), innerWidth].join(" ")').catch(e => String(e))))); check('reload: app ready', ok); await ev('window.__both=()=>document.getElementById("left").innerText+"\\n"+document.getElementById("rightbar").innerText; true'); await ev('window.__app.idle()'); await sleep(500); };
+    // (A reload used to hang now and then: a covered window drew no frames. Fixed in main.js and grid.js, and covered
+    // by coveredSet below, so there is no retry here: a slow reload should fail the run.)
+    (summary.reloads = summary.reloads || []).push(Date.now() - t0 + (ok ? '' : ' FAILED ' + (await ev('[location.href, !!window.__old, !!(window.__app&&window.__app.ready), innerWidth].join(" ")').catch(e => String(e))))); check('reload: app ready', ok); await ev('window.__both=()=>document.getElementById("left").innerText+"\\n"+document.getElementById("rightbar").innerText; true'); await ev('window.__app.idle()'); await sleep(500); };
 
   async function blockedStrip(blockedTile) {
     await go('#/tile/' + blockedTile); await settle();
@@ -805,8 +805,30 @@ const check = (name, ok, detail) => { summary.checks.push({ name, ok: !!ok, ...(
   check('app ready', await waitFor('window.__app && window.__app.ready', 20000));
   check('gridcraft:ready', await waitFor('window.__gridLog.ready >= 1', 20000), 'no ready');
 
+  // A reload while the window is covered by another window, or minimised, must not leave the app waiting on the
+  // spreadsheet. (The spreadsheet only answers when a frame is drawn, and a freshly loaded page in a covered or
+  // minimised window draws none: that was the cause of the reload that sometimes hung.)
+  async function coveredSet(tileName) {
+    const { BrowserWindow } = require('electron');
+    await go('#/tile/' + tileName); await settle();
+    const b = win.getBounds();
+    const cover = new BrowserWindow({ x: b.x, y: b.y, width: b.width, height: b.height, title: 'cover' });
+    await cover.loadURL('data:text/html,<body>cover');
+    cover.focus(); await sleep(1500);
+    await ev('window.__old = true'); win.webContents.reload(); await sleep(400);
+    check('a reload while the window is covered still becomes ready', await waitFor('!window.__old && window.__app && window.__app.ready', 10000));
+    cover.destroy(); win.focus(); await sleep(600);
+    await waitFor('window.__app && window.__app.ready', 20000);
+    win.minimize(); await sleep(1200);
+    await ev('window.__old = true'); win.webContents.reload(); await sleep(3000);
+    check('a reload while minimised waits rather than timing out on the spreadsheet', await ev('!window.__old && !!window.__gridLog && window.__gridLog.failed.length === 0'));
+    win.restore(); win.focus();
+    check('and finishes once the window is restored, with the workbook open', await waitFor('!window.__old && window.__app && window.__app.ready && window.__gridLog.opens.length >= 1', 10000));
+    await settle();
+  }
+
   if (process.env.SMOKE_ONLY === 'trace') { await traceSet(); return finish(0); }   // for working on one set
-  if (FULL) { await fullSet(); await layoutSet('gross_profit', 'allocation_margin', 'fund_value_eop'); await centreSet('gross_profit', 'allocation_margin'); await chatSet('gross_profit', 'cashflows', 'Cashflows'); await chatMore('gross_profit'); await traceSet(); await newModelSet(); await emptyModelSet(); return finish(0); }
+  if (FULL) { await fullSet(); await layoutSet('gross_profit', 'allocation_margin', 'fund_value_eop'); await centreSet('gross_profit', 'allocation_margin'); await chatSet('gross_profit', 'cashflows', 'Cashflows'); await chatMore('gross_profit'); await traceSet(); await newModelSet(); await emptyModelSet(); await coveredSet('gross_profit'); return finish(0); }
 
   // model
   await go('#/model');
@@ -929,6 +951,7 @@ const check = (name, ok, detail) => { summary.checks.push({ name, ok: !!ok, ...(
   await has('model sentence shows module state', 'Not signed off.');
   const log = await ev('window.__gridLog');
   summary.gridLog = { ready: log.ready, opens: log.opens.length, saves: log.saves, dirtyEvents: log.dirty.length };
+  await coveredSet('units_amc');
   finish(0);
 })().catch(e => { summary.errors.push(String(e && e.stack || e)); finish(1); });
 app.on('window-all-closed', () => {});

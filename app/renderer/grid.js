@@ -36,7 +36,7 @@ export function createGrid(host, { author, onError, onEdit, onInspect }) {
   window.addEventListener('message', e => {
     if (e.source !== frame.contentWindow) return;
     const d = e.data || {};
-    if (d.type === 'gridcraft:ready') { log.ready++; readyResolve(d); setTimeout(() => applyView(), 300); startPoll(); }
+    if (d.type === 'gridcraft:ready') { log.ready++; readyResolve(d); setTimeout(() => { void frameDrawn().then(() => applyView()); }, 300); startPoll(); }
     else if (d.type === 'gridcraft:dirty') {
       log.dirty.push(!!d.dirty);
       if (opening) return;
@@ -156,8 +156,15 @@ export function createGrid(host, { author, onError, onEdit, onInspect }) {
     if (pick) { try { await gc().execute('sheet.activate', { sheet: pick }); } catch { /* sheet vanished */ } }
   }
 
+  // The spreadsheet handles a request only when a frame is drawn. A minimised or hidden window draws none, and a request
+  // made then would sit for 30 seconds and be rejected, one after another. So every operation first waits for a frame
+  // from the spreadsheet's own window: nothing is asked of it until it can answer, and work resumes at once when the
+  // window is shown again.
+  const frameDrawn = () => new Promise(resolve => {
+    try { frame.contentWindow.requestAnimationFrame(() => resolve()); } catch { resolve(); }
+  });
   let queue = Promise.resolve();   // show, hide and reload run one at a time
-  const serial = fn => { const r = queue.catch(() => {}).then(fn); queue = r; return r; };
+  const serial = fn => { const r = queue.catch(() => {}).then(async () => { await ready; await frameDrawn(); return fn(); }); queue = r; return r; };
 
   return {
     frame,
