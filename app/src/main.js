@@ -110,6 +110,10 @@ function buildMenu(settings, onSetting, withAgent, actions = {}) {
         { label: 'Opus (stronger)', type: 'radio', checked: settings.agentModel === STRONG_MODEL, click: () => onSetting('agentModel', STRONG_MODEL) }] }] : []),
       { type: 'separator' },
       { role: 'reload' }, { role: 'forceReload' }, { role: 'toggleDevTools' }] },
+    { label: 'Review', submenu: [
+      { id: 'queueShow', label: 'Review queue', accelerator: 'CmdOrCtrl+Shift+J', click: () => actions.queue && actions.queue('show') },
+      { id: 'queueNext', label: 'Next item', accelerator: 'CmdOrCtrl+J', click: () => actions.queue && actions.queue('next') },
+      { id: 'queuePrev', label: 'Previous item', accelerator: 'CmdOrCtrl+K', click: () => actions.queue && actions.queue('prev') }] },
     { role: 'windowMenu' },
   ]);
 }
@@ -370,7 +374,7 @@ async function start(options = {}) {
     catch (e) { if (typeof cfg.pickFolder !== 'function') await dialog.showMessageBox(win, { type: 'error', message: 'Could not open that folder', detail: String(e.message || e), buttons: ['OK'] }); else throw e; return null; }
   };
   Menu.setApplicationMenu(buildMenu(settings, onSettingChosen, !cfg.fixtures || !!options.agentStub || !!options.agentOptions,
-    { openModel: () => { void openModelDialog(); }, newModel: () => sendMenu('newModel'), commit: () => sendMenu('commit'), modelSettings: () => sendMenu('modelSettings'), centre: seg => sendMenu('centre:' + seg) }));
+    { openModel: () => { void openModelDialog(); }, newModel: () => sendMenu('newModel'), commit: () => sendMenu('commit'), modelSettings: () => sendMenu('modelSettings'), centre: seg => sendMenu('centre:' + seg), queue: a => sendMenu('queue:' + a) }));
   // Commit and Model settings act on the open model, which must be in the app's list.
   function syncModelMenu() {
     const menu = Menu.getApplicationMenu();

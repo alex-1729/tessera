@@ -899,7 +899,12 @@ const check = (name, ok, detail) => { summary.checks.push({ name, ok: !!ok, ...(
   await ev('document.getElementById("reviewer").value="Smoke Reviewer"; document.getElementById("reviewer").dispatchEvent(new Event("input",{bubbles:true}))');
   await ev('document.getElementById("comment").value="Smoke test"; document.getElementById("comment").dispatchEvent(new Event("input",{bubbles:true}))');
   await shot('tile-ready-to-sign');
+  const signedHash = await ev('location.hash');
   await ev('document.getElementById("signoff").click()');
+  // a sign-off moves on to the next item in the review queue; come back to look at the signed tile
+  check('after sign-off the next item in the review queue opens', await waitFor(`location.hash !== ${JSON.stringify(signedHash)} && (window.__app.S.queue.items || []).some(i => location.hash === '#/' + i.level + '/' + encodeURIComponent(i.id))`), await ev('location.hash'));
+  check('the signed tile has left the review queue', await ev(`!(window.__app.S.queue.items || []).some(i => '#/' + i.level + '/' + encodeURIComponent(i.id) === ${JSON.stringify(signedHash)})`));
+  await go(signedHash); await settle();
   check('sentence changes after sign-off', await waitFor(`document.getElementById('sentence') && document.getElementById('sentence').textContent.startsWith('Signed off by')`));
   check('signed sheet shows the recorded reviewer and date, no fields', await waitFor(`(()=>{const r=document.getElementById('reviewedby'); return !!r && r.innerText.includes('Smoke Reviewer') && /\\d{4}-\\d{2}-\\d{2}/.test(r.innerText) && !document.getElementById('reviewer') && document.getElementById('signoff').disabled})()`), await text());
   await shot('tile-signed');

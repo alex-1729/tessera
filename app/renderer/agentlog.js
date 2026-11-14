@@ -215,6 +215,7 @@ function signoffCard(ev, status, info = {}) {
   const yes = h('button', { type: 'button', class: 'small', 'data-act': 'signoff', disabled: true, onclick: async () => {
     yes.disabled = no.disabled = true; errors.replaceChildren();
     const who = reviewer.value.trim();
+    const mark = !reconfirm && hooks.queueMark ? hooks.queueMark() : null;
     try {
       const res = await agentApi().confirmSignoff(r.id, { reviewer: who, comment: comment.value.trim(), valuesOnlyReason: reason ? reason.value.trim() : undefined });
       if (res && res.signed === false) {
@@ -223,7 +224,9 @@ function signoffCard(ev, status, info = {}) {
         else { refresh(); no.disabled = false; }
         await hooks.afterTurn(); return;
       }
-      settled(`${reconfirm ? 'Re-confirmed' : 'Signed off'} by ${who}.`); await hooks.afterTurn(); return;
+      settled(`${reconfirm ? 'Re-confirmed' : 'Signed off'} by ${who}.`); await hooks.afterTurn();
+      if (mark) hooks.queueAdvance(mark);   // the item on show was signed off: on to the next in the review queue
+      return;
     } catch (e) { errors.replaceChildren(h('div', { class: 'grey' }, couldNot(e.message))); }
     refresh(); no.disabled = false;
   } }, reconfirm ? 'Re-confirm' : 'Sign off');
