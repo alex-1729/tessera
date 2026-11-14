@@ -1,0 +1,12 @@
+/* The New model dialog's choice between an existing GitHub repository and a new one (renderer/newrepo.js). */
+input[type=radio] { appearance: none; -webkit-appearance: none; flex: none; width: 13px; height: 13px; margin: 2px 0 0; border: 1px solid var(--navy); border-radius: 0; background: var(--white); }
+input[type=radio]:checked { background: linear-gradient(var(--navy), var(--navy)) center / 7px 7px no-repeat, var(--white); }
+input[type=radio]:disabled { background: var(--buff); border-color: var(--rule); }
+.ck.off span { color: #6f767e; }
+#dialog .repochoice .lab { margin-bottom: 4px; }
+#dialog .repochoice > .ck { margin-top: 4px; }
+#dialog .repobox, #dialog .reponote { margin: 2px 0 6px 20px; }
+#dialog .repobox .field:first-child { margin-top: 2px; }
+#dialog .repobox select { width: 100%; border-radius: 0; }
+#dialog .visrow { display: flex; gap: 22px; margin-top: 2px; }
+#dialog #r-says { margin-top: 10px; }

@@ -231,8 +231,8 @@
         },
         {
           "id": 39,
-          "text": "Create the GitHub repository from New model (separate session)",
-          "status": "doing"
+          "text": "Create the GitHub repository from New model",
+          "status": "done"
         }
       ]
     }

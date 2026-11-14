@@ -24,6 +24,18 @@ Object.assign(process.env, { GIT_AUTHOR_NAME: 'Test', GIT_AUTHOR_EMAIL: 't@examp
 const git = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
 const uv = require('../src/tilekit').findUv();
 
+// ---- the GitHub command-line tool for the tests: test/fake-gh.js behind a wrapper script, never the real `gh`
+const ghDir = path.join(tmp, 'fake-gh');
+fs.mkdirSync(path.join(ghDir, 'repos'), { recursive: true });
+const ghState = s => fs.writeFileSync(path.join(ghDir, 'state.json'), JSON.stringify({ signedIn: true, login: 'ada-test', orgs: ['acme-actuarial', 'north-re'], ...s }));
+ghState({});
+const ghBin = path.join(ghDir, 'gh');
+fs.writeFileSync(ghBin, `#!/bin/sh\nFAKE_GH_DIR='${ghDir}' ELECTRON_RUN_AS_NODE=1 exec '${process.execPath}' '${path.join(__dirname, 'fake-gh.js')}' "$@"\n`, { mode: 0o755 });
+process.env.APP_GH_BIN = ghBin;
+const ghCalls = () => { try { return fs.readFileSync(path.join(ghDir, 'calls.jsonl'), 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l).args); } catch { return []; } };
+const ghCreates = () => ghCalls().filter(c => c[0] === 'repo' && c[1] === 'create');
+const ghRepo = full => path.join(ghDir, 'repos', full + '.git');
+
 const summary = { checks: [], shots: [], errors: [] };
 let ctl = null, finished = false;
 const hard = setTimeout(() => { summary.errors.push('hard timeout'); finish(2); }, 10 * 60 * 1000);
@@ -339,6 +351,135 @@ function copyExample(dst) {
   const notOwn = path.join(A, 'cases');
   check('git.js: a folder inside a bigger repository is not treated as a repository of its own (commit refused)', (await git2.status(notOwn)).isRepo === false && await git2.commit(notOwn, 'x').then(() => false, e => /not a git repository of its own/.test(e.message)));
   check('git.js: the GitHub link opens only for https://github.com links', git2.webUrl('https://github.com/a/b.git') === 'https://github.com/a/b' && git2.webUrl('git@github.com:a/b.git') === 'https://github.com/a/b' && git2.webUrl(remoteA) === null);
+
+  // ------------------------------------------------------------ 10. New model with a NEW GitHub repository (the fake `gh`)
+  const openNew = async () => { await ev(`document.getElementById('newmodel').click()`); await waitFor(`!!document.getElementById('r-create')`, 5000); };
+  const ghReady = () => waitFor(`!document.getElementById('r-create').disabled`, 10000);
+  const pick = async dir => { picks.push(dir); await ev(`document.getElementById('pickfolder').click()`); await waitFor(`document.getElementById('f-folder').value===${JSON.stringify(dir)}`, 5000); };
+  const choose = id => ev(`document.getElementById(${JSON.stringify(id)}).click()`);
+  const errText = () => ev(`document.getElementById('dialogerrors').innerText`);
+  const visible = id => ev(`(()=>{const n=document.getElementById(${JSON.stringify(id)}); return !!n && n.getClientRects().length>0})()`);
+  const apiNew = v => ev(`window.api.launch.newModel(${JSON.stringify(v)}).then(() => 'created', e => e.message)`);
+
+  await openNew();
+  check('New model: the repository is a choice of two radio options, "Use an existing repository" selected, the link field shown, the button reads Create', await ev(`document.getElementById('r-existing').type==='radio' && document.getElementById('r-existing').checked && !document.getElementById('r-create').checked && document.getElementById('confirm').textContent==='Create'`) && await visible('f-github') && !(await visible('r-name')) && /Use an existing repository/.test(await dialogText()) && /Create a new repository on GitHub/.test(await dialogText()));
+  check('create option: offered once `gh` answers, with the signed-in account first and then the organisations', await ghReady() && JSON.stringify(await ev(`[...document.getElementById('r-owner').options].map(o => o.value)`)) === JSON.stringify(['ada-test', 'acme-actuarial', 'north-re']), await dialogText());
+  const createdDir = path.join(tmp, 'created');
+  await pick(createdDir);
+  await setVal('f-name', 'Term assurance 2026'); await setVal('f-github', 'https://github.com/ada-test/term-assurance');
+  await shot('launch-create-existing');
+  await setVal('f-github', '');
+  await choose('r-create');
+  check('create option: the fields appear (owner, name, visibility, description) and the link field goes', await visible('r-owner') && await visible('r-name') && await visible('r-private') && await visible('r-public') && await visible('r-desc') && !(await visible('f-github')));
+  check('create option: the repository name is prefilled as a lower-case slug of the model name, the description too, Private is the default', await ev(`document.getElementById('r-name').value`) === 'term-assurance-2026' && await ev(`document.getElementById('r-desc').value`) === 'Tessera model: Term assurance 2026' && await ev(`document.getElementById('r-private').checked && !document.getElementById('r-public').checked`));
+  check('create option: one plain line says exactly what will happen', await waitFor(`document.getElementById('r-says').innerText==='Creates ada-test/term-assurance-2026 on GitHub as a private repository. Nothing is pushed to it until you choose to push.'`, 5000), await ev(`document.getElementById('r-says').innerText`));
+  check('create option: the button reads "Create repository and model" and is enabled', await ev(`document.getElementById('confirm').textContent==='Create repository and model' && !document.getElementById('confirm').disabled`));
+  await shot('launch-create-new');
+  check('opening and filling the dialog created nothing', ghCreates().length === 0 && !fs.existsSync(createdDir));
+
+  // an invalid name is refused in the dialog (and by the main process, whatever the window sends)
+  await setVal('r-name', 'bad name/x');
+  check('create option: an invalid repository name is refused in the dialog (a plain line, the button disabled, no statement)', await waitFor(`!document.getElementById('r-nameerror').hidden && /letters, digits, dashes/.test(document.getElementById('r-nameerror').innerText) && document.getElementById('confirm').disabled`, 5000) && !(await visible('r-says')), await dialogText());
+  const refused = [];
+  for (const c of [{ owner: 'ada-test', name: 'bad name', visibility: 'private', description: '' }, { owner: 'ada-test', name: 'x.git', visibility: 'private', description: '' }, { owner: 'ada-test', name: 'ok', visibility: 'internal', description: '' },
+    { owner: '-x; rm', name: 'ok', visibility: 'private', description: '' }, { owner: 'ada-test', name: 'ok', visibility: 'private', description: 'two\nlines' }, { owner: 'ada-test', name: 'ok', visibility: 'private', description: 'x'.repeat(351) },
+    { owner: 'someone-else', name: 'ok', visibility: 'private', description: '' }]) refused.push(await apiNew({ name: 'X', folder: createdDir, create: c }));
+  check('main process: invalid name, visibility, owner or description, and an owner that is not the account or its organisations, are all refused with nothing created', refused.every(r => r !== 'created') && /not that account or one of its organisations/.test(refused[6]) && ghCreates().length === 0 && !fs.existsSync(createdDir), JSON.stringify(refused));
+
+  // a name that already exists
+  fs.mkdirSync(ghRepo('ada-test/taken'), { recursive: true });
+  await setVal('r-name', 'taken');
+  await waitFor(`!document.getElementById('confirm').disabled`, 5000);
+  await ev(`document.getElementById('confirm').click()`);
+  check('create option: a name that already exists is refused plainly, with no `repo create` and no local folder', await waitFor(`/ada-test\\/taken already exists on GitHub\\. Nothing was created/.test(document.getElementById('dialogerrors').innerText)`, 20000) && ghCreates().length === 0 && !fs.existsSync(createdDir), await dialogText());
+
+  // create a private repository
+  await setVal('r-name', 'term-assurance-2026');
+  await waitFor(`!document.getElementById('confirm').disabled`, 5000);
+  await ev(`window.__old = true`);
+  await ev(`document.getElementById('confirm').click()`).catch(() => {});
+  const sawProgress = await waitFor(`/tilekit init/.test(document.getElementById('dialogprogress') ? document.getElementById('dialogprogress').innerText : '')`, 30000);
+  if (sawProgress) { const img = await win.webContents.capturePage(); const f = path.join(OUT, 'launch-create-progress.png'); fs.writeFileSync(f, img.toPNG()); summary.shots.push(f); }
+  const progressText = sawProgress ? await ev(`document.getElementById('dialogprogress') ? document.getElementById('dialogprogress').innerText : ''`).catch(() => '') : '';
+  check('create: each step is reported in words while it runs', /Checking that ada-test\/term-assurance-2026 is free on GitHub…/.test(progressText) && /Creating the private repository ada-test\/term-assurance-2026 on GitHub…/.test(progressText) && /Created ada-test\/term-assurance-2026\. It is empty\./.test(progressText), progressText);
+  check('create (private): the model is created and opened', await waitFor(`!window.__old && window.__app && window.__app.ready && location.hash==='#/model'`, 120000) && await onModel('Term assurance 2026'), await dialogText().catch(() => ''));
+  const mk = ghCreates();
+  check('create (private): exactly one `repo create`, with the owner, name, --private and the description, and no --source, --push or --clone', mk.length === 1 && JSON.stringify(mk[0]) === JSON.stringify(['repo', 'create', 'ada-test/term-assurance-2026', '--private', '--description', 'Tessera model: Term assurance 2026']), JSON.stringify(mk));
+  const newBare = ghRepo('ada-test/term-assurance-2026');
+  check('create (private): the model exists locally on main with one commit "Start Term assurance 2026" and origin is the new repository', fs.existsSync(path.join(createdDir, 'tilekit.toml')) && git(createdDir, 'branch', '--show-current') === 'main' && git(createdDir, 'remote', 'get-url', 'origin') === newBare && git(createdDir, 'log', '--format=%s') === 'Start Term assurance 2026');
+  check('create (private): nothing was pushed (the new repository has no commits)', fs.existsSync(path.join(newBare, 'HEAD')) && remoteLog(newBare).length === 0 && git(newBare, 'for-each-ref') === '');
+  check('create (private): the chat input holds the scaffolding request', await ev(`document.getElementById('agentlog-input').value`) === 'Scaffold this model with me. Ask me what you need to know.');
+  check('create (private): registered in the list with the new repository as its link', settingsOnDisk().models.some(m => m.dir === createdDir && m.github === newBare && m.name === 'Term assurance 2026'));
+
+  // public, owned by an organisation
+  await ev(`location.hash='#/launch'`); await onLaunch();
+  await openNew(); await ghReady();
+  const publicDir = path.join(tmp, 'created-public');
+  await pick(publicDir);
+  await setVal('f-name', 'Public one');
+  await choose('r-create');
+  await ev(`(()=>{const o=document.getElementById('r-owner'); o.value='acme-actuarial'; o.dispatchEvent(new Event('change',{bubbles:true}))})()`);
+  await choose('r-public');
+  check('create (public): the line follows the owner and the visibility', await waitFor(`document.getElementById('r-says').innerText==='Creates acme-actuarial/public-one on GitHub as a public repository. Nothing is pushed to it until you choose to push.'`, 5000), await ev(`document.getElementById('r-says').innerText`));
+  await ev(`window.__old = true`);
+  await ev(`document.getElementById('confirm').click()`).catch(() => {});
+  check('create (public): the model is created and opened', await waitFor(`!window.__old && window.__app && window.__app.ready && location.hash==='#/model'`, 120000) && await onModel('Public one'), await dialogText().catch(() => ''));
+  check('create (public): one more `repo create`, with --public and the organisation as owner', ghCreates().length === 2 && JSON.stringify(ghCreates()[1]) === JSON.stringify(['repo', 'create', 'acme-actuarial/public-one', '--public', '--description', 'Tessera model: Public one']) && git(publicDir, 'remote', 'get-url', 'origin') === ghRepo('acme-actuarial/public-one') && remoteLog(ghRepo('acme-actuarial/public-one')).length === 0, JSON.stringify(ghCreates()));
+
+  // a failure after the repository was created: git cannot start the local repository (a broken git configuration)
+  await ev(`location.hash='#/launch'`); await onLaunch();
+  await openNew(); await ghReady();
+  const failDir = path.join(tmp, 'created-failing');
+  await pick(failDir);
+  await setVal('f-name', 'Failing one');
+  await choose('r-create');
+  await waitFor(`!document.getElementById('confirm').disabled`, 5000);
+  const brokenConfig = path.join(tmp, 'broken.gitconfig'); fs.writeFileSync(brokenConfig, '[broken\n');
+  process.env.GIT_CONFIG_GLOBAL = brokenConfig;
+  await ev(`document.getElementById('confirm').click()`);
+  const failed = await waitFor(`/was created on GitHub/.test(document.getElementById('dialogerrors').innerText)`, 60000);
+  process.env.GIT_CONFIG_GLOBAL = '/dev/null';
+  const failText = await errText();
+  check('failure after creation: says the repository was created and is empty, what failed, and to retry with "Use an existing repository" and its link', failed && failText.includes('The repository ada-test/failing-one was created on GitHub and is empty') && /git could not start the local repository/.test(failText) && failText.includes('choose "Use an existing repository" and give its link: ' + ghRepo('ada-test/failing-one')), failText);
+  check('failure after creation: no local folder is left, the repository is not deleted, the model is not registered', !fs.existsSync(failDir) && fs.existsSync(path.join(ghRepo('ada-test/failing-one'), 'HEAD')) && !settingsOnDisk().models.some(m => m.dir === failDir) && ghCreates().length === 3);
+  check('failure after creation: the dialog is back on "Use an existing repository" with the new repository\'s link, so the next press cannot create another', await ev(`document.getElementById('r-existing').checked && document.getElementById('confirm').textContent==='Create'`) && await ev(`document.getElementById('f-github').value`) === ghRepo('ada-test/failing-one'));
+  await shot('launch-create-failure');
+  check('failure after creation: nothing is retried without the button', (await sleep(1500), ghCreates().length === 3));
+  await cancel();
+
+  // `gh` signed out: the option is there but disabled, with the reason; the existing-repository option still works
+  ghState({ signedIn: false });
+  await openNew();
+  check('gh signed out: the create option is visible but disabled, with the plain line saying why and what to do', await waitFor(`/You are not signed in to GitHub in the command-line tool\\. Run \`gh auth login\` in a terminal\\./.test(document.getElementById('r-note').innerText)`, 10000) && await ev(`document.getElementById('r-create').disabled && document.getElementById('r-existing').checked`) && await visible('r-create') && !(await visible('r-name')), await dialogText());
+  await choose('r-create');
+  check('gh signed out: clicking the disabled option changes nothing', await ev(`document.getElementById('r-existing').checked && document.getElementById('confirm').textContent==='Create'`));
+  const so = await apiNew({ name: 'X', folder: path.join(tmp, 'nope'), create: { owner: 'ada-test', name: 'nope', visibility: 'private', description: '' } });
+  check('gh signed out: the main process refuses to create as well', /not signed in to GitHub/.test(so) && ghCreates().length === 3 && !fs.existsSync(path.join(tmp, 'nope')), so);
+  await cancel();
+  ghState({});
+
+  // `gh` missing
+  process.env.APP_GH_BIN = path.join(tmp, 'no-such-gh');
+  await openNew();
+  check('gh missing: the create option is visible but disabled, with "The GitHub command-line tool is not installed."', await waitFor(`document.getElementById('r-note').innerText==='The GitHub command-line tool is not installed.'`, 10000) && await ev(`document.getElementById('r-create').disabled`) && await visible('r-create'), await dialogText());
+  const remoteTwo = bare('empty-two');
+  const twoDir = path.join(tmp, 'existing-two');
+  await pick(twoDir);
+  await setVal('f-name', 'Existing two'); await setVal('f-github', remoteTwo);
+  await shot('launch-create-unavailable');
+  await ev(`window.__old = true`);
+  await ev(`document.getElementById('confirm').click()`).catch(() => {});
+  check('gh missing: the existing-repository option still works (model created from the link and opened)', await waitFor(`!window.__old && window.__app && window.__app.ready && location.hash==='#/model'`, 120000) && await onModel('Existing two') && git(twoDir, 'remote', 'get-url', 'origin') === remoteTwo && remoteLog(remoteTwo).length === 0, await dialogText().catch(() => ''));
+  await ev(`location.hash='#/launch'`); await onLaunch();
+
+  // under test the real `gh` is never used: without APP_GH_BIN the create path fails loudly and the probe finds nothing
+  delete process.env.APP_GH_BIN;
+  const gh2 = require('../src/github');
+  const loud = await gh2.createRepo({ owner: 'ada-test', name: 'never', visibility: 'private', description: '' }).then(() => 'created', e => e.message);
+  check('under test with APP_GH_BIN unset: no `gh` is found, and creating fails loudly', gh2.findGh() === null && (await gh2.account()).reason === 'missing' && /APP_GH_BIN is not set/.test(loud), loud);
+  process.env.APP_GH_BIN = ghBin;
+  const kinds = ghCalls().map(c => c.slice(0, 2).join(' '));
+  check('the fake `gh` saw only the expected commands, and three `repo create` in all (one per button press)', kinds.every(k => ['auth status', 'api user', 'api user/orgs', 'repo view', 'repo create'].includes(k)) && ghCreates().length === 3 && ghCalls().every(c => !c.some(x => /^--(source|push|clone|remote)/.test(x))), JSON.stringify([...new Set(kinds)]));
   check('no console errors', summary.errors.filter(e => e.startsWith('console:')).length === 0, JSON.stringify(summary.errors));
   finish(0);
 })().catch(e => { summary.errors.push(String(e && e.stack || e)); finish(1); });
