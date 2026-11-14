@@ -3,12 +3,9 @@
 // The "generated" formula is what the stored workbook had when it was opened: read once per sheet, then compared.
 // Edits elsewhere on a generated sheet are not saved; the same line says so.
 import { h } from './util.js';
+import { colLetter, rowMap } from './sheetmap.js';
 
 const SCRATCH = 'Scratch';
-const IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
-
-export const colLetter = n => { let s = ''; for (; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s; return s; };
-export const colNumber = l => [...l].reduce((a, c) => a * 26 + c.charCodeAt(0) - 64, 0);
 
 // ctx: {bar, grid, enabled(): bool (an agent exists), tile(): name | null, caseId(sheetName): id | null, canSend(): bool, send(text, extra): Promise}
 export function createSpecLine(ctx) {
@@ -21,18 +18,12 @@ export function createSpecLine(ctx) {
 
   // Where the tile's formula row is on one sheet, and the row map. Returns null when the sheet has no such row.
   async function locate(sheet, usedRange, tile) {
-    const m = /^[A-Z]+\d+:([A-Z]+)(\d+)$/.exec(usedRange || '');
-    if (!m) return null;
-    const lastCol = colNumber(m[1]), lastRow = +m[2];
-    if (lastCol < 5) return null;
-    const nameCol = colLetter(lastCol);
-    const [names, params] = await Promise.all([read(`${nameCol}1:${nameCol}${lastRow}`, sheet), read(`D1:D${lastRow}`, sheet)]);
-    const rows = {};
-    params.forEach((r, i) => { if (typeof r[0] === 'string' && IDENT.test(r[0])) rows[i + 1] = r[0]; });
-    let row = 0;
-    names.forEach((r, i) => { if (typeof r[0] === 'string' && IDENT.test(r[0])) { rows[i + 1] = r[0]; if (r[0] === tile) row = i + 1; } });
+    const map = await rowMap(read, sheet, usedRange);
+    if (!map || map.lastCol < 5) return null;
+    const rows = map.rows;
+    const row = +(Object.keys(rows).find(r => rows[r] === tile && map.timeRows.has(+r)) || 0);
     if (!row) return null;
-    const cells = (await read(`C${row}:${colLetter(lastCol - 1)}${row}`, sheet))[0];
+    const cells = (await read(`C${row}:${colLetter(map.lastCol - 1)}${row}`, sheet))[0];
     return { row, rows, cells };
   }
 

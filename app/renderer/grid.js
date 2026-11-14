@@ -7,9 +7,11 @@ const SCRATCH = 'Scratch';
 const POLL_MS = 700;
 
 // onEdit(info) runs when the user has changed the open workbook (and again on each poll while it stays changed).
+// onInspect(ins) is given each poll's docInspect() result (null when no workbook is open): the grid has no
+// selection-change event, so whoever follows the selection shares this poll.
 // Saving policy: the stored workbook is written back only when the active sheet is Scratch; edits on generated
 // sheets are never written (the Python side detects stored workbooks that were changed outside a build).
-export function createGrid(host, { author, onError, onEdit }) {
+export function createGrid(host, { author, onError, onEdit, onInspect }) {
   let wanted = { showRibbon: false, showFormulaBar: true };
   let ribbonCollapsed = false;   // GridCraft starts with the ribbon open; view.collapseRibbon toggles
   const frame = document.createElement('iframe');
@@ -70,11 +72,13 @@ export function createGrid(host, { author, onError, onEdit }) {
   // The grid sends no event when a reopened workbook becomes dirty again, so ask it regularly while a workbook is open.
   let polling = false;
   async function poll() {
-    if (polling || !cur || opening) return;
+    if (polling || opening) return;
+    if (!cur) { if (onInspect) void onInspect(null); return; }
     polling = true;
     try {
       const ins = await gc().docInspect();
       if (!cur || opening) return;
+      if (onInspect) void onInspect(ins);
       if (ins.dirty && !dirty) { dirty = true; await noteEdit(true); }
       else if (ins.dirty) await noteEdit(false);
       else if (dirty) { dirty = false; clearTimeout(saveTimer); saveTimer = null; }

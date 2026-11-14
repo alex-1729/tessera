@@ -95,6 +95,87 @@ function listFiles(dir) {   // path -> mtime, for "nothing was written here"
     return ok;
   }
 
+
+  // tracing a value to its source (trace.js)
+  const traceLine = () => ev(`(()=>{const b=document.getElementById('tracebar'); return b.hidden ? '' : b.innerText.replace(/\\s+/g,' ').trim()})()`);
+  const lineIs = want => waitFor(`(()=>{const b=document.getElementById('tracebar'); return (b.hidden ? '' : b.innerText.replace(/\\s+/g,' ').trim()) === ${JSON.stringify(want)}})()`, 6000);
+  const cellAt = () => gc(`async g => { const d = await g.docInspect(); return (d.sheets[d.activeSheet] || {}).name + '!' + d.activeCell; }`);
+  const atIs = async (want, ms = 10000) => { const t = Date.now(); while (Date.now() - t < ms) { if ((await cellAt().catch(() => null)) === want) return true; await sleep(120); } return false; };
+  const sel = (cell, sheet) => gc(`async g => { ${sheet ? `await g.execute('sheet.activate', { sheet: ${JSON.stringify(sheet)} });` : ''} await g.execute('selection.set', { range: ${JSON.stringify(cell)} }); }`);
+  const rowNamed = name => gc(`async g => { const d = await g.docInspect(); const sh = d.sheets[d.activeSheet]; const m = /:([A-Z]+)(\\d+)$/.exec(sh.usedRange); for (const col of [m[1], 'D']) { const v = (await g.execute('sheet.read', { sheet: sh.name, range: col + '1:' + col + m[2] })).values; const i = v.findIndex(r => r[0] === ${JSON.stringify(name)}); if (i >= 0) return i + 1; } return 0; }`);
+  const pressPrecedents = () => { const mod = process.platform === 'darwin' ? 'meta' : 'control'; win.webContents.sendInputEvent({ type: 'keyDown', keyCode: '[', modifiers: [mod] }); win.webContents.sendInputEvent({ type: 'keyUp', keyCode: '[', modifiers: [mod] }); };
+
+  async function traceCases() {
+    await go('#/tile/units_amc');
+    await waitSheets(i => i.sheets.includes('Scratch') && i.sheets.includes('High charge'));
+    const up = await rowNamed('units_after_alloc'), own = await rowNamed('units_amc'), par = await rowNamed('amc_pm');
+    await sel('D' + up, 'Base');
+    const upstream = c => `${c}${up} is Units after allocation, from units_after_alloc in Unit projection (not reviewed).`;
+    check('trace: an upstream row says where it comes from', await lineIs(upstream('D') + ' Go to source'), await traceLine());
+    await shot('trace-live-upstream');
+    await sel('C' + par);
+    check('trace: a parameter row says what it is, no button', await lineIs(`C${par} is AMC per month, the parameter amc_pm.`) && await ev(`!document.getElementById('gotosource')`), await traceLine());
+    await shot('trace-live-parameter');
+    await sel('D' + own);
+    check('trace: the tile\'s own row lists the tiles that use it, no source', await lineIs(`D${own} is AMC units. Used by units_eop, amc_income.`) && await ev(`!document.getElementById('gotosource')`), await traceLine());
+    await shot('trace-live-usedby');
+    await sel('H' + up, 'High charge'); await lineIs(upstream('H') + ' Go to source');
+    await ev(`document.getElementById('gotosource').click()`);
+    check('trace: Go to source opens the source tile', await waitFor(`location.hash === '#/tile/units_after_alloc'`, 8000), await ev('location.hash'));
+    await idle(); await sleep(400);
+    const src = await rowNamed('units_after_alloc');
+    check('trace: on the same case sheet, the same month, in its own formula row', src > 0 && await atIs('High charge!H' + src), await cellAt());
+    check('trace: the left bar shows that case', await ev(`/High charge\\s+agrees, shown/.test(document.getElementById('panel').innerText)`), (await text()).slice(0, 600));
+    await shot('trace-live-at-source');
+    await click('back');
+    await waitFor(`location.hash === '#/tile/units_amc'`, 8000); await idle();
+    check('trace: Back restores the tile, the sheet and the cell', await atIs('High charge!H' + up), await cellAt());
+    await lineIs(upstream('H') + ' Go to source');
+    win.webContents.focus(); await ev(`document.querySelector('#gridhost iframe').contentWindow.focus(); true`);
+    pressPrecedents();
+    check('trace: Ctrl+[ / Cmd+[ goes to the source', await waitFor(`location.hash === '#/tile/units_after_alloc'`, 8000) && await atIs('High charge!H' + src), await cellAt());
+    await idle();
+    await go('#/tile/units_amc'); await sel('F' + own, 'Zero premium'); await lineIs(`F${own} is AMC units. Used by units_eop, amc_income.`);
+    await ev(`document.querySelector('#tracebar a.traceuse[data-tile="amc_income"]').click()`);
+    await waitFor(`location.hash === '#/tile/amc_income'`, 8000); await idle(); await sleep(400);
+    const asInput = await rowNamed('units_amc');
+    check('trace: a Used by link opens that tile on the same case and month, at the row where the quantity comes in', asInput > 0 && await atIs('Zero premium!F' + asInput), await cellAt());
+    check('trace: where the row says it comes from units_amc', await lineIs(`F${asInput} is AMC units, from units_amc in Unit projection (not reviewed). Go to source`), await traceLine());
+
+    // the model workbook: a link row goes to the sheet it links to, in the same workbook
+    await go('#/model'); await waitSheets(i => i.sheets.includes('Profit'));
+    await sel('A1', 'Cashflows');
+    const link = await rowNamed('units_eop');
+    await sel('G' + link);
+    check('trace: model workbook, a cross-tab link row', await lineIs(`G${link} is Closing units, from units_eop in Unit projection (not reviewed). Go to source`), await traceLine());
+    await shot('trace-live-model-link');
+    await ev(`document.getElementById('gotosource').click()`);
+    await waitSheets(i => i.active === 'Unit projection', 6000);
+    const home = await rowNamed('units_eop');
+    check('trace: Go to source activates the source module\'s sheet at the corresponding cell, still in the model view', home > 0 && await atIs('Unit projection!G' + home) && (await ev('location.hash')) === '#/model', await cellAt());
+    await shot('trace-live-model-source');
+    await click('back');
+    check('trace: Back returns to the link row', await atIs('Cashflows!G' + link) && (await ev('location.hash')) === '#/model', await cellAt());
+    await sel('A1', 'Inputs');
+  }
+
+  async function traceRealPolicy(polId) {
+    const sheet = 'Policy ' + polId;
+    const st = await rowNamed('in_force_bop');
+    await sel('E' + st, sheet);
+    const want = `E${st} is Opening in force, carried forward from in_force_eop in Decrements (${({ signed_off: 'signed off', stale: 'stale' })[(await S()).tiles.in_force_eop.state] || 'not reviewed'}). Go to source`;
+    check('trace, real policy: the line shows under the real-data line', await lineIs(want) && await ev(`!document.getElementById('realbar').hidden`), await traceLine());
+    await shot('trace-live-real');
+    await ev(`document.getElementById('gotosource').click()`);
+    check('trace, real policy: Go to source opens the source tile', await waitFor(`location.hash === '#/tile/in_force_eop'`, 8000), await ev('location.hash'));
+    await idle(); await waitSheets(i => i.active === sheet, 30000); await sleep(400);
+    const src = await rowNamed('in_force_eop');
+    check('trace, real policy: the same policy is carried across, month before in the source row', (await S()).real.policy === polId && await ev(`window.__gridLog.opens.some(p => p.startsWith('real-data/') && p.includes('/tiles/in_force_eop/'))`) && await atIs(sheet + '!D' + src, 15000), await cellAt());
+    await click('back');
+    await waitFor(`location.hash === '#/tile/deaths'`, 8000); await idle();
+    check('trace, real policy: Back restores the cell', await atIs(sheet + '!E' + st, 15000) && (await S()).real.policy === polId, await cellAt());
+  }
+
   const unitsFile = path.join(copy, 'src/unit_linked/liability/units.py');
   const paramsFile = path.join(copy, 'src/unit_linked/params.py');
   const unitsOrig = fs.readFileSync(unitsFile, 'utf8');
@@ -133,6 +214,8 @@ function listFiles(dir) {   // path -> mtime, for "nothing was written here"
   await ev(`document.querySelector('a[data-case="high_charge"]').click()`);
   check('module: selecting a case activates its sheet', (await waitSheets(i => i.active === 'High charge')).active === 'High charge', JSON.stringify(await inspect()));
   await shot('live-module');
+
+  await traceCases();
 
   await go('#/tile/units_amc');
   ins = await waitSheets(i => i.sheets.includes('Scratch'));
@@ -346,6 +429,7 @@ function listFiles(dir) {   // path -> mtime, for "nothing was written here"
   check('tile: Sign off button still there', await ev('document.getElementById("signoff").textContent === "Sign off"'));
   check('selection kept across views', (await S()).real && (await S()).real.policy === polId);
   await shot('live-real-tile');
+  await traceRealPolicy(polId);
   // an edit to a real-data workbook is saved under real-data/ and nothing is written under review/
   const savesBefore = await ev('window.__gridLog.saves');
   await gc(`async g => g.execute('sheet.activate', { sheet: 'Scratch' })`);

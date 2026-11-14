@@ -140,7 +140,7 @@ const check = (name, ok, detail) => { summary.checks.push({ name, ok: !!ok, ...(
     check('spreadsheet takes the freed width at once', Math.abs((G1.w - G0.w) - (R0.w - R1.w)) <= 2 && Math.abs((await gridW()) - G1.w) <= 1, `${G0.w} -> ${G1.w}`);
     check('right strip is named Chat, buff, vertical, with a rule on the spreadsheet side', await ev(`(()=>{const b=document.getElementById('rightstrip'), cs=getComputedStyle(b), bar=getComputedStyle(document.getElementById('rightbar')); return b.innerText.trim().startsWith('Chat') && getComputedStyle(b.firstElementChild).writingMode.startsWith('vertical') && cs.backgroundColor==='rgb(233, 225, 209)' && bar.borderLeftWidth==='1px'})()`));
     check('collapsed right bar shows none of its content', await ev(`document.getElementById('agentlog').getBoundingClientRect().height===0`));
-    check('menu item "Show right bar" follows (unchecked), accelerator CmdOrCtrl+]', menuItem('showRightBar').checked === false && menuItem('showRightBar').accelerator === 'CmdOrCtrl+]' && menuItem('showRightBar').label === 'Show right bar');
+    check('menu item "Show right bar" follows (unchecked), accelerator CmdOrCtrl+Shift+] (CmdOrCtrl+[ and ] trace precedents)', menuItem('showRightBar').checked === false && menuItem('showRightBar').accelerator === 'CmdOrCtrl+Shift+]' && menuItem('showRightBar').label === 'Show right bar');
     check('collapse written to the settings file', saved().showRightBar === false, JSON.stringify(saved()));
     await ev(`document.getElementById('rightstrip').click()`); await settle();
     check('clicking the strip expands the bar and the spreadsheet narrows again', Math.abs((await rect('rightbar')).w - R0.w) <= 2 && Math.abs((await gridW()) - grid0) <= 1 && menuItem('showRightBar').checked === true, `${await gridW()} vs ${grid0}`);
@@ -149,7 +149,7 @@ const check = (name, ok, detail) => { summary.checks.push({ name, ok: !!ok, ...(
     await ev(`document.getElementById('hideleft').click()`); await settle();
     const L1 = await rect('left'), G2 = await rect('gridwrap');
     check('left bar collapses to a ~26px strip named Tile', Math.abs(L1.w - 26) <= 2 && (await stripText('leftstrip')).startsWith('Tile') && Math.abs((G2.w - G0.w) - (L0.w - L1.w)) <= 2 && Math.abs((await gridW()) - G2.w) <= 1, JSON.stringify([L1, G2.w]));
-    check('menu item "Show left bar" follows, accelerator CmdOrCtrl+[', menuItem('showLeftBar').checked === false && menuItem('showLeftBar').accelerator === 'CmdOrCtrl+[' && saved().showLeftBar === false);
+    check('menu item "Show left bar" follows, accelerator CmdOrCtrl+Shift+[', menuItem('showLeftBar').checked === false && menuItem('showLeftBar').accelerator === 'CmdOrCtrl+Shift+[' && saved().showLeftBar === false);
     await shot('layout-left-collapsed' + SFX);
     await ev(`document.getElementById('leftstrip').click()`); await settle();
     check('left strip expands the bar', Math.abs((await rect('left')).w - L0.w) <= 2 && Math.abs((await gridW()) - grid0) <= 1 && menuItem('showLeftBar').checked === true);
@@ -623,10 +623,189 @@ const check = (name, ok, detail) => { summary.checks.push({ name, ok: !!ok, ...(
     summary.gridLog = { ready: log.ready, opens: log.opens.length, saves: log.saves };
   }
 
+
+  // ---------------------------------------------------------------- tracing a value back to its source (trace.js)
+  // The stored workbooks of the example model (house style, dark green upstream rows) stand in for the fixture ones.
+  async function traceSet() {
+    const REVIEW = path.resolve(__dirname, '../../model/review');
+    const overlay = ['tiles/units_allocated', 'tiles/units_after_alloc', 'tiles/units_amc', 'tiles/units_eop', 'modules/unit_projection', 'model']
+      .concat(FULL ? ['tiles/amc_income', 'tiles/fund_value_eop'] : []);
+    for (const rel of overlay) {
+      const from = path.join(REVIEW, rel, 'workbook.xlsx');
+      if (!fs.existsSync(from)) { check('trace: stored workbook to test with: ' + rel, false, from); return; }
+      fs.mkdirSync(path.join(fixturesCopy, 'review', rel), { recursive: true });
+      fs.copyFileSync(from, path.join(fixturesCopy, 'review', rel, 'workbook.xlsx'));
+    }
+    win.setSize(1500, 950); await sleep(400);
+    const line = () => ev(`(()=>{const b=document.getElementById('tracebar'); return b.hidden ? '' : b.innerText.replace(/\\s+/g,' ').trim()})()`);
+    const at = () => gc(`async g => { const d = await g.docInspect(); return (d.sheets[d.activeSheet] || {}).name + '!' + d.activeCell; }`);
+    const sel = async (cell, sheet) => { await gc(`async g => { ${sheet ? `await g.execute('sheet.activate', { sheet: ${JSON.stringify(sheet)} });` : ''} await g.execute('selection.set', { range: ${JSON.stringify(cell)} }); }`); };
+    const lineIs = async (want, ms = 5000) => { const ok = await waitFor(`(()=>{const b=document.getElementById('tracebar'); return (b.hidden ? '' : b.innerText.replace(/\\s+/g,' ').trim()) === ${JSON.stringify(want)}})()`, ms); return ok ? true : false; };
+    const atIs = async (want, ms = 8000) => { const t = Date.now(); let got; while (Date.now() - t < ms) { got = await at().catch(() => null); if (got === want) return true; await sleep(120); } return false; };
+    // the row that holds a quantity on the sheet in front (its code name is in the last used column, or in D)
+    const rowNamed = name => gc(`async g => { const d = await g.docInspect(); const sh = d.sheets[d.activeSheet]; const m = /:([A-Z]+)(\\d+)$/.exec(sh.usedRange); for (const col of [m[1], 'D']) { const v = (await g.execute('sheet.read', { sheet: sh.name, range: col + '1:' + col + m[2] })).values; const i = v.findIndex(r => r[0] === ${JSON.stringify(name)}); if (i >= 0) return i + 1; } return 0; }`);
+    const word = async t => ({ signed_off: 'signed off', stale: 'stale', not_built: 'not built' })[await ev(`window.__app.S.status.tiles[${JSON.stringify(t)}].state`)] || 'not reviewed';
+    const settleGrid = async () => { await ev('window.__app.idle()'); await sleep(500); };
+
+    // a tile sheet: an upstream row, a parameter row, the grey rows and the tile's own row
+    await go('#/model'); await go('#/tile/units_amc'); await ev(`window.__app.setCentre('spreadsheet')`); await settleGrid();
+    const shs = await sheets();
+    check('trace: the stored workbook is in the grid (case sheets)', ['Base', 'High charge', 'Zero premium', 'Scratch'].every(n => shs.includes(n)), JSON.stringify(shs));
+    await sel('B2');
+    check('trace: no line for a cell that is not in a quantity row', await lineIs(''), await line());
+    await sel('D9');
+    const upstream = `D9 is Units after allocation, from units_after_alloc in Unit projection (${await word('units_after_alloc')}).`;
+    check('trace: an upstream row says where it comes from, with the source tile\'s review state in words', await lineIs(upstream + ' Go to source'), await line());
+    check('trace: the line is in the bar above the spreadsheet, a plain button, nothing else showing', await ev(`(()=>{const b=document.getElementById('tracebar'), g=document.getElementById('gotosource'); return b.parentElement.id==='lines' && !!g && g.tagName==='BUTTON' && document.getElementById('sheetbar').hidden && document.getElementById('stalebar').hidden && b.getBoundingClientRect().bottom <= document.getElementById('gridwrap').getBoundingClientRect().top + 1})()`));
+    await shot('trace-upstream' + SFX);
+    await sel('C5');
+    check('trace: a parameter row says what it is, without a button', await lineIs('C5 is AMC per month, the parameter amc_pm.') && !(await ev(`!!document.getElementById('gotosource')`)), await line());
+    await shot('trace-parameter' + SFX);
+    await sel('D13');
+    check('trace: nothing for the grey Python row', await lineIs(''), await line());
+    await sel('D11');
+    const users = FULL ? 'units_eop, amc_income' : 'units_eop';
+    check('trace: the tile\'s own row has no source line; it lists the tiles that use it, as links', await lineIs(`D11 is AMC units. Used by ${users}.`) && !(await ev(`!!document.getElementById('gotosource')`)) && await ev(`[...document.querySelectorAll('#tracebar a.traceuse')].map(a => a.dataset.tile).join(',') === ${JSON.stringify(users.replace(/, /g, ','))}`), await line());
+    await shot('trace-usedby' + SFX);
+
+    // Go to source: the source tile, the same case sheet, the same month in its own formula row; Back returns
+    await sel('F9', 'High charge');
+    check('trace: the line follows the selection on another case sheet', await lineIs(upstream.replace('D9', 'F9') + ' Go to source'), await line());
+    await ev(`document.getElementById('gotosource').click()`);
+    check('trace: Go to source opens the source tile', await waitFor(`location.hash === '#/tile/units_after_alloc' && document.getElementById('tilename') && document.getElementById('tilename').textContent === 'units_after_alloc'`), await ev('location.hash'));
+    await settleGrid();
+    const srcRow = await rowNamed('units_after_alloc');
+    check('trace: it lands on the same case sheet, same month, in the source tile\'s own formula row', srcRow > 0 && await atIs('High charge!F' + srcRow), `${await at()} want High charge!F${srcRow}`);
+    check('trace: the source tile shows the same case in the left bar', await ev(`window.__app.route().key === 'tile/units_after_alloc' && (document.getElementById('panel').innerText.match(/High charge/g) || []).length > 0`));
+    check('trace: on the source tile its own row lists its users', await lineIs(`F${srcRow} is Units after allocation. Used by units_amc, units_eop.`), await line());
+    await shot('trace-at-source' + SFX);
+    const stateRow = await rowNamed('units_bop');
+    await sel('E' + stateRow);
+    check('trace: a carried-forward row names the tile it is carried forward from', await lineIs(`E${stateRow} is Opening units, carried forward from units_eop in Unit projection (${await word('units_eop')}). Go to source`), await line());
+    await shot('trace-carried-forward' + SFX);
+    await sel('C' + stateRow);
+    check('trace: its first month is the starting value, with no source', await lineIs(`C${stateRow} is Opening units, the starting value of units_bop.`), await line());
+    await sel('F' + srcRow);
+    await ev(`document.getElementById('back').click()`);
+    check('trace: Back returns to the tile the reviewer was on', await waitFor(`location.hash === '#/tile/units_amc'`), await ev('location.hash'));
+    await settleGrid();
+    check('trace: Back restores the sheet and the cell that were selected', await atIs('High charge!F9'), await at());
+    check('trace: and the line shows again', await lineIs(upstream.replace('D9', 'F9') + ' Go to source'), await line());
+    await ev(`document.getElementById('forward').click()`); await waitFor(`location.hash === '#/tile/units_after_alloc'`); await settleGrid();
+    check('trace: Forward goes to the source cell again', await atIs('High charge!F' + srcRow), await at());
+    await ev(`document.getElementById('back').click()`); await waitFor(`location.hash === '#/tile/units_amc'`); await settleGrid();
+
+    // the keyboard: Ctrl+[ (Cmd+[ on macOS), Excel's "go to precedents", with the focus in the spreadsheet
+    await atIs('High charge!F9'); await lineIs(upstream.replace('D9', 'F9') + ' Go to source');
+    await sel('K9'); await lineIs(upstream.replace('D9', 'K9') + ' Go to source');
+    win.webContents.focus(); await ev(`document.querySelector('#gridhost iframe').contentWindow.focus(); true`);
+    const mod = process.platform === 'darwin' ? 'meta' : 'control';
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: '[', modifiers: [mod] }); win.webContents.sendInputEvent({ type: 'keyUp', keyCode: '[', modifiers: [mod] });
+    check('trace: Ctrl+[ / Cmd+[ goes to the source', await waitFor(`location.hash === '#/tile/units_after_alloc'`, 6000), await ev('location.hash'));
+    await settleGrid();
+    check('trace: the shortcut lands on the same month too', await atIs('High charge!K' + srcRow), await at());
+    check('trace: the bars did not move (their accelerators are now with Shift)', await ev(`!document.getElementById('left').classList.contains('collapsed') && !document.getElementById('rightbar').classList.contains('collapsed')`) && menuItem('showLeftBar').accelerator === 'CmdOrCtrl+Shift+[' && menuItem('showRightBar').accelerator === 'CmdOrCtrl+Shift+]');
+    await sel('C' + stateRow); await lineIs(`C${stateRow} is Opening units, the starting value of units_bop.`);
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: '[', modifiers: [mod] }); win.webContents.sendInputEvent({ type: 'keyUp', keyCode: '[', modifiers: [mod] });
+    await sleep(700);
+    check('trace: the shortcut does nothing when the line offers no source', (await ev('location.hash')) === '#/tile/units_after_alloc' && (await at()) === 'High charge!C' + stateRow, await at());
+
+    // the reverse direction: a "Used by" link opens that tile where this quantity comes in
+    await go('#/tile/units_amc'); await settleGrid();
+    await sel('G11', 'Zero premium');
+    await lineIs(`G11 is AMC units. Used by ${users}.`);
+    await ev(`document.querySelector('#tracebar a.traceuse[data-tile="units_eop"]').click()`);
+    check('trace: a Used by link opens that tile', await waitFor(`location.hash === '#/tile/units_eop'`), await ev('location.hash'));
+    await settleGrid();
+    const inRow = await rowNamed('units_amc');
+    check('trace: on the same case and month, in the row where the quantity is an input', inRow > 0 && await atIs('Zero premium!G' + inRow), `${await at()} want Zero premium!G${inRow}`);
+    check('trace: and that row says where it comes from', await lineIs(`G${inRow} is AMC units, from units_amc in Unit projection (${await word('units_amc')}). Go to source`), await line());
+    // through a carried-forward state the user reads the value a month later
+    await go('#/tile/units_eop'); await settleGrid();
+    const eopRow = await rowNamed('units_eop');
+    await sel('G' + eopRow, 'Base');
+    const eopUsers = FULL ? 'fund_value_eop, units_after_alloc (next month)' : 'units_after_alloc (next month)';
+    check('trace: a tile carried forward lists its next-month user', await lineIs(`G${eopRow} is Closing units. Used by ${eopUsers}.`), await line());
+    await ev(`document.querySelector('#tracebar a.traceuse[data-tile="units_after_alloc"]').click()`);
+    await waitFor(`location.hash === '#/tile/units_after_alloc'`); await settleGrid();
+    check('trace: and the link lands on the state row, one month on', await atIs('Base!H' + stateRow), await at());
+
+    // only one line at a time: the other lines come first
+    await go('#/tile/units_amc'); await settleGrid();
+    await sel('D9', 'Base'); await lineIs(upstream + ' Go to source');
+    await gc(`async g => g.execute('cell.set', { cell: 'T2', input: 'not saved' })`);
+    check('trace: the "changes are not saved" line takes the place of the trace line', await waitFor(`!document.getElementById('sheetbar').hidden && document.getElementById('tracebar').hidden`, 5000), await line());
+    await go('#/model'); await go('#/tile/units_amc'); await settleGrid();   // leaving the tile drops the unsaved edit and its line
+    await sel('D9', 'Base');
+    check('trace: and it comes back when that line has gone', await waitFor(`document.getElementById('sheetbar').hidden`, 5000) && await lineIs(upstream + ' Go to source'), await line());
+    await ev(`window.__app.setCentre('code')`); await sleep(300);
+    check('trace: no line while the Code pane is in front', await ev(`document.getElementById('tracebar').hidden`));
+    await ev(`window.__app.setCentre('spreadsheet')`); await sleep(300);
+    if (FULL) {
+      await sel('G11'); await lineIs(`G11 is AMC units. Used by ${users}.`);
+      await ev(`document.querySelector('#tracebar a.traceuse[data-tile="amc_income"]').click()`);
+      await waitFor(`location.hash === '#/tile/amc_income'`); await settleGrid();
+      const r = await rowNamed('units_amc');
+      check('trace: a link to a tile whose workbook is out of date still lands on the cell', r > 0 && await atIs('Base!G' + r), await at());
+      check('trace: but there the "out of date" line has the bar, not the trace line', await ev(`!document.getElementById('stalebar').hidden && document.getElementById('tracebar').hidden`));
+    }
+
+    // a module sheet: a carried-forward row whose source is on the same sheet goes there without leaving the view
+    await go('#/module/unit_projection'); await ev(`window.__app.setCentre('spreadsheet')`); await settleGrid();   // an earlier set may have left Code in front at this level
+    const mState = await rowNamed('units_bop'), mEop = await rowNamed('units_eop'), mPrem = await rowNamed('premium');
+    await sel('E' + mPrem, 'Base');
+    check('trace: an input series row on a module sheet says what it is, without a button', await lineIs(`E${mPrem} is Premium, the input premium.`) && !(await ev(`!!document.getElementById('gotosource')`)), await line());
+    await sel('E' + mState);
+    check('trace: module sheet, carried-forward row', await lineIs(`E${mState} is Opening units, carried forward from units_eop in Unit projection (${await word('units_eop')}). Go to source`), await line());
+    await ev(`document.getElementById('gotosource').click()`);
+    check('trace: its source is the month before, on the same sheet; the view does not change', await atIs('Base!D' + mEop) && (await ev('location.hash')) === '#/module/unit_projection', await at());
+    await ev(`document.getElementById('back').click()`);
+    check('trace: Back returns to the cell on the module sheet', await atIs('Base!E' + mState) && (await ev('location.hash')) === '#/module/unit_projection', await at());
+
+    // the model workbook: a green link row goes to the sheet it links to, inside the same workbook
+    await go('#/model'); await ev(`window.__app.setCentre('spreadsheet')`); await settleGrid();   // an earlier set may have left Code in front at this level
+    check('trace: the model workbook has its sheets', (await sheets()).includes('Inputs') && (await sheets()).includes('Unit projection'), JSON.stringify(await sheets()));
+    await sel('A1', 'Unit projection');
+    const linkRow = await rowNamed('premium');
+    await sel('E' + linkRow);
+    check('trace: model workbook, a link row to Inputs', await lineIs(`E${linkRow} is Premium, the input premium, from the Inputs sheet. Go to source`), await line());
+    await shot('trace-model-link' + SFX);
+    await ev(`document.getElementById('gotosource').click()`);
+    await waitFor(`(async()=>{const d=await document.querySelector('#gridhost iframe').contentWindow.gridcraft.docInspect(); return d.sheets[d.activeSheet].name==='Inputs'})()`, 5000);
+    const inputsRow = await rowNamed('premium');
+    check('trace: Go to source activates the Inputs sheet of the same workbook at the same month, without leaving the model view', inputsRow > 0 && await atIs('Inputs!E' + inputsRow) && (await ev('location.hash')) === '#/model', await at());
+    check('trace: on Inputs the row is a true input', await lineIs(`E${inputsRow} is Premium, the input premium.`), await line());
+    await shot('trace-model-inputs' + SFX);
+    await ev(`document.getElementById('back').click()`);
+    check('trace: Back returns to the link row on the module sheet', await atIs('Unit projection!E' + linkRow) && (await ev('location.hash')) === '#/model', await at());
+    const ownRow = await rowNamed('units_amc');
+    await sel('E' + ownRow);
+    check('trace: a module\'s own row on the model workbook lists its users', await lineIs(`E${ownRow} is AMC units. Used by ${users}.`), await line());
+    if (FULL) {
+      await sel('A1', 'Cashflows');
+      const cRow = await rowNamed('units_eop');
+      await sel('F' + cRow);
+      check('trace: model workbook, a link row to another module', await lineIs(`F${cRow} is Closing units, from units_eop in Unit projection (${await word('units_eop')}). Go to source`), await line());
+      await shot('trace-model-cross-tab' + SFX);
+      await ev(`document.getElementById('gotosource').click()`);
+      await waitFor(`(async()=>{const d=await document.querySelector('#gridhost iframe').contentWindow.gridcraft.docInspect(); return d.sheets[d.activeSheet].name==='Unit projection'})()`, 5000);
+      const homeRow = await rowNamed('units_eop');
+      check('trace: Go to source activates the source module\'s sheet at the corresponding cell', homeRow > 0 && await atIs('Unit projection!F' + homeRow) && (await ev('location.hash')) === '#/model', await at());
+      await ev(`document.getElementById('back').click()`);
+      check('trace: Back returns to the Cashflows sheet', await atIs('Cashflows!F' + cRow), await at());
+      await sel('E' + ownRow, 'Unit projection'); await lineIs(`E${ownRow} is AMC units. Used by ${users}.`);
+      await ev(`document.querySelector('#tracebar a.traceuse[data-tile="units_eop"]').click()`);
+      await waitFor(`location.hash === '#/tile/units_eop'`); await settleGrid();
+      check('trace: a Used by link from the model workbook opens the tile on the model\'s case', await atIs('Base!E' + await rowNamed('units_amc')), await at());
+    }
+    await go('#/model');
+  }
+
   check('app ready', await waitFor('window.__app && window.__app.ready', 20000));
   check('gridcraft:ready', await waitFor('window.__gridLog.ready >= 1', 20000), 'no ready');
 
-  if (FULL) { await fullSet(); await layoutSet('gross_profit', 'allocation_margin', 'fund_value_eop'); await centreSet('gross_profit', 'allocation_margin'); await chatSet('gross_profit', 'cashflows', 'Cashflows'); await chatMore('gross_profit'); await newModelSet(); await emptyModelSet(); return finish(0); }
+  if (process.env.SMOKE_ONLY === 'trace') { await traceSet(); return finish(0); }   // for working on one set
+  if (FULL) { await fullSet(); await layoutSet('gross_profit', 'allocation_margin', 'fund_value_eop'); await centreSet('gross_profit', 'allocation_margin'); await chatSet('gross_profit', 'cashflows', 'Cashflows'); await chatMore('gross_profit'); await traceSet(); await newModelSet(); await emptyModelSet(); return finish(0); }
 
   // model
   await go('#/model');
@@ -740,6 +919,7 @@ const check = (name, ok, detail) => { summary.checks.push({ name, ok: !!ok, ...(
   await centreSet('units_amc', 'units_eop');
   await chatSet('units_amc', 'unit_projection', 'Unit projection');
   await chatMore('units_amc');
+  await traceSet();
   await newModelSet();
   await emptyModelSet();
 

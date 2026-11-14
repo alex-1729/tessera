@@ -1,0 +1,3 @@
+/* The trace line above the spreadsheet (trace.js): the same bar and look as the other lines. */
+#tracebar { overflow-wrap: anywhere; }
+#tracebar button { margin: 0 0 0 8px; padding: 1px 10px; font-size: 12px; }
