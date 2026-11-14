@@ -75,6 +75,11 @@ def cmd_status(args):
     return status_json(load_model(args.model))
 
 
+def cmd_queue(args):
+    from tilekit.review import queue_json
+    return queue_json(load_model(args.model))
+
+
 def cmd_signoff(args):
     from tilekit.review import signoff
     return signoff(load_model(args.model), tile=args.tile, module=args.module, whole_model=args.whole_model,
@@ -222,6 +227,7 @@ COMMANDS = {
     "check": (cmd_check, no_options, "Rule violations per tile"),
     "build": (cmd_build, build_options, "(Re)build stored workbooks"),
     "status": (cmd_status, no_options, "Review state of every tile, module and the model"),
+    "queue": (cmd_queue, no_options, "Everything that still needs review, upstream first"),
     "signoff": (cmd_signoff, signoff_options, "Record a sign-off"),
     "reconfirm": (cmd_reconfirm, reconfirm_options, "Bulk re-confirm tiles with values-only drift"),
     "export": (cmd_export, export_options, "Copy the model workbook out"),

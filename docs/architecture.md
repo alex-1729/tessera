@@ -178,6 +178,7 @@ Run from the repo root as `uv run --project tilekit tilekit <command> --model mo
 | `build [--tile T \| --module M \| --whole-model] [--case ID] [--force]` | (Re)build stored workbooks. With no target, builds every tile (except `not_built` ones), module and the default-case model workbook that is unbuilt, stale or changed outside a build. `--case` picks the model workbook's case |
 | `build --run RUN --policy ID [--tile T \| --module M \| --whole-model]` | Workbooks for one real policy under `real-data/` (model workbook when no target) |
 | `status` | Review state of every tile, module and the model |
+| `queue` | Everything that still needs review, upstream first |
 | `signoff (--tile T \| --module M \| --whole-model) --reviewer NAME [--comment TEXT] [--values-only REASON]` | Record a sign-off. `--values-only` is the acknowledgement a values-only tile needs; refused for any other target |
 | `reconfirm --reviewer NAME [--module M] [--comment TEXT]` | Bulk re-confirm tiles with values-only drift whose checks pass |
 | `export --out FILE [--case ID]` | Copy a model workbook out |
@@ -299,6 +300,28 @@ A tile can be signed off only when its workbook is built, current and unedited, 
 - `near_ties` is `{case: [{"comparison", "month"}]}` from the stored sidecar.
 - Module checks: "Sheet agrees with Python", "Tile formulas match the tile workbooks" (values-only and not-built tiles excluded), "Every tile signed off", "No rule violations". Model checks: "Workbook agrees with Python", "Every module signed off", "No rule violations", then the cached model-test checks (one per `test_invariants*` test and "Model tests pass (P of T)"; all marked `"stale": true` and failing when the cache's model stamp is out of date).
 - Blockers, as written: "The tile's workbook has not been built; build it first." / "… is out of date; rebuild it first." / "The stored workbook was changed outside a build. Rebuild it." / "The difference check fails in case X (largest difference D)." / "Rule violation (rule) at line N: message" / "No case takes the branch 'L'; add a case that does." / "A comparison is within rounding of a tie in case X, month N: Excel and Python may take different branches." / "This tile cannot be written as an Excel formula. Sign-off needs a values-only acknowledgement." / "This tile has not been built yet." Modules and the model add failed checks, near-ties of their tiles (prefixed with the tile name), pending sign-offs, rule-violation counts, failed model-test checks and, for the model, "The model workbook shows case 'X', not the default case 'Y'; rebuild it first."
+
+### `queue` output
+
+```json
+{"items": [{"level": "tile", "id": "units_amc", "module": "unit_projection", "module_title": "Unit projection",
+            "label": "AMC units", "kind": "values_drift",
+            "reason": "Only upstream values changed since sign-off: rebuild and re-confirm.",
+            "reasons": [{"kind": "values_drift", "text": "…"}], "reconfirm": "after_rebuild"}],
+ "counts": {"total": 1, "tiles": 1, "modules": 0, "model": 0,
+            "kinds": {"not_signed_off": 0, "formula_drift": 0, "values_drift": 1, "new_case": 0, "unexercised_branch": 0},
+            "reconfirm": 1}}
+```
+
+The review queue is read from `status` and decides nothing again; it writes nothing. One item per tile, module (`level: "module"`, `id` the module id) or the model (`level: "model"`, `id` null) that is not in order. Order: modules left to right (`module_dependency_order`); inside a module its tiles in dependency order, then the module itself; the model last. `kind` is the main reason and `reasons` lists them all, in plain words:
+
+- `not_signed_off`: no sign-off has ever been recorded (whatever the state of its workbook).
+- `formula_drift`: stale with `formula` drift; needs a full review.
+- `values_drift`: stale with `values` drift.
+- `new_case`: signed off, with cases added since.
+- `unexercised_branch` (tiles only, always after one of the others): no case takes a branch, which blocks sign-off.
+
+A `not_built` tile is not an item. `reconfirm` (tiles with values drift only) is `"ready"` when `reconfirm` would re-sign the tile now, `"after_rebuild"` when the only thing in the way is an out-of-date workbook, otherwise null; it uses the same test as `reconfirm` itself. `counts.kinds` counts tiles having each reason.
 
 ### Real-data runs
 

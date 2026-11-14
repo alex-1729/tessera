@@ -549,6 +549,24 @@ def signoff(model, tile=None, module=None, whole_model=False, reviewer=None, com
     return {"signed_off": {"kind": kind, "name": name, "reviewer": reviewer.strip(), "at": at}, "status": new}
 
 
+def _reconfirm_skip(entry):
+    """Why `reconfirm` leaves this tile with values drift alone; None when it would re-sign it."""
+    if entry["formula"] != entry["signed_formula"]:
+        return "the formula has changed since sign-off; review it again"
+    if entry["values_only"]:
+        return "values-only tile; sign it off again with --values-only"
+    if not entry["workbook_current"]:
+        return "workbook needs a rebuild"
+    if not entry["can_sign_off"]:
+        return " ".join(entry["blockers"])
+    return None
+
+
+def _has_values_drift(entry):
+    """A signed-off tile that is stale only because values moved: the only kind `reconfirm` looks at."""
+    return entry["state"] == "stale" and entry["drift"] == "values" and entry["signed_off"] is not None
+
+
 def reconfirm(model, reviewer, module=None, comment=None):
     if not reviewer or not reviewer.strip():
         raise TilekitError("reconfirm needs --reviewer NAME")
@@ -560,20 +578,122 @@ def reconfirm(model, reviewer, module=None, comment=None):
     done, skipped = [], []
     for name in names:
         entry = status["tiles"][name]
-        if entry["state"] != "stale" or entry["drift"] != "values" or entry["signed_off"] is None:
+        if not _has_values_drift(entry):
             continue
-        if entry["formula"] != entry["signed_formula"]:
-            skipped.append({"name": name, "reason": "the formula has changed since sign-off; review it again"})
-        elif entry["values_only"]:
-            skipped.append({"name": name, "reason": "values-only tile; sign it off again with --values-only"})
-        elif not entry["workbook_current"]:
-            skipped.append({"name": name, "reason": "workbook needs a rebuild"})
-        elif not entry["can_sign_off"]:
-            skipped.append({"name": name, "reason": " ".join(entry["blockers"])})
+        reason = _reconfirm_skip(entry)
+        if reason:
+            skipped.append({"name": name, "reason": reason})
         else:
             _write_signoff(model, "tile", name, reviewer.strip(), comment or DEFAULT_RECONFIRM_COMMENT)
             done.append(name)
     return {"reconfirmed": done, "skipped": skipped}
+
+
+# ---------------------------------------------------------------- the review queue
+
+QUEUE_KINDS = ("not_signed_off", "formula_drift", "values_drift", "new_case", "unexercised_branch")
+
+
+def _new_case_text(new_cases, names):
+    listed = ", ".join(names.get(c, c) for c in new_cases)
+    return f"New {'cases' if len(new_cases) > 1 else 'case'} to review: {listed}."
+
+
+def _tile_reasons(entry, case_names):
+    """[(kind, plain sentence)] for one tile's status entry, the main reason first; empty when nothing is outstanding."""
+    state = entry["state"]
+    if state == "not_built":
+        return []  # a spec without an implementation: nothing to review yet
+    reasons = []
+    if entry["signed_off"] is None:
+        text = "Not signed off yet."
+        if state == "unbuilt":
+            text = "Not signed off yet, and its workbook has not been built."
+        elif state == "stale":
+            text = "Not signed off yet, and its workbook is out of date."
+        reasons.append(("not_signed_off", text))
+    elif state == "stale" and entry["drift"] == "values":
+        skip = _reconfirm_skip(entry)
+        if skip is None or skip == "workbook needs a rebuild":
+            text = "Only upstream values changed since sign-off: rebuild and re-confirm."
+        else:
+            text = "Upstream values changed since sign-off, and it needs a full review again."
+        reasons.append(("values_drift", text))
+    elif state == "stale":
+        reasons.append(("formula_drift", "Changed since sign-off: needs a full review again."))
+    elif state == "signed_off" and entry["new_cases"]:
+        reasons.append(("new_case", _new_case_text(entry["new_cases"], case_names)))
+    for label in entry["uncovered_branches"]:
+        reasons.append(("unexercised_branch", f"No case takes the branch '{label}', which blocks sign-off."))
+    return reasons
+
+
+def _group_reasons(entry, what, pending, parts, case_names):
+    """The same for a module or the model. `pending` counts its parts (tiles or modules) not yet signed off."""
+    state = entry["state"]
+    wait = f" {pending} of its {parts} still to sign off first." if pending else ""
+    if state == "signed_off":
+        return [("new_case", _new_case_text(entry["new_cases"], case_names))] if entry["new_cases"] else []
+    if entry["signed_off"] is None:
+        return [("not_signed_off", f"The {what} is not signed off yet.{wait}")]
+    kind = "formula_drift" if entry["drift"] == "formula" else "values_drift"
+    return [(kind, f"The {what} changed since its sign-off: sign it off again.{wait}")]
+
+
+def queue_json(model):
+    """The `tilekit queue` document: everything that still needs the reviewer, upstream first.
+
+    One item per tile, module or the model that is not in order. Modules run left to right (dependency
+    order); inside a module its tiles come in dependency order and then the module itself; the model is
+    last. Signing off in this order avoids reviewing anything twice. Everything here is read from
+    `compute_status`; nothing is decided again.
+    """
+    from tilekit.workbook import module_dependency_order
+    status = compute_status(model)
+    graph = model.graph
+    case_names = {c.id: c.name or c.id for c in load_cases(model)}
+    titles = {m.id: m.title for m in model.config.modules}
+    items = []
+
+    def add(level, ident, module_id, label, reasons, reconfirm=None):
+        if not reasons:
+            return
+        items.append({
+            "level": level, "id": ident, "module": module_id,
+            "module_title": titles.get(module_id) if module_id else None, "label": label,
+            "kind": reasons[0][0], "reason": " ".join(text for _, text in reasons),
+            "reasons": [{"kind": kind, "text": text} for kind, text in reasons],
+            "reconfirm": reconfirm,
+        })
+
+    for module_id in module_dependency_order(model):
+        if module_id not in status["modules"]:
+            continue  # a module without tiles has nothing to review
+        names = list(graph.modules[module_id].tiles)
+        for name in names:
+            entry = status["tiles"][name]
+            reconfirm = None
+            if _has_values_drift(entry):
+                skip = _reconfirm_skip(entry)
+                reconfirm = "ready" if skip is None else "after_rebuild" if skip == "workbook needs a rebuild" else None
+            add("tile", name, module_id, graph.tiles[name].doc.label, _tile_reasons(entry, case_names), reconfirm)
+        pending = sum(status["tiles"][n]["state"] != "signed_off" for n in names)
+        add("module", module_id, module_id, titles.get(module_id),
+            _group_reasons(status["modules"][module_id], "module", pending, "tiles", case_names))
+    pending = sum(m["state"] != "signed_off" for m in status["modules"].values())
+    add("model", None, None, model.config.name,
+        _group_reasons(status["model"], "model", pending, "modules", case_names))
+
+    tiles = [i for i in items if i["level"] == "tile"]
+    return {
+        "items": items,
+        "counts": {
+            "total": len(items), "tiles": len(tiles),
+            "modules": sum(i["level"] == "module" for i in items), "model": sum(i["level"] == "model" for i in items),
+            "kinds": {k: sum(any(r["kind"] == k for r in i["reasons"]) for i in tiles) for k in QUEUE_KINDS},
+            "reconfirm": sum(i["reconfirm"] is not None for i in tiles),
+        },
+    }
 
 
 # ---------------------------------------------------------------- regression check against expected.json
