@@ -1,0 +1,66 @@
+{
+  "kind": "tile",
+  "name": "pv_premium",
+  "module": "profit",
+  "built_at": "2026-11-14T10:32:01+00:00",
+  "stamp": {
+    "code": "68d5b68de29a38446d0b1af11fb6701ae547808d1d38a8e555844f89737e12db",
+    "spec": "fa6691e6235623495db468c56dd3abce83666ad500d3672a0c9704bc8667cb6a",
+    "upstream": "7f9f3c3557cc30286f171744a0d1b5b5e044d08501f163a3f78bd3f7685296d8",
+    "cases": "a42493b46f4e2e1d7ec9309bfd93f977df0cf13535b4eaf45c63ac35f8dc13dc",
+    "params": "05fab2750280bae719ccdeae45603fce740d04232cbcda23e56fa79d7c849932",
+    "translator": "7b0b6232790fd2c96c1ceb6d79634cd6d2ecd2a2e6c2f527ca64ec6b8907cd9a"
+  },
+  "workbook": "workbook.xlsx",
+  "formula": "=SUMPRODUCT({premium_income},{discount_factor})",
+  "translatable": true,
+  "untranslatable_reason": null,
+  "branch_labels": [],
+  "tolerance": 1e-09,
+  "relative_tolerance": 1e-12,
+  "max_abs_difference": 7.275957614183426e-12,
+  "checks_pass": true,
+  "cases": {
+    "base": {
+      "sheet": "Base",
+      "max_abs_difference": 3.637978807091713e-12,
+      "checks_pass": true,
+      "branches": {},
+      "near_ties": []
+    },
+    "fund_overtakes": {
+      "sheet": "Fund overtakes",
+      "max_abs_difference": 3.637978807091713e-12,
+      "checks_pass": true,
+      "branches": {},
+      "near_ties": []
+    },
+    "high_charge": {
+      "sheet": "High charge",
+      "max_abs_difference": 3.637978807091713e-12,
+      "checks_pass": true,
+      "branches": {},
+      "near_ties": []
+    },
+    "older_short_term": {
+      "sheet": "Older, short term",
+      "max_abs_difference": 7.275957614183426e-12,
+      "checks_pass": true,
+      "branches": {},
+      "near_ties": []
+    },
+    "zero_premium": {
+      "sheet": "Zero premium",
+      "max_abs_difference": 0.0,
+      "checks_pass": true,
+      "branches": {},
+      "near_ties": []
+    }
+  },
+  "near_ties": {},
+  "content_digest": "f448b6e3bc3a46ecbd5999346d391b115e27f90a30277d57168e2eea714abd5d",
+  "content_stat": {
+    "mtime_ns": 1794652321649269917,
+    "size": 40122
+  }
+}

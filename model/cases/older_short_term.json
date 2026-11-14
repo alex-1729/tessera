@@ -1,0 +1,7 @@
+{
+  "id": "older_short_term",
+  "name": "Older, short term",
+  "purpose": "An entrant aged 60 paying 500 a month for five years only, so mortality is heavy and premium stops half way.",
+  "model_point": {"premium_pm": 500.0, "premium_months": 60, "age_at_entry": 60, "sum_assured": 40000.0},
+  "params": {}
+}

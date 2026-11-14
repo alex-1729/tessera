@@ -1,0 +1,66 @@
+{
+  "kind": "tile",
+  "name": "reinsurance_premium",
+  "module": "quota_share",
+  "built_at": "2026-11-14T10:32:01+00:00",
+  "stamp": {
+    "code": "536cf0595dad8a5e04f9106a9c9da963c798b5687355c688e1124555775d7f6c",
+    "spec": "2dc05703097f6c5ce0ab86abfd10ebf32f55a4b35a6a2089bbe32ce26f8312ba",
+    "upstream": "058e5acd91111436781fac28cf1551bb9f689621e89713ffa00cbc627f768770",
+    "cases": "a42493b46f4e2e1d7ec9309bfd93f977df0cf13535b4eaf45c63ac35f8dc13dc",
+    "params": "05fab2750280bae719ccdeae45603fce740d04232cbcda23e56fa79d7c849932",
+    "translator": "7b0b6232790fd2c96c1ceb6d79634cd6d2ecd2a2e6c2f527ca64ec6b8907cd9a"
+  },
+  "workbook": "workbook.xlsx",
+  "formula": "=-{sum_at_risk}*{in_force_bop}*{mort_rate_pm}*quota_share*(1+reinsurance_loading)",
+  "translatable": true,
+  "untranslatable_reason": null,
+  "branch_labels": [],
+  "tolerance": 1e-09,
+  "relative_tolerance": 1e-12,
+  "max_abs_difference": 0.0,
+  "checks_pass": true,
+  "cases": {
+    "base": {
+      "sheet": "Base",
+      "max_abs_difference": 0.0,
+      "checks_pass": true,
+      "branches": {},
+      "near_ties": []
+    },
+    "fund_overtakes": {
+      "sheet": "Fund overtakes",
+      "max_abs_difference": 0.0,
+      "checks_pass": true,
+      "branches": {},
+      "near_ties": []
+    },
+    "high_charge": {
+      "sheet": "High charge",
+      "max_abs_difference": 0.0,
+      "checks_pass": true,
+      "branches": {},
+      "near_ties": []
+    },
+    "older_short_term": {
+      "sheet": "Older, short term",
+      "max_abs_difference": 0.0,
+      "checks_pass": true,
+      "branches": {},
+      "near_ties": []
+    },
+    "zero_premium": {
+      "sheet": "Zero premium",
+      "max_abs_difference": 0.0,
+      "checks_pass": true,
+      "branches": {},
+      "near_ties": []
+    }
+  },
+  "near_ties": {},
+  "content_digest": "0e741469fb4e622bba0921dacbb6c58b8b142e068371aaf6ce523bb80369aca8",
+  "content_stat": {
+    "mtime_ns": 1794652321411094309,
+    "size": 65956
+  }
+}

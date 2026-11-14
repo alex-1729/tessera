@@ -1,0 +1,56 @@
+{
+ "sample": "Units after allocation 1,234.5678",
+ "size_pt": 14,
+ "gridcraft_prebuilt_ink": {
+  "default": {
+   "device_px": 432,
+   "css_px": 216
+  },
+  "Calibri": {
+   "device_px": 429,
+   "css_px": 214.5
+  },
+  "Arial": {
+   "device_px": 429,
+   "css_px": 214.5
+  },
+  "Open Sans": {
+   "device_px": 429,
+   "css_px": 214.5
+  },
+  "Times New Roman": {
+   "device_px": 429,
+   "css_px": 214.5
+  },
+  "Ubuntu": {
+   "device_px": 429,
+   "css_px": 214.5
+  },
+  "Open Sans bold": {
+   "device_px": 429,
+   "css_px": 214.5
+  },
+  "Calibri bold": {
+   "device_px": 429,
+   "css_px": 214.5
+  }
+ },
+ "chromium_reference": {
+  "Open Sans": {
+   "advance_css_px": 280.7,
+   "ink_css_px": 278
+  },
+  "Open Sans bold": {
+   "advance_css_px": 298.8,
+   "ink_css_px": 296.5
+  },
+  "Arial (macOS)": {
+   "advance_css_px": 267.6,
+   "ink_css_px": 265.3
+  },
+  "Arial bold (macOS)": {
+   "advance_css_px": 283.1,
+   "ink_css_px": 281
+  }
+ }
+}

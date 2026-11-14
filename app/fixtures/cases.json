@@ -1,0 +1,39 @@
+{
+  "cases": [
+    {
+      "id": "base",
+      "name": "Base",
+      "purpose": "A typical regular-premium policy paying 250 a month for the full ten years.",
+      "model_point": {
+        "premium_pm": 250,
+        "premium_months": 120
+      },
+      "params": {},
+      "file": "cases/base.json"
+    },
+    {
+      "id": "zero_premium",
+      "name": "Zero premium",
+      "purpose": "No premium is paid, so no units are bought and no charge is taken.",
+      "model_point": {
+        "premium_pm": 0,
+        "premium_months": 120
+      },
+      "params": {},
+      "file": "cases/zero_premium.json"
+    },
+    {
+      "id": "high_charge",
+      "name": "High charge",
+      "purpose": "A management charge of 0.2% a month, high enough that the unit cap bites in later months.",
+      "model_point": {
+        "premium_pm": 250,
+        "premium_months": 120
+      },
+      "params": {
+        "amc_pm": 0.002
+      },
+      "file": "cases/high_charge.json"
+    }
+  ]
+}

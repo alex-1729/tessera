@@ -1,0 +1,7 @@
+{
+  "id": "fund_overtakes",
+  "name": "Fund overtakes",
+  "purpose": "A low sum assured of 12,000 that the fund overtakes in year four, after which there is no sum at risk.",
+  "model_point": {"premium_pm": 250.0, "premium_months": 120, "age_at_entry": 30, "sum_assured": 12000.0},
+  "params": {}
+}

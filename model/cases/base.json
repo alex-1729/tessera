@@ -1,0 +1,7 @@
+{
+  "id": "base",
+  "name": "Base",
+  "purpose": "A typical regular-premium policy: 250 a month for ten years, age 40, sum assured 50,000 (the sum at risk stays positive).",
+  "model_point": {"premium_pm": 250.0, "premium_months": 120, "age_at_entry": 40, "sum_assured": 50000.0},
+  "params": {}
+}

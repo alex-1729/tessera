@@ -1,0 +1,74 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Host</title>
+<style>
+html,body{margin:0;height:100%;font:14px system-ui}
+#app{display:flex;height:100vh}
+#left{width:420px;padding:16px;background:#eef;box-sizing:border-box}
+#right{flex:1;position:relative;background:#fff}
+#gc{width:100%;height:100%;border:0;display:block}
+#gridcraft_canvas{width:100%;height:100%;display:block}
+</style></head><body>
+<div id="app"><div id="left"><h2>Actuarial app (left pane)</h2><p>Placeholder for app UI.</p><div id="status">booting</div><p><input id="leftinput" placeholder="left pane input" style="width:300px"></p></div>
+<div id="right" id="rightpane"></div></div>
+<script type="module">
+const q = new URLSearchParams(location.search);
+const mode = q.get('mode') || 'iframe';
+const chrome = q.get('chrome') || 'none';
+const t0 = performance.now();
+const H = window.H = { mode, events: [], saves: [], dirtyLog: [], errors: [], readyAt: null, ready: null, t0 };
+let readyRes; H.ready = new Promise(r => readyRes = r);
+const right = document.getElementById('right');
+const glue = await fetch('/gridcraft-glue.json').then(r => r.json());
+window.addEventListener('error', e => H.errors.push('window.error: ' + e.message));
+window.addEventListener('unhandledrejection', e => H.errors.push('unhandledrejection: ' + (e.reason && e.reason.message || e.reason)));
+function onMsg(type, d) {
+  H.events.push({ type, t: performance.now() - t0, ...(type === 'gridcraft:save' ? { name: d.name, len: d.bytes.byteLength } : d) });
+  if (type === 'gridcraft:ready') { H.readyAt = performance.now() - t0; H.readyDetail = d; readyRes(d); }
+  if (type === 'gridcraft:save') H.saves.push({ name: d.name, bytes: new Uint8Array(d.bytes) });
+  if (type === 'gridcraft:dirty') H.dirtyLog.push({ dirty: d.dirty, t: performance.now() });
+  if (type === 'gridcraft:failed') H.errors.push('gridcraft:failed ' + d.error);
+}
+if (mode === 'iframe') {
+  window.addEventListener('message', e => { if (e.data && typeof e.data.type === 'string' && e.data.type.startsWith('gridcraft:')) onMsg(e.data.type, e.data); });
+  const f = document.createElement('iframe'); f.id = 'gc';
+  f.allow = 'fullscreen; clipboard-read; clipboard-write';
+  f.src = `/gridcraft/?host=parent&author=Spike` + (chrome !== 'default' ? '&chrome=' + chrome : '');
+  right.appendChild(f);
+  H.frame = f;
+  H.gc = () => f.contentWindow.gridcraft;
+  H.canvas = () => f.contentDocument.getElementById('gridcraft_canvas');
+  H.open = (name, bytes) => f.contentWindow.postMessage({ type: 'gridcraft:open', name, bytes }, '*');
+  H.nudgeTarget = () => f.contentWindow;
+} else {
+  const c = document.createElement('canvas'); c.id = 'gridcraft_canvas'; c.dataset.host = 'page';
+  right.appendChild(c);
+  for (const t of ['ready','save','dirty','failed']) c.addEventListener('gridcraft:' + t, e => onMsg('gridcraft:' + t, e.detail));
+  H.gc = () => window.gridcraft;
+  H.canvas = () => c;
+  H.open = (name, bytes) => c.dispatchEvent(new CustomEvent('gridcraft:open', { detail: { name, bytes } }));
+  H.nudgeTarget = () => window;
+  const mod = await import('/gridcraft/' + glue.js);
+  H.initStart = performance.now() - t0;
+  mod.default({ module_or_path: '/gridcraft/' + glue.wasm }).then(() => { H.initDone = performance.now() - t0; }).catch(e => H.errors.push('init: ' + e));
+}
+document.getElementById('status').textContent = mode + ' ' + chrome;
+
+H.stats = a => { const s = [...a].sort((x, y) => x - y); return { n: s.length, min: +s[0].toFixed(1), median: +s[s.length >> 1].toFixed(1), max: +s[s.length - 1].toFixed(1), mean: +(a.reduce((x, y) => x + y, 0) / a.length).toFixed(1) }; };
+// nudge strategies applied before/around a call
+H.nudges = {
+  none: () => {},
+  mousemove: () => { const c = H.canvas(); const r = c.getBoundingClientRect(); c.dispatchEvent(new MouseEvent('mousemove', { clientX: r.left + 50, clientY: r.top + 50, bubbles: true })); },
+  resize: () => { H.nudgeTarget().dispatchEvent(new Event('resize')); },
+  both: () => { H.nudges.mousemove(); H.nudges.resize(); },
+};
+H.bench = async (n, nudge = 'none', method = 'sheet.read') => {
+  const gc = H.gc(); const ts = [];
+  for (let i = 0; i < n; i++) {
+    const s = performance.now();
+    H.nudges[nudge]();
+    if (method === 'sheet.read') await gc.execute('sheet.read', { range: 'A1:B2' });
+    else if (method === 'noop') await gc.request('docInspect', {});
+    ts.push(performance.now() - s);
+  }
+  return { ...H.stats(ts), all: ts.map(x => Math.round(x)) };
+};
+</script></body></html>

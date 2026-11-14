@@ -1,0 +1,66 @@
+{
+  "kind": "tile",
+  "name": "in_force_eop",
+  "module": "decrements",
+  "built_at": "2026-11-14T10:32:00+00:00",
+  "stamp": {
+    "code": "c61ba52ed7e7cde2a2a91fc03b26bebd2e1039ada9e4e791b2decb1914e147b2",
+    "spec": "6917a81acc2be1f68c546a71677fe5e9fc04e87fa444c7d2f64ff5f11d19ec1f",
+    "upstream": "6d840b211ea3db84377c1cb29f5719722f77435eceb38b9f18bab5bdb52a638a",
+    "cases": "a42493b46f4e2e1d7ec9309bfd93f977df0cf13535b4eaf45c63ac35f8dc13dc",
+    "params": "05fab2750280bae719ccdeae45603fce740d04232cbcda23e56fa79d7c849932",
+    "translator": "7b0b6232790fd2c96c1ceb6d79634cd6d2ecd2a2e6c2f527ca64ec6b8907cd9a"
+  },
+  "workbook": "workbook.xlsx",
+  "formula": "={in_force_bop}-{deaths}-{lapses}",
+  "translatable": true,
+  "untranslatable_reason": null,
+  "branch_labels": [],
+  "tolerance": 1e-09,
+  "relative_tolerance": 1e-12,
+  "max_abs_difference": 0.0,
+  "checks_pass": true,
+  "cases": {
+    "base": {
+      "sheet": "Base",
+      "max_abs_difference": 0.0,
+      "checks_pass": true,
+      "branches": {},
+      "near_ties": []
+    },
+    "fund_overtakes": {
+      "sheet": "Fund overtakes",
+      "max_abs_difference": 0.0,
+      "checks_pass": true,
+      "branches": {},
+      "near_ties": []
+    },
+    "high_charge": {
+      "sheet": "High charge",
+      "max_abs_difference": 0.0,
+      "checks_pass": true,
+      "branches": {},
+      "near_ties": []
+    },
+    "older_short_term": {
+      "sheet": "Older, short term",
+      "max_abs_difference": 0.0,
+      "checks_pass": true,
+      "branches": {},
+      "near_ties": []
+    },
+    "zero_premium": {
+      "sheet": "Zero premium",
+      "max_abs_difference": 0.0,
+      "checks_pass": true,
+      "branches": {},
+      "near_ties": []
+    }
+  },
+  "near_ties": {},
+  "content_digest": "c95272c8211aa2deaf98bce25529b49ad980221ab67148f4f35b5397b83927f4",
+  "content_stat": {
+    "mtime_ns": 1794652320250386226,
+    "size": 63547
+  }
+}

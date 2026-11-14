@@ -1,0 +1,66 @@
+{
+  "kind": "tile",
+  "name": "acquisition_expense",
+  "module": "cashflows",
+  "built_at": "2026-11-14T10:32:00+00:00",
+  "stamp": {
+    "code": "84b55ef95f7846565844d41073a8fb2f551083c7cca0277741379acd1daec8d2",
+    "spec": "24e171ae51eedcce415112724a00682ae721883056d90b732f116a6371757df2",
+    "upstream": "2cab1b6e8865e274d97185b69ba9b1f15da737a649e4f7d1b6198e8020c349dd",
+    "cases": "a42493b46f4e2e1d7ec9309bfd93f977df0cf13535b4eaf45c63ac35f8dc13dc",
+    "params": "05fab2750280bae719ccdeae45603fce740d04232cbcda23e56fa79d7c849932",
+    "translator": "7b0b6232790fd2c96c1ceb6d79634cd6d2ecd2a2e6c2f527ca64ec6b8907cd9a"
+  },
+  "workbook": "workbook.xlsx",
+  "formula": "=-{acquisition_cost_paid}*{in_force_bop}",
+  "translatable": true,
+  "untranslatable_reason": null,
+  "branch_labels": [],
+  "tolerance": 1e-09,
+  "relative_tolerance": 1e-12,
+  "max_abs_difference": 0.0,
+  "checks_pass": true,
+  "cases": {
+    "base": {
+      "sheet": "Base",
+      "max_abs_difference": 0.0,
+      "checks_pass": true,
+      "branches": {},
+      "near_ties": []
+    },
+    "fund_overtakes": {
+      "sheet": "Fund overtakes",
+      "max_abs_difference": 0.0,
+      "checks_pass": true,
+      "branches": {},
+      "near_ties": []
+    },
+    "high_charge": {
+      "sheet": "High charge",
+      "max_abs_difference": 0.0,
+      "checks_pass": true,
+      "branches": {},
+      "near_ties": []
+    },
+    "older_short_term": {
+      "sheet": "Older, short term",
+      "max_abs_difference": 0.0,
+      "checks_pass": true,
+      "branches": {},
+      "near_ties": []
+    },
+    "zero_premium": {
+      "sheet": "Zero premium",
+      "max_abs_difference": 0.0,
+      "checks_pass": true,
+      "branches": {},
+      "near_ties": []
+    }
+  },
+  "near_ties": {},
+  "content_digest": "85220b753c1785a5a944adcb933e080700cc4bf50cbaddde4d3a9dbb03dc873c",
+  "content_stat": {
+    "mtime_ns": 1794652320797474770,
+    "size": 44633
+  }
+}

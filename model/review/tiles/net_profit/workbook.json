@@ -1,0 +1,66 @@
+{
+  "kind": "tile",
+  "name": "net_profit",
+  "module": "quota_share",
+  "built_at": "2026-11-14T10:32:01+00:00",
+  "stamp": {
+    "code": "867613b91df4b879ac090d27c31eccdf87882a79f89368c51f9153dd8b29f846",
+    "spec": "08fb0067dd0000eb33d3419205bc7db54662255849d1e4e85335d95a05e79c8e",
+    "upstream": "bee276c66dc923a47fc16620c9d1b44fc1a95fda0ae997ba437ca9121e2420ee",
+    "cases": "a42493b46f4e2e1d7ec9309bfd93f977df0cf13535b4eaf45c63ac35f8dc13dc",
+    "params": "05fab2750280bae719ccdeae45603fce740d04232cbcda23e56fa79d7c849932",
+    "translator": "7b0b6232790fd2c96c1ceb6d79634cd6d2ecd2a2e6c2f527ca64ec6b8907cd9a"
+  },
+  "workbook": "workbook.xlsx",
+  "formula": "={gross_profit}-{ceded_death_strain}+{reinsurance_premium}",
+  "translatable": true,
+  "untranslatable_reason": null,
+  "branch_labels": [],
+  "tolerance": 1e-09,
+  "relative_tolerance": 1e-12,
+  "max_abs_difference": 0.0,
+  "checks_pass": true,
+  "cases": {
+    "base": {
+      "sheet": "Base",
+      "max_abs_difference": 0.0,
+      "checks_pass": true,
+      "branches": {},
+      "near_ties": []
+    },
+    "fund_overtakes": {
+      "sheet": "Fund overtakes",
+      "max_abs_difference": 0.0,
+      "checks_pass": true,
+      "branches": {},
+      "near_ties": []
+    },
+    "high_charge": {
+      "sheet": "High charge",
+      "max_abs_difference": 0.0,
+      "checks_pass": true,
+      "branches": {},
+      "near_ties": []
+    },
+    "older_short_term": {
+      "sheet": "Older, short term",
+      "max_abs_difference": 0.0,
+      "checks_pass": true,
+      "branches": {},
+      "near_ties": []
+    },
+    "zero_premium": {
+      "sheet": "Zero premium",
+      "max_abs_difference": 0.0,
+      "checks_pass": true,
+      "branches": {},
+      "near_ties": []
+    }
+  },
+  "near_ties": {},
+  "content_digest": "17c0207f3f130c8e03f3374938819f6cb3f7b75621c3fd84b6fb27790004c391",
+  "content_stat": {
+    "mtime_ns": 1794652321500640969,
+    "size": 67219
+  }
+}

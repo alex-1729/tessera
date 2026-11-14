@@ -1,0 +1,45 @@
+{"command": "sheet.rename", "params": {"name": "Unit projection"}}
+{"command": "view.gridlines", "params": {"on": false}}
+{"command": "home.fontName", "params": {"range": "A1:Z40", "name": "Open Sans"}}
+{"command": "home.fontSize", "params": {"range": "A1:Z40", "size": 10}}
+{"command": "range.setValues", "params": {"range": "B2", "values": [["Unit projection"]]}}
+{"command": "home.bold", "params": {"range": "B2"}}
+{"command": "range.setValues", "params": {"range": "B3", "values": [["Base, policy 1"]]}}
+{"command": "range.setValues", "params": {"range": "B5", "values": [["Allocation rate", 0.97, "allocation_rate"], ["AMC per month", 0.000625, "amc_pm"]]}}
+{"command": "formulas.defineName", "params": {"name": "allocation_rate", "refersTo": "='Unit projection'!$C$5"}}
+{"command": "formulas.defineName", "params": {"name": "amc_pm", "refersTo": "='Unit projection'!$C$6"}}
+{"command": "range.setValues", "params": {"range": "B8", "values": [["Month", 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]]}}
+{"command": "range.setValues", "params": {"range": "B9", "values": [["Premium", 250, 250, 250, 250, 250, 250, 250, 250, 250, 250, 250, 250, "premium"]]}}
+{"command": "range.setValues", "params": {"range": "B10", "values": [["Unit price", 1.25, 1.255, 1.26002, 1.26506008, 1.2701203203200002, 1.27520080160128, 1.2803016048076852, 1.285422811226916, 1.2905645024718235, 1.2957267604817106, 1.3009096675236376, 1.3061133061937322, "unit_price"]]}}
+{"command": "range.setValues", "params": {"range": "B12", "values": [["Opening units", 0, "=C16", "=D16", "=E16", "=F16", "=G16", "=H16", "=I16", "=J16", "=K16", "=L16", "=M16", "units_bop"]]}}
+{"command": "formulas.defineName", "params": {"name": "units_bop", "refersTo": "='Unit projection'!$C$12:$N$12"}}
+{"command": "range.setValues", "params": {"range": "B13", "values": [["Units allocated", "=C9*allocation_rate/C10", "=D9*allocation_rate/D10", "=E9*allocation_rate/E10", "=F9*allocation_rate/F10", "=G9*allocation_rate/G10", "=H9*allocation_rate/H10", "=I9*allocation_rate/I10", "=J9*allocation_rate/J10", "=K9*allocation_rate/K10", "=L9*allocation_rate/L10", "=M9*allocation_rate/M10", "=N9*allocation_rate/N10", "units_allocated"]]}}
+{"command": "formulas.defineName", "params": {"name": "units_allocated", "refersTo": "='Unit projection'!$C$13:$N$13"}}
+{"command": "range.setValues", "params": {"range": "B14", "values": [["Units after allocation", "=C12+C13", "=D12+D13", "=E12+E13", "=F12+F13", "=G12+G13", "=H12+H13", "=I12+I13", "=J12+J13", "=K12+K13", "=L12+L13", "=M12+M13", "=N12+N13", "units_after_alloc"]]}}
+{"command": "formulas.defineName", "params": {"name": "units_after_alloc", "refersTo": "='Unit projection'!$C$14:$N$14"}}
+{"command": "range.setValues", "params": {"range": "B15", "values": [["AMC units", "=C14*amc_pm", "=D14*amc_pm", "=E14*amc_pm", "=F14*amc_pm", "=G14*amc_pm", "=H14*amc_pm", "=I14*amc_pm", "=J14*amc_pm", "=K14*amc_pm", "=L14*amc_pm", "=M14*amc_pm", "=N14*amc_pm", "units_amc"]]}}
+{"command": "formulas.defineName", "params": {"name": "units_amc", "refersTo": "='Unit projection'!$C$15:$N$15"}}
+{"command": "range.setValues", "params": {"range": "B16", "values": [["Closing units", "=C14-C15", "=D14-D15", "=E14-E15", "=F14-F15", "=G14-G15", "=H14-H15", "=I14-I15", "=J14-J15", "=K14-K15", "=L14-L15", "=M14-M15", "=N14-N15", "units_eop"]]}}
+{"command": "formulas.defineName", "params": {"name": "units_eop", "refersTo": "='Unit projection'!$C$16:$N$16"}}
+{"command": "formulas.defineName", "params": {"name": "premium", "refersTo": "='Unit projection'!$C$9:$N$9"}}
+{"command": "formulas.defineName", "params": {"name": "unit_price", "refersTo": "='Unit projection'!$C$10:$N$10"}}
+{"command": "range.setValues", "params": {"range": "B18", "values": [["Python closing units", 193.87875, 386.8639004824453, 578.9590873386629, 770.1679319270237, 960.4940411308714, 1149.9410074162226, 1338.5124088892346, 1526.2118093534473, 1713.042758366793, 1899.008791298383, 2084.1134293850655, 2268.3601797877595]]}}
+{"command": "range.setValues", "params": {"range": "B19", "values": [["Difference", "=C16-C18", "=D16-D18", "=E16-E18", "=F16-F18", "=G16-G18", "=H16-H18", "=I16-I18", "=J16-J18", "=K16-K18", "=L16-L18", "=M16-M18", "=N16-N18"]]}}
+{"command": "home.bold", "params": {"range": "C5:C6"}}
+{"command": "home.bold", "params": {"range": "C9:N10"}}
+{"command": "home.bold", "params": {"range": "B16:N16"}}
+{"command": "home.bold", "params": {"range": "B8:N8"}}
+{"command": "home.fontColor", "params": {"range": "C5:C6", "color": "#0000FF"}}
+{"command": "home.fontColor", "params": {"range": "C9:N10", "color": "#0000FF"}}
+{"command": "home.fontColor", "params": {"range": "D5:D6", "color": "#800000"}}
+{"command": "home.fontColor", "params": {"range": "O9:O16", "color": "#800000"}}
+{"command": "home.fontColor", "params": {"range": "B18:N19", "color": "#808080"}}
+{"command": "home.borders", "params": {"range": "B8:N8", "preset": "bottom", "style": "thin"}}
+{"command": "home.numberFormat", "params": {"range": "C5", "format": "0.00%"}}
+{"command": "home.numberFormat", "params": {"range": "C6", "format": "0.0000%"}}
+{"command": "home.numberFormat", "params": {"range": "C9:N9", "format": "0.00"}}
+{"command": "home.numberFormat", "params": {"range": "C10:N10", "format": "0.0000"}}
+{"command": "home.numberFormat", "params": {"range": "C12:N16", "format": "0.0000"}}
+{"command": "home.numberFormat", "params": {"range": "C18:N19", "format": "0.0000"}}
+{"command": "home.columnWidth", "params": {"cols": "A:A", "width": 20}}
+{"command": "home.rowHeight", "params": {"rows": "1:1", "height": 20}}

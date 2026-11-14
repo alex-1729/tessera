@@ -1,0 +1,986 @@
+{
+ "electron": "45.3.2",
+ "chrome": "156.0.8078.100",
+ "tests": {
+  "lat": {
+   "focused": {
+    "isFocused": true,
+    "minimized": false,
+    "visible": true,
+    "vis": "visible",
+    "n": 40,
+    "min": 16.2,
+    "median": 16.7,
+    "max": 19.5,
+    "mean": 16.8,
+    "all": [
+     20,
+     17,
+     18,
+     17,
+     19,
+     16,
+     17,
+     17,
+     17,
+     17,
+     17,
+     17,
+     17,
+     17,
+     17,
+     17,
+     17,
+     17,
+     17,
+     17,
+     17,
+     17,
+     16,
+     17,
+     16,
+     17,
+     17,
+     17,
+     17,
+     17,
+     17,
+     17,
+     16,
+     17,
+     17,
+     17,
+     17,
+     16,
+     16,
+     16
+    ]
+   },
+   "unfocused": {
+    "isFocused": false,
+    "minimized": false,
+    "visible": true,
+    "vis": "visible",
+    "n": 40,
+    "min": 16.2,
+    "median": 16.6,
+    "max": 19,
+    "mean": 16.7,
+    "all": [
+     19,
+     17,
+     17,
+     16,
+     17,
+     16,
+     16,
+     17,
+     17,
+     17,
+     17,
+     17,
+     17,
+     17,
+     17,
+     16,
+     17,
+     17,
+     16,
+     17,
+     17,
+     17,
+     16,
+     17,
+     17,
+     17,
+     17,
+     17,
+     17,
+     17,
+     16,
+     17,
+     17,
+     17,
+     17,
+     17,
+     17,
+     17,
+     17,
+     17
+    ]
+   },
+   "occluded": {
+    "isFocused": false,
+    "minimized": false,
+    "visible": true,
+    "vis": "hidden",
+    "n": 3,
+    "min": 229.2,
+    "median": 919.2,
+    "max": 1058.2,
+    "mean": 735.5,
+    "all": [
+     229,
+     919,
+     1058
+    ]
+   },
+   "minimised": {
+    "isFocused": false,
+    "minimized": true,
+    "visible": false,
+    "vis": "hidden",
+    "n": 3,
+    "min": 969.1,
+    "median": 981.8,
+    "max": 1005.8,
+    "mean": 985.6,
+    "all": [
+     969,
+     982,
+     1006
+    ]
+   },
+   "showFalse": {
+    "isFocused": false,
+    "minimized": false,
+    "visible": false,
+    "vis": "visible",
+    "n": 40,
+    "min": 16.1,
+    "median": 16.6,
+    "max": 19.2,
+    "mean": 16.8,
+    "all": [
+     19,
+     19,
+     16,
+     16,
+     18,
+     17,
+     16,
+     17,
+     17,
+     16,
+     17,
+     17,
+     17,
+     16,
+     17,
+     17,
+     17,
+     17,
+     16,
+     17,
+     17,
+     17,
+     17,
+     16,
+     17,
+     17,
+     17,
+     17,
+     17,
+     17,
+     17,
+     17,
+     17,
+     17,
+     17,
+     16,
+     17,
+     17,
+     17,
+     17
+    ]
+   },
+   "_ms": 17791
+  },
+  "lat_nothrottle": {
+   "minimised": {
+    "isFocused": false,
+    "minimized": true,
+    "visible": false,
+    "vis": "visible",
+    "n": 40,
+    "min": 16.1,
+    "median": 16.7,
+    "max": 19.6,
+    "mean": 16.8,
+    "all": [
+     20,
+     17,
+     17,
+     18,
+     17,
+     16,
+     17,
+     16,
+     17,
+     17,
+     16,
+     17,
+     17,
+     16,
+     17,
+     17,
+     16,
+     17,
+     17,
+     17,
+     17,
+     17,
+     17,
+     17,
+     17,
+     17,
+     17,
+     17,
+     17,
+     17,
+     17,
+     17,
+     17,
+     17,
+     17,
+     17,
+     17,
+     17,
+     17,
+     17
+    ]
+   },
+   "occluded": {
+    "isFocused": false,
+    "minimized": false,
+    "visible": true,
+    "vis": "visible",
+    "n": 40,
+    "min": 16.2,
+    "median": 16.7,
+    "max": 18.7,
+    "mean": 16.8,
+    "all": [
+     19,
+     17,
+     17,
+     17,
+     17,
+     18,
+     17,
+     17,
+     17,
+     17,
+     17,
+     17,
+     17,
+     17,
+     17,
+     17,
+     16,
+     17,
+     17,
+     17,
+     17,
+     17,
+     17,
+     17,
+     17,
+     17,
+     17,
+     17,
+     17,
+     17,
+     17,
+     16,
+     17,
+     17,
+     17,
+     17,
+     16,
+     17,
+     17,
+     17
+    ]
+   },
+   "showFalse": {
+    "isFocused": false,
+    "minimized": false,
+    "visible": false,
+    "vis": "visible",
+    "n": 40,
+    "min": 16.1,
+    "median": 16.7,
+    "max": 20.7,
+    "mean": 16.7,
+    "all": [
+     21,
+     17,
+     17,
+     17,
+     16,
+     17,
+     16,
+     17,
+     17,
+     16,
+     17,
+     17,
+     17,
+     17,
+     17,
+     16,
+     17,
+     17,
+     17,
+     16,
+     17,
+     17,
+     16,
+     17,
+     17,
+     17,
+     17,
+     17,
+     16,
+     17,
+     16,
+     17,
+     17,
+     17,
+     17,
+     17,
+     16,
+     17,
+     17,
+     16
+    ]
+   },
+   "_ms": 8418
+  },
+  "nudge": {
+   "minimised": {
+    "none": {
+     "n": 2,
+     "min": 929,
+     "median": 989.1,
+     "max": 989.1,
+     "mean": 959,
+     "all": [
+      929,
+      989
+     ]
+    },
+    "mousemove": {
+     "n": 2,
+     "min": 999.7,
+     "median": 1020.5,
+     "max": 1020.5,
+     "mean": 1010.1,
+     "all": [
+      1021,
+      1000
+     ]
+    },
+    "resize": {
+     "n": 2,
+     "min": 995.5,
+     "median": 996.3,
+     "max": 996.3,
+     "mean": 995.9,
+     "all": [
+      996,
+      996
+     ]
+    },
+    "ipcmove": {
+     "n": 2,
+     "min": 949.1,
+     "median": 1053.1,
+     "max": 1053.1,
+     "mean": 1001.1,
+     "all": [
+      949,
+      1053
+     ]
+    },
+    "invalidate": {
+     "n": 2,
+     "min": 975.1,
+     "median": 1027.3,
+     "max": 1027.3,
+     "mean": 1001.2,
+     "all": [
+      975,
+      1027
+     ]
+    },
+    "raf": {
+     "n": 1,
+     "min": 2985.7,
+     "median": 2985.7,
+     "max": 2985.7,
+     "mean": 2985.7,
+     "all": [
+      2986
+     ]
+    }
+   },
+   "_ms": 14959
+  },
+  "load": {
+   "iframe": {
+    "ready": true,
+    "readyMs": 125,
+    "hostReadyAt": 40.400000005960464,
+    "appVersion": "0.19.1",
+    "renderer": {
+     "r": "webgpu"
+    },
+    "navigatorGpu": true,
+    "hostErrors": [],
+    "events": [
+     "gridcraft:ready",
+     "gridcraft:dirty"
+    ],
+    "perf": {
+     "fps": 72.5,
+     "frameMs": 1,
+     "gridMs": 0
+    },
+    "newConsoleMsgs": [
+     "[warning] Electron Security Warning (Insecure Content-Security-Policy) This renderer process has either no Content Security\n  Policy set or a policy with \"unsafe-eval\" enabled. This exposes users of\n  this app to unnecessary security risks.\n\nFor more information and help, consult\nhttps://electronjs.org/docs/t",
+     "[warning] The `integrity` attribute is currently ignored for preload destinations that do not support subresource integrity. See https://crbug.com/981419 for more information",
+     "[warning] [eframe::web::app_runner] eframe/src/web/app_runner.rs:353: Unhandled egui viewport command: Title(\"Book1\") - not implemented in web backend"
+    ]
+   },
+   "page": {
+    "ready": true,
+    "readyMs": 104,
+    "hostReadyAt": 36.20000001788139,
+    "appVersion": "0.19.1",
+    "renderer": {
+     "r": "webgpu"
+    },
+    "navigatorGpu": true,
+    "hostErrors": [],
+    "events": [
+     "gridcraft:ready",
+     "gridcraft:dirty"
+    ],
+    "perf": {
+     "fps": 39.16666666666667,
+     "frameMs": 1,
+     "gridMs": 1
+    },
+    "newConsoleMsgs": [
+     "[warning] Electron Security Warning (Insecure Content-Security-Policy) This renderer process has either no Content Security\n  Policy set or a policy with \"unsafe-eval\" enabled. This exposes users of\n  this app to unnecessary security risks.\n\nFor more information and help, consult\nhttps://electronjs.org/docs/t",
+     "[warning] [eframe::web::app_runner] eframe/src/web/app_runner.rs:353: Unhandled egui viewport command: Title(\"Book1\") - not implemented in web backend"
+    ],
+    "initDoneMs": 27.30000001192093
+   },
+   "gpuFeatureStatus": {
+    "2d_canvas": "enabled",
+    "direct_rendering_display_compositor": "disabled_off_ok",
+    "gpu_compositing": "enabled",
+    "multiple_raster_threads": "enabled_on",
+    "opengl": "enabled_on",
+    "rasterization": "enabled",
+    "raw_draw": "disabled_off_ok",
+    "skia_graphite": "enabled_on",
+    "trees_in_viz": "disabled_off",
+    "video_decode": "enabled",
+    "video_encode": "enabled",
+    "webgl": "enabled",
+    "webgpu": "enabled",
+    "webnn": "disabled_off"
+   },
+   "_ms": 1808
+  },
+  "roundtrip": {
+   "iframe": {
+    "cells": 3840,
+    "sentBytes": 69033,
+    "tSetMs": 30,
+    "tReadMs": 17.1,
+    "tReadFormulaRowMs": 16.2,
+    "tReadFormulasMs": 16.5,
+    "readRange": "A1:RL7",
+    "valuesExact": 3360,
+    "valuesMismatch": 0,
+    "formulaValuesExact": 480,
+    "formulaMaxAbsDiff": 0,
+    "formulaBad": 0,
+    "formulaTextEqual": 480,
+    "usedRange": "A1:RL8",
+    "docInspectMs": 16.8
+   },
+   "page": {
+    "cells": 3840,
+    "sentBytes": 69033,
+    "tSetMs": 28.2,
+    "tReadMs": 18.5,
+    "tReadFormulaRowMs": 16.5,
+    "tReadFormulasMs": 16.4,
+    "readRange": "A1:RL7",
+    "valuesExact": 3360,
+    "valuesMismatch": 0,
+    "formulaValuesExact": 480,
+    "formulaMaxAbsDiff": 0,
+    "formulaBad": 0,
+    "formulaTextEqual": 480,
+    "usedRange": "A1:RL8",
+    "docInspectMs": 16.7
+   },
+   "_ms": 1299
+  },
+  "typing": {
+   "grid": [
+    28,
+    177,
+    938,
+    533
+   ],
+   "selectedAfterClick": "E2",
+   "editorMidEdit": {
+    "cell": "E2",
+    "formulaBar": false,
+    "hidden": false,
+    "point": false,
+    "python": false,
+    "text": "=SUM(B2:D2)"
+   },
+   "readAfter": {
+    "v": {
+     "range": "E2",
+     "sheet": "Sheet1",
+     "values": [
+      [
+       60
+      ]
+     ]
+    },
+    "f": {
+     "range": "E2",
+     "sheet": "Sheet1",
+     "values": [
+      [
+       "=SUM(B2:D2)"
+      ]
+     ]
+    },
+    "sel": "E3"
+   },
+   "survey": {
+    "sent": "=+-*/^()[]{}:;,.'!@#$%&<>?_ aZ09\"",
+    "editor": {
+     "cell": "F3",
+     "formulaBar": false,
+     "hidden": false,
+     "point": false,
+     "python": false,
+     "text": "=+-*/^()[]{}:;,.'!@#$%&<>?_ aZ09\""
+    }
+   },
+   "special": {
+    "start": "B5",
+    "Down": "B6",
+    "Right": "C6",
+    "Up": "C5",
+    "Left": "B5",
+    "Tab": "C5",
+    "Enter": "B6",
+    "afterDelete": null,
+    "afterCmdZ": "=SUM(B2:D2)",
+    "afterBackspaceEditor": {
+     "cell": "B5",
+     "formulaBar": false,
+     "hidden": false,
+     "point": false,
+     "python": false,
+     "text": "a"
+    },
+    "cmdC_cmdV": null,
+    "webContentsCopyPaste_B8": 10,
+    "firstLetterCase_withShiftModifier": "QRs",
+    "firstLetterCase_noShiftModifier": "qRs",
+    "menuHasEdit": true
+   },
+   "_ms": 5480
+  },
+  "focus": {
+   "iframe": {
+    "leftInputValue": "abc",
+    "activeIsInput": "leftinput",
+    "gridcraftEditorAfterTypingInLeft": null,
+    "gridcraftCellA1": null,
+    "afterGridTyping": {
+     "leftInputValue": "abc",
+     "A1": "Z"
+    },
+    "afterReturnToLeft": {
+     "leftInputValue": "abcd",
+     "A1": "Z"
+    }
+   },
+   "page": {
+    "leftInputValue": "abc",
+    "activeIsInput": "leftinput",
+    "gridcraftEditorAfterTypingInLeft": null,
+    "gridcraftCellA1": null,
+    "afterGridTyping": {
+     "leftInputValue": "abc",
+     "A1": "Z"
+    },
+    "afterReturnToLeft": {
+     "leftInputValue": "abcd",
+     "A1": "Z"
+    }
+   },
+   "_ms": 2682
+  },
+  "file": {
+   "houseStyleExists": true,
+   "iframe": {
+    "source": "house-style/unit_projection.xlsx",
+    "openMs": 602,
+    "afterOpen": {
+     "title": "unit_projection.xlsx",
+     "usedRange": [
+      "Unit projection:A1:Z40"
+     ],
+     "dirty": false
+    },
+    "openedRead": [
+     [
+      null,
+      null,
+      null
+     ],
+     [
+      null,
+      "Unit projection",
+      null
+     ],
+     [
+      null,
+      "Base, policy 1",
+      null
+     ],
+     [
+      null,
+      null,
+      null
+     ]
+    ],
+    "dirtyEventsAfterOpen": [],
+    "dirtyEventsAfterEdit": [
+     true
+    ],
+    "saveArriveMs": 38.3,
+    "saveCount": 1,
+    "saved": {
+     "name": "unit_projection.xlsx",
+     "len": 8292,
+     "magic": "504b0304",
+     "isZip": true,
+     "hasContentTypes": true,
+     "hasWorkbook": true
+    },
+    "dirtyEventsAfterSave": [
+     false
+    ],
+    "saveBytesCmd": {
+     "ms": 17,
+     "name": "unit_projection.xlsx",
+     "base64Len": 11056
+    },
+    "reopenE1": "edited"
+   },
+   "page": {
+    "source": "house-style/unit_projection.xlsx",
+    "openMs": 605,
+    "afterOpen": {
+     "title": "unit_projection.xlsx",
+     "usedRange": [
+      "Unit projection:A1:Z40"
+     ],
+     "dirty": false
+    },
+    "openedRead": [
+     [
+      null,
+      null,
+      null
+     ],
+     [
+      null,
+      "Unit projection",
+      null
+     ],
+     [
+      null,
+      "Base, policy 1",
+      null
+     ],
+     [
+      null,
+      null,
+      null
+     ]
+    ],
+    "dirtyEventsAfterOpen": [],
+    "dirtyEventsAfterEdit": [
+     true
+    ],
+    "saveArriveMs": 34.1,
+    "saveCount": 1,
+    "saved": {
+     "name": "unit_projection.xlsx",
+     "len": 8292,
+     "magic": "504b0304",
+     "isZip": true,
+     "hasContentTypes": true,
+     "hasWorkbook": true
+    },
+    "dirtyEventsAfterSave": [
+     false
+    ],
+    "saveBytesCmd": {
+     "ms": 17.3,
+     "name": "unit_projection.xlsx",
+     "base64Len": 11056
+    },
+    "reopenE1": "edited"
+   },
+   "_ms": 5240
+  },
+  "chrome": {
+   "default": {
+    "grid": [
+     28,
+     215,
+     938,
+     495
+    ],
+    "window": [
+     980,
+     768
+    ],
+    "ribbonCollapsed": false
+   },
+   "none": {
+    "grid": [
+     28,
+     177,
+     938,
+     533
+    ],
+    "window": [
+     980,
+     768
+    ],
+    "ribbonCollapsed": false
+   },
+   "notitlebar": {
+    "grid": [
+     28,
+     177,
+     938,
+     533
+    ],
+    "window": [
+     980,
+     768
+    ],
+    "ribbonCollapsed": false
+   },
+   "nofiletab": {
+    "grid": [
+     28,
+     215,
+     938,
+     495
+    ],
+    "window": [
+     980,
+     768
+    ],
+    "ribbonCollapsed": false
+   },
+   "pageModeDefault": [
+    28,
+    215,
+    938,
+    495
+   ],
+   "pageModeNone": [
+    28,
+    177,
+    938,
+    533
+   ],
+   "view": {
+    "base": {
+     "grid": [
+      28,
+      177,
+      938,
+      533
+     ],
+     "ribbonCollapsed": false,
+     "tab": "Home"
+    },
+    "collapseRibbon": {
+     "ok": true,
+     "r": "null"
+    },
+    "afterCollapse": {
+     "grid": [
+      28,
+      85,
+      938,
+      625
+     ],
+     "ribbonCollapsed": true,
+     "tab": "Home"
+    },
+    "collapseAgain": {
+     "ok": true,
+     "r": "null"
+    },
+    "afterExpand": {
+     "grid": [
+      28,
+      177,
+      938,
+      533
+     ],
+     "ribbonCollapsed": false,
+     "tab": "Home"
+    },
+    "ribbonTabCmd": {
+     "ok": true,
+     "r": "null"
+    },
+    "afterTab": {
+     "grid": [
+      28,
+      177,
+      938,
+      533
+     ],
+     "ribbonCollapsed": false,
+     "tab": "View"
+    },
+    "formulaBarOff": {
+     "ok": true,
+     "r": "{\"on\":false}"
+    },
+    "afterFormulaBarOff": {
+     "grid": [
+      28,
+      147,
+      938,
+      563
+     ],
+     "ribbonCollapsed": false,
+     "tab": "View"
+    },
+    "statusBar": {
+     "ok": true,
+     "r": "{\"average\":true,\"count\":true,\"maximum\":false,\"minimum\":false,\"numericalCount\":false,\"sum\":true}"
+    },
+    "uiRequestMethods": {
+     "ui.set": "ok",
+     "ui.ribbon": "ok",
+     "ui.hideRibbon": "unknown method `ui.hideRibbon`",
+     "view.hideRibbon": "unknown method `view.hideRibbon`",
+     "view.ribbon": "unknown method `view.ribbon`"
+    }
+   },
+   "protection": {
+    "unlockB2": {
+     "ok": true,
+     "r": "{\"on\":false}"
+    },
+    "protect": {
+     "ok": true,
+     "r": "null"
+    },
+    "protectedFlag": true,
+    "hostSetLocked": {
+     "ok": false,
+     "err": "The cell or chart you're trying to change is on a protected sheet."
+    },
+    "hostSetValuesLocked": {
+     "ok": false,
+     "err": "The cell or chart you're trying to change is on a protected sheet."
+    },
+    "readBack": [
+     [
+      "locked",
+      1
+     ],
+     [
+      "free",
+      2
+     ]
+    ],
+    "afterUserTypingLocked": "locked",
+    "uiMessage": null,
+    "uiDialog": null,
+    "afterUserTypingUnlocked": "free"
+   },
+   "_ms": 8620
+  },
+  "batch_cpu": {
+   "focusedBatch": {
+    "parallel40Ms": 17.7,
+    "batch5Ms": 17.3
+   },
+   "idleCpu_visible_throttleOn": {
+    "Browser": 0,
+    "GPU": 0.1,
+    "Utility:Network Service": 0,
+    "Tab": 0.4
+   },
+   "minimisedThrottleOn_batch": {
+    "parallel40Ms": 605.3,
+    "batch5Ms": 969.9
+   },
+   "idleCpu_minimised_throttleOn": {
+    "Browser": 0,
+    "GPU": 0,
+    "Utility:Network Service": 0,
+    "Tab": 0
+   },
+   "idleCpu_visible_throttleOff": {
+    "Browser": 0,
+    "GPU": 0.1,
+    "Utility:Network Service": 0,
+    "Tab": 0.3
+   },
+   "minimisedThrottleOff_batch": {
+    "parallel40Ms": 20,
+    "batch5Ms": 17.4
+   },
+   "idleCpu_minimised_throttleOff": {
+    "Browser": 0,
+    "GPU": 0.1,
+    "Utility:Network Service": 0,
+    "Tab": 0.3
+   },
+   "_ms": 9986
+  }
+ },
+ "consoleErrors": [
+  "[warning] Electron Security Warning (Insecure Content-Security-Policy) This renderer process has either no Content Security\n  Policy set or a policy with \"unsafe-eval\" enabled. This exposes users of\n  this app to unnecessary security risks.\n\nFor more information and help, consult\nhttps://electronjs.org/docs/t",
+  "[warning] The `integrity` attribute is currently ignored for preload destinations that do not support subresource integrity. See https://crbug.com/981419 for more information",
+  "[warning] [eframe::web::app_runner] eframe/src/web/app_runner.rs:353: Unhandled egui viewport command: Title(\"Book1\") - not implemented in web backend",
+  "[warning] [eframe::web::app_runner] eframe/src/web/app_runner.rs:353: Unhandled egui viewport command: Title(\"Book1 — Edited\") - not implemented in web backend",
+  "[warning] [eframe::web::app_runner] eframe/src/web/app_runner.rs:353: Unhandled egui viewport command: Title(\"unit_projection.xlsx\") - not implemented in web backend",
+  "[warning] [eframe::web::app_runner] eframe/src/web/app_runner.rs:353: Unhandled egui viewport command: Title(\"unit_projection.xlsx — Edited\") - not implemented in web backend",
+  "[warning] [eframe::web::app_runner] eframe/src/web/app_runner.rs:353: Unhandled egui viewport command: Title(\"again.xlsx\") - not implemented in web backend"
+ ]
+}

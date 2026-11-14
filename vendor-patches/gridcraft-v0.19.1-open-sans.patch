@@ -1,0 +1,64 @@
+diff --git a/crates/ui-egui/src/theme/font_setup.rs b/crates/ui-egui/src/theme/font_setup.rs
+index 31e4c63..05200aa 100644
+--- a/crates/ui-egui/src/theme/font_setup.rs
++++ b/crates/ui-egui/src/theme/font_setup.rs
+@@ -77,6 +77,8 @@ pub fn ui_bold(size: f32) -> FontId {
+ /// panics on a family that was never bound, so the installed branch is gated on
+ /// [`crate::fonts::is_bound`] and never names a family egui hasn't been given.
+ pub fn cell_family(name: &str, bold: bool, italic: bool) -> FontFamily {
++    // Patched: on the web build "Open Sans" in any case uses the embedded faces.
++    let name = if cfg!(target_arch = "wasm32") && name.trim().eq_ignore_ascii_case(OPEN_SANS) { OPEN_SANS } else { name };
+     let role = crate::fonts::role_key(name, bold, italic);
+     if crate::fonts::is_bound(&role) {
+         return FontFamily::Name(role.into());
+@@ -531,6 +533,7 @@ pub(super) fn font_definitions_impl(
+     for (family, faces) in installed {
+         bound.extend(crate::fonts::bind_faces(&mut fonts, &family, &faces));
+     }
++    bound.extend(bind_open_sans(&mut fonts));
+     // The optional craft-fonts faces go at the very end of every family: a system or bundled face
+     // that has the script keeps its glyph shapes, while the permitted OFL faces cover scripts and
+     // symbols the host image lacks (Japanese, Korean, Thai, Arabic, Georgian and the UI symbols).
+@@ -544,6 +547,42 @@ pub(super) fn font_definitions_impl(
+     fonts
+ }
+ 
++/// Patched (not upstream): the web build can't load fonts at runtime, so Open Sans is embedded
++/// (SIL OFL 1.1, crates/ui-egui/fonts-open-sans/OFL.txt) and bound as the `fnt:Open Sans:*` cell
++/// families, each chaining its own face, then Regular, then the proportional chain.
++const OPEN_SANS: &str = "Open Sans";
++
++#[cfg(target_arch = "wasm32")]
++fn bind_open_sans(fonts: &mut FontDefinitions) -> Vec<String> {
++    const FACES: [(bool, bool, &str, &[u8]); 4] = [
++        (false, false, "open-sans-regular", include_bytes!("../../fonts-open-sans/OpenSans-Regular.ttf")),
++        (true, false, "open-sans-bold", include_bytes!("../../fonts-open-sans/OpenSans-Bold.ttf")),
++        (false, true, "open-sans-italic", include_bytes!("../../fonts-open-sans/OpenSans-Italic.ttf")),
++        (true, true, "open-sans-bold-italic", include_bytes!("../../fonts-open-sans/OpenSans-BoldItalic.ttf")),
++    ];
++    let base: Vec<String> = fonts.families.get(&FontFamily::Proportional).cloned().unwrap_or_default();
++    for (_, _, key, bytes) in FACES {
++        fonts.font_data.insert(key.to_string(), Arc::new(FontData::from_static(bytes)));
++    }
++    let mut bound = Vec::new();
++    for (bold, italic, key, _) in FACES {
++        let mut chain = vec![key.to_string()];
++        if key != FACES[0].2 {
++            chain.push(FACES[0].2.to_string());
++        }
++        chain.extend(base.iter().cloned());
++        let role = crate::fonts::role_key(OPEN_SANS, bold, italic);
++        fonts.families.insert(FontFamily::Name(role.clone().into()), chain);
++        bound.push(role);
++    }
++    bound
++}
++
++#[cfg(not(target_arch = "wasm32"))]
++fn bind_open_sans(_fonts: &mut FontDefinitions) -> Vec<String> {
++    Vec::new()
++}
++
+ /// Builds one role family's chain: the loaded system face (or its role fallback), egui's bundled
+ /// proportional/monospace base, Hack's symbols, then the script fallbacks. Keys without font data
+ /// are dropped, as before.

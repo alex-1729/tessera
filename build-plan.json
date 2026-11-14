@@ -1,0 +1,185 @@
+{
+  "title": "Build plan",
+  "phases": [
+    {
+      "name": "Phase 0: Set-up and risk checks",
+      "steps": [
+        {
+          "id": 1,
+          "text": "Create the repo structure: Python model package and Electron app, under git",
+          "status": "done"
+        },
+        {
+          "id": 2,
+          "text": "Test GridCraft can apply the house style",
+          "status": "done"
+        },
+        {
+          "id": 3,
+          "text": "Decide prebuilt GridCraft or build from source: built from source with Open Sans (step 28)",
+          "status": "done"
+        },
+        {
+          "id": 4,
+          "text": "Test GridCraft inside an Electron window, including call latency",
+          "status": "done"
+        }
+      ]
+    },
+    {
+      "name": "Phase 1: The model slice in Python",
+      "steps": [
+        {
+          "id": 5,
+          "text": "Write the unit-projection module as tile functions",
+          "status": "done"
+        },
+        {
+          "id": 6,
+          "text": "Define the synthetic cases: Base, Zero premium, High charge",
+          "status": "done"
+        },
+        {
+          "id": 7,
+          "text": "Add the command-line entry point for the tile map and tile values",
+          "status": "done"
+        },
+        {
+          "id": 8,
+          "text": "Add the automatic rule checks",
+          "status": "done"
+        },
+        {
+          "id": 9,
+          "text": "Add the reference implementation and invariant tests",
+          "status": "done"
+        }
+      ]
+    },
+    {
+      "name": "Phase 2: The workbooks",
+      "steps": [
+        {
+          "id": 10,
+          "text": "Build the Python to Excel formula translator",
+          "status": "done"
+        },
+        {
+          "id": 11,
+          "text": "Build the tile workbook generator in house style",
+          "status": "done"
+        },
+        {
+          "id": 12,
+          "text": "Build the linked module workbook",
+          "status": "done"
+        },
+        {
+          "id": 13,
+          "text": "Add stamping, the text file beside each workbook, drift detection and Rebuild",
+          "status": "done"
+        }
+      ]
+    },
+    {
+      "name": "Phase 3: The app",
+      "steps": [
+        {
+          "id": 14,
+          "text": "Build the Electron shell calling the Python commands",
+          "status": "done"
+        },
+        {
+          "id": 15,
+          "text": "Build the module view: tile map and module workbook",
+          "status": "done"
+        },
+        {
+          "id": 16,
+          "text": "Build the tile view: details panel and tile workbook",
+          "status": "done"
+        },
+        {
+          "id": 17,
+          "text": "Build sign-off, stale marking and bulk re-confirm",
+          "status": "done"
+        },
+        {
+          "id": 18,
+          "text": "Make signed-off values the tile's test expectations",
+          "status": "done"
+        }
+      ]
+    },
+    {
+      "name": "Phase 4: Model level",
+      "steps": [
+        {
+          "id": 19,
+          "text": "Add the decrements and cashflows modules",
+          "status": "done"
+        },
+        {
+          "id": 20,
+          "text": "Build the model view: module map, model workbook, checks and export",
+          "status": "done"
+        }
+      ]
+    },
+    {
+      "name": "Phase 5: The agent",
+      "steps": [
+        {
+          "id": 21,
+          "text": "Embed the Agent SDK with the log panel and scoped tools",
+          "status": "done"
+        },
+        {
+          "id": 22,
+          "text": "Add structure drafts on the map with accept and reject",
+          "status": "done"
+        },
+        {
+          "id": 23,
+          "text": "Add tile building: formula as spec, assumptions, what-if drafts",
+          "status": "done"
+        },
+        {
+          "id": 24,
+          "text": "Add batch building within a module",
+          "status": "done"
+        }
+      ]
+    },
+    {
+      "name": "Phase 6: Real data",
+      "steps": [
+        {
+          "id": 25,
+          "text": "Load real model points and add the policy picker",
+          "status": "done"
+        },
+        {
+          "id": 26,
+          "text": "Generate workbooks for a real policy on demand",
+          "status": "done"
+        },
+        {
+          "id": 27,
+          "text": "Add promote to case",
+          "status": "done"
+        }
+      ]
+    },
+    {
+      "name": "Follow-up: display",
+      "steps": [
+        {
+          "id": 28,
+          "text": "Build GridCraft from source so the grid shows Open Sans and bold",
+          "status": "done"
+        }
+      ]
+    }
+  ]
+}

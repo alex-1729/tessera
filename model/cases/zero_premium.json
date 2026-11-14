@@ -1,0 +1,7 @@
+{
+  "id": "zero_premium",
+  "name": "Zero premium",
+  "purpose": "No premium is paid, so no units are bought, no charge is taken and the profit margin and IRR are undefined.",
+  "model_point": {"premium_pm": 0.0, "premium_months": 120, "age_at_entry": 40, "sum_assured": 50000.0},
+  "params": {}
+}

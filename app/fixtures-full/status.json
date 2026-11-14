@@ -1,0 +1,983 @@
+{
+ "reviewer_default": "A. Reviewer",
+ "tiles": {
+  "units_allocated": {
+   "drift": null,
+   "checks_pass": true,
+   "max_abs_difference": 0,
+   "rule_violations": [],
+   "uncovered_branches": [],
+   "new_cases": [],
+   "signed_off": {
+    "reviewer": "A. Reviewer",
+    "at": "2026-11-10T09:25:00Z",
+    "comment": ""
+   },
+   "state": "signed_off",
+   "workbook_current": true,
+   "can_sign_off": true,
+   "blockers": [],
+   "translatable": true,
+   "case_results": {
+    "base": {
+     "max_abs_difference": 0,
+     "pass": true
+    },
+    "zero_premium": {
+     "max_abs_difference": 0,
+     "pass": true
+    },
+    "high_charge": {
+     "max_abs_difference": 0,
+     "pass": true
+    }
+   },
+   "workbook": "review/tiles/units_allocated/workbook.xlsx"
+  },
+  "units_after_alloc": {
+   "drift": null,
+   "checks_pass": true,
+   "max_abs_difference": 0,
+   "rule_violations": [],
+   "uncovered_branches": [],
+   "new_cases": [],
+   "signed_off": {
+    "reviewer": "A. Reviewer",
+    "at": "2026-11-10T09:27:00Z",
+    "comment": ""
+   },
+   "state": "signed_off",
+   "workbook_current": true,
+   "can_sign_off": true,
+   "blockers": [],
+   "translatable": true,
+   "case_results": {
+    "base": {
+     "max_abs_difference": 0,
+     "pass": true
+    },
+    "zero_premium": {
+     "max_abs_difference": 0,
+     "pass": true
+    },
+    "high_charge": {
+     "max_abs_difference": 0,
+     "pass": true
+    }
+   },
+   "workbook": "review/tiles/units_after_alloc/workbook.xlsx"
+  },
+  "units_amc": {
+   "drift": null,
+   "checks_pass": true,
+   "max_abs_difference": 0,
+   "rule_violations": [],
+   "uncovered_branches": [],
+   "new_cases": [],
+   "signed_off": null,
+   "state": "built",
+   "workbook_current": true,
+   "can_sign_off": true,
+   "blockers": [],
+   "translatable": true,
+   "case_results": {
+    "base": {
+     "max_abs_difference": 0,
+     "pass": true
+    },
+    "zero_premium": {
+     "max_abs_difference": 0,
+     "pass": true
+    },
+    "high_charge": {
+     "max_abs_difference": 0,
+     "pass": true
+    }
+   },
+   "workbook": "review/tiles/units_amc/workbook.xlsx"
+  },
+  "units_eop": {
+   "drift": "values",
+   "checks_pass": true,
+   "max_abs_difference": 0,
+   "rule_violations": [],
+   "uncovered_branches": [],
+   "new_cases": [],
+   "signed_off": null,
+   "state": "stale",
+   "workbook_current": true,
+   "can_sign_off": false,
+   "blockers": [
+    "This tile is stale because upstream values changed. Rebuild it, or re-confirm values-only changes from the module view."
+   ],
+   "translatable": true,
+   "case_results": {
+    "base": {
+     "max_abs_difference": 0,
+     "pass": true
+    },
+    "zero_premium": {
+     "max_abs_difference": 0,
+     "pass": true
+    },
+    "high_charge": {
+     "max_abs_difference": 0,
+     "pass": true
+    }
+   },
+   "workbook": "review/tiles/units_eop/workbook.xlsx"
+  },
+  "deaths": {
+   "drift": null,
+   "checks_pass": true,
+   "max_abs_difference": 0,
+   "rule_violations": [],
+   "uncovered_branches": [],
+   "new_cases": [],
+   "signed_off": {
+    "reviewer": "A. Reviewer",
+    "at": "2026-11-10T09:16:00Z",
+    "comment": ""
+   },
+   "state": "signed_off",
+   "workbook_current": true,
+   "can_sign_off": true,
+   "blockers": [],
+   "translatable": true,
+   "case_results": {
+    "base": {
+     "max_abs_difference": 0,
+     "pass": true
+    },
+    "zero_premium": {
+     "max_abs_difference": 0,
+     "pass": true
+    },
+    "high_charge": {
+     "max_abs_difference": 0,
+     "pass": true
+    }
+   },
+   "workbook": "review/tiles/deaths/workbook.xlsx"
+  },
+  "lapses": {
+   "drift": null,
+   "checks_pass": true,
+   "max_abs_difference": 0,
+   "rule_violations": [],
+   "uncovered_branches": [],
+   "new_cases": [],
+   "signed_off": {
+    "reviewer": "A. Reviewer",
+    "at": "2026-11-10T09:16:00Z",
+    "comment": ""
+   },
+   "state": "signed_off",
+   "workbook_current": true,
+   "can_sign_off": true,
+   "blockers": [],
+   "translatable": true,
+   "case_results": {
+    "base": {
+     "max_abs_difference": 0,
+     "pass": true
+    },
+    "zero_premium": {
+     "max_abs_difference": 0,
+     "pass": true
+    },
+    "high_charge": {
+     "max_abs_difference": 0,
+     "pass": true
+    }
+   },
+   "workbook": "review/tiles/lapses/workbook.xlsx"
+  },
+  "in_force_eop": {
+   "drift": null,
+   "checks_pass": false,
+   "max_abs_difference": 0.0021,
+   "rule_violations": [],
+   "uncovered_branches": [],
+   "new_cases": [],
+   "signed_off": null,
+   "state": "built",
+   "workbook_current": true,
+   "can_sign_off": false,
+   "blockers": [
+    "The largest difference is 0.0021. It must be zero to 4 decimal places."
+   ],
+   "translatable": true,
+   "case_results": {
+    "base": {
+     "max_abs_difference": 0.0021,
+     "pass": false
+    },
+    "zero_premium": {
+     "max_abs_difference": 0,
+     "pass": true
+    },
+    "high_charge": {
+     "max_abs_difference": 0,
+     "pass": true
+    }
+   },
+   "workbook": "review/tiles/in_force_eop/workbook.xlsx"
+  },
+  "fund_value_eop": {
+   "drift": null,
+   "checks_pass": true,
+   "max_abs_difference": 0,
+   "rule_violations": [],
+   "uncovered_branches": [],
+   "new_cases": [],
+   "signed_off": {
+    "reviewer": "A. Reviewer",
+    "at": "2026-11-10T09:24:00Z",
+    "comment": ""
+   },
+   "state": "signed_off",
+   "workbook_current": true,
+   "can_sign_off": true,
+   "blockers": [],
+   "translatable": true,
+   "case_results": {
+    "base": {
+     "max_abs_difference": 0,
+     "pass": true
+    },
+    "zero_premium": {
+     "max_abs_difference": 0,
+     "pass": true
+    },
+    "high_charge": {
+     "max_abs_difference": 0,
+     "pass": true
+    }
+   },
+   "workbook": "review/tiles/fund_value_eop/workbook.xlsx"
+  },
+  "premium_income": {
+   "drift": null,
+   "checks_pass": true,
+   "max_abs_difference": 0,
+   "rule_violations": [],
+   "uncovered_branches": [],
+   "new_cases": [
+    "high_charge"
+   ],
+   "signed_off": {
+    "reviewer": "A. Reviewer",
+    "at": "2026-11-10T09:24:00Z",
+    "comment": ""
+   },
+   "state": "signed_off",
+   "workbook_current": true,
+   "can_sign_off": true,
+   "blockers": [],
+   "translatable": true,
+   "case_results": {
+    "base": {
+     "max_abs_difference": 0,
+     "pass": true
+    },
+    "zero_premium": {
+     "max_abs_difference": 0,
+     "pass": true
+    },
+    "high_charge": {
+     "max_abs_difference": 0,
+     "pass": true
+    }
+   },
+   "workbook": "review/tiles/premium_income/workbook.xlsx"
+  },
+  "allocation_margin": {
+   "drift": "formula",
+   "checks_pass": true,
+   "max_abs_difference": 0,
+   "rule_violations": [],
+   "uncovered_branches": [],
+   "new_cases": [],
+   "signed_off": null,
+   "state": "stale",
+   "workbook_current": true,
+   "can_sign_off": false,
+   "blockers": [
+    "This tile's formula changed since sign-off. Review the change and sign off again."
+   ],
+   "translatable": true,
+   "case_results": {
+    "base": {
+     "max_abs_difference": 0,
+     "pass": true
+    },
+    "zero_premium": {
+     "max_abs_difference": 0,
+     "pass": true
+    },
+    "high_charge": {
+     "max_abs_difference": 0,
+     "pass": true
+    }
+   },
+   "signed_formula": "={premium}*(1-allocation_rate)",
+   "workbook": "review/tiles/allocation_margin/workbook.xlsx"
+  },
+  "amc_income": {
+   "drift": "values",
+   "checks_pass": true,
+   "max_abs_difference": 0,
+   "rule_violations": [],
+   "uncovered_branches": [],
+   "new_cases": [],
+   "signed_off": null,
+   "state": "stale",
+   "workbook_current": false,
+   "can_sign_off": false,
+   "blockers": [
+    "This tile is stale because upstream values changed. Rebuild it first."
+   ],
+   "translatable": true,
+   "case_results": {
+    "base": {
+     "max_abs_difference": 0,
+     "pass": true
+    },
+    "zero_premium": {
+     "max_abs_difference": 0,
+     "pass": true
+    },
+    "high_charge": {
+     "max_abs_difference": 0,
+     "pass": true
+    }
+   },
+   "workbook": "review/tiles/amc_income/workbook.xlsx",
+   "signed_formula": null
+  },
+  "maintenance_expense": {
+   "drift": null,
+   "checks_pass": true,
+   "max_abs_difference": 0,
+   "rule_violations": [],
+   "uncovered_branches": [],
+   "new_cases": [],
+   "signed_off": null,
+   "state": "unbuilt",
+   "workbook_current": true,
+   "can_sign_off": false,
+   "blockers": [
+    "There is no workbook yet. Build it first."
+   ],
+   "translatable": true,
+   "case_results": {},
+   "workbook": null
+  },
+  "acquisition_expense": {
+   "drift": null,
+   "checks_pass": true,
+   "max_abs_difference": 0,
+   "rule_violations": [],
+   "uncovered_branches": [],
+   "new_cases": [],
+   "signed_off": null,
+   "state": "built",
+   "workbook_current": true,
+   "can_sign_off": true,
+   "blockers": [],
+   "translatable": true,
+   "case_results": {
+    "base": {
+     "max_abs_difference": 0,
+     "pass": true
+    },
+    "zero_premium": {
+     "max_abs_difference": 0,
+     "pass": true
+    },
+    "high_charge": {
+     "max_abs_difference": 0,
+     "pass": true
+    }
+   },
+   "workbook": "review/tiles/acquisition_expense/workbook.xlsx"
+  },
+  "sum_at_risk": {
+   "drift": null,
+   "checks_pass": true,
+   "max_abs_difference": 0,
+   "rule_violations": [],
+   "uncovered_branches": [
+    "max: second"
+   ],
+   "new_cases": [],
+   "signed_off": null,
+   "state": "built",
+   "workbook_current": true,
+   "can_sign_off": false,
+   "blockers": [
+    "Branch not covered by any case: max: second."
+   ],
+   "translatable": true,
+   "case_results": {
+    "base": {
+     "max_abs_difference": 0,
+     "pass": true
+    },
+    "zero_premium": {
+     "max_abs_difference": 0,
+     "pass": true
+    },
+    "high_charge": {
+     "max_abs_difference": 0,
+     "pass": true
+    }
+   },
+   "workbook": "review/tiles/sum_at_risk/workbook.xlsx"
+  },
+  "death_strain": {
+   "drift": null,
+   "checks_pass": true,
+   "max_abs_difference": 0,
+   "rule_violations": [],
+   "uncovered_branches": [],
+   "new_cases": [],
+   "signed_off": {
+    "reviewer": "A. Reviewer",
+    "at": "2026-11-10T09:22:00Z",
+    "comment": ""
+   },
+   "state": "signed_off",
+   "workbook_current": true,
+   "can_sign_off": true,
+   "blockers": [],
+   "translatable": true,
+   "case_results": {
+    "base": {
+     "max_abs_difference": 0,
+     "pass": true
+    },
+    "zero_premium": {
+     "max_abs_difference": 0,
+     "pass": true
+    },
+    "high_charge": {
+     "max_abs_difference": 0,
+     "pass": true
+    }
+   },
+   "workbook": "review/tiles/death_strain/workbook.xlsx"
+  },
+  "gross_profit": {
+   "drift": "values",
+   "checks_pass": true,
+   "max_abs_difference": 0,
+   "rule_violations": [],
+   "uncovered_branches": [],
+   "new_cases": [],
+   "signed_off": null,
+   "state": "stale",
+   "workbook_current": true,
+   "can_sign_off": false,
+   "blockers": [
+    "This tile is stale because upstream values changed. Rebuild it first."
+   ],
+   "translatable": true,
+   "case_results": {
+    "base": {
+     "max_abs_difference": 0,
+     "pass": true
+    },
+    "zero_premium": {
+     "max_abs_difference": 0,
+     "pass": true
+    },
+    "high_charge": {
+     "max_abs_difference": 0,
+     "pass": true
+    }
+   },
+   "workbook": "review/tiles/gross_profit/workbook.xlsx"
+  },
+  "ceded_death_strain": {
+   "drift": null,
+   "checks_pass": true,
+   "max_abs_difference": 0,
+   "rule_violations": [],
+   "uncovered_branches": [],
+   "new_cases": [],
+   "signed_off": null,
+   "state": "built",
+   "workbook_current": true,
+   "can_sign_off": true,
+   "blockers": [],
+   "translatable": true,
+   "case_results": {
+    "base": {
+     "max_abs_difference": 0,
+     "pass": true
+    },
+    "zero_premium": {
+     "max_abs_difference": 0,
+     "pass": true
+    },
+    "high_charge": {
+     "max_abs_difference": 0,
+     "pass": true
+    }
+   },
+   "workbook": "review/tiles/ceded_death_strain/workbook.xlsx"
+  },
+  "retained_death_strain": {
+   "drift": null,
+   "checks_pass": true,
+   "max_abs_difference": 0,
+   "rule_violations": [],
+   "uncovered_branches": [],
+   "new_cases": [],
+   "signed_off": null,
+   "state": "built",
+   "workbook_current": true,
+   "can_sign_off": true,
+   "blockers": [],
+   "translatable": true,
+   "case_results": {
+    "base": {
+     "max_abs_difference": 0,
+     "pass": true
+    },
+    "zero_premium": {
+     "max_abs_difference": 0,
+     "pass": true
+    },
+    "high_charge": {
+     "max_abs_difference": 0,
+     "pass": true
+    }
+   },
+   "workbook": "review/tiles/retained_death_strain/workbook.xlsx"
+  },
+  "reinsurance_premium": {
+   "drift": null,
+   "checks_pass": true,
+   "max_abs_difference": 0,
+   "rule_violations": [],
+   "uncovered_branches": [],
+   "new_cases": [],
+   "signed_off": null,
+   "state": "unbuilt",
+   "workbook_current": true,
+   "can_sign_off": false,
+   "blockers": [
+    "There is no workbook yet. Build it first."
+   ],
+   "translatable": true,
+   "case_results": {},
+   "workbook": null
+  },
+  "net_profit": {
+   "drift": null,
+   "checks_pass": true,
+   "max_abs_difference": 0,
+   "rule_violations": [],
+   "uncovered_branches": [],
+   "new_cases": [],
+   "signed_off": null,
+   "state": "unbuilt",
+   "workbook_current": true,
+   "can_sign_off": false,
+   "blockers": [
+    "There is no workbook yet. Build it first."
+   ],
+   "translatable": true,
+   "case_results": {},
+   "workbook": null
+  },
+  "pv_gross_profit": {
+   "drift": null,
+   "checks_pass": true,
+   "max_abs_difference": 0,
+   "rule_violations": [],
+   "uncovered_branches": [],
+   "new_cases": [],
+   "signed_off": null,
+   "state": "built",
+   "workbook_current": true,
+   "can_sign_off": true,
+   "blockers": [],
+   "translatable": true,
+   "case_results": {
+    "base": {
+     "max_abs_difference": 0,
+     "pass": true
+    },
+    "zero_premium": {
+     "max_abs_difference": 0,
+     "pass": true
+    },
+    "high_charge": {
+     "max_abs_difference": 0,
+     "pass": true
+    }
+   },
+   "workbook": "review/tiles/pv_gross_profit/workbook.xlsx"
+  },
+  "pv_net_profit": {
+   "drift": null,
+   "checks_pass": true,
+   "max_abs_difference": 0,
+   "rule_violations": [],
+   "uncovered_branches": [],
+   "new_cases": [],
+   "signed_off": null,
+   "state": "built",
+   "workbook_current": true,
+   "can_sign_off": true,
+   "blockers": [],
+   "translatable": true,
+   "case_results": {
+    "base": {
+     "max_abs_difference": 0,
+     "pass": true
+    },
+    "zero_premium": {
+     "max_abs_difference": 0,
+     "pass": true
+    },
+    "high_charge": {
+     "max_abs_difference": 0,
+     "pass": true
+    }
+   },
+   "workbook": "review/tiles/pv_net_profit/workbook.xlsx"
+  },
+  "pv_premium": {
+   "drift": null,
+   "checks_pass": true,
+   "max_abs_difference": 0,
+   "rule_violations": [],
+   "uncovered_branches": [],
+   "new_cases": [],
+   "signed_off": null,
+   "state": "built",
+   "workbook_current": true,
+   "can_sign_off": true,
+   "blockers": [],
+   "translatable": true,
+   "case_results": {
+    "base": {
+     "max_abs_difference": 0,
+     "pass": true
+    },
+    "zero_premium": {
+     "max_abs_difference": 0,
+     "pass": true
+    },
+    "high_charge": {
+     "max_abs_difference": 0,
+     "pass": true
+    }
+   },
+   "workbook": "review/tiles/pv_premium/workbook.xlsx"
+  },
+  "profit_margin": {
+   "drift": null,
+   "checks_pass": true,
+   "max_abs_difference": 0,
+   "rule_violations": [],
+   "uncovered_branches": [],
+   "new_cases": [],
+   "signed_off": null,
+   "state": "built",
+   "workbook_current": true,
+   "can_sign_off": true,
+   "blockers": [],
+   "translatable": true,
+   "case_results": {
+    "base": {
+     "max_abs_difference": 0,
+     "pass": true
+    },
+    "zero_premium": {
+     "max_abs_difference": 0,
+     "pass": true
+    },
+    "high_charge": {
+     "max_abs_difference": 0,
+     "pass": true
+    }
+   },
+   "workbook": "review/tiles/profit_margin/workbook.xlsx"
+  },
+  "irr_pm": {
+   "drift": null,
+   "checks_pass": true,
+   "max_abs_difference": 0,
+   "rule_violations": [],
+   "uncovered_branches": [],
+   "new_cases": [],
+   "signed_off": null,
+   "state": "built",
+   "workbook_current": true,
+   "can_sign_off": true,
+   "blockers": [],
+   "translatable": false,
+   "case_results": {
+    "base": {
+     "max_abs_difference": 0,
+     "pass": true
+    },
+    "zero_premium": {
+     "max_abs_difference": 0,
+     "pass": true
+    },
+    "high_charge": {
+     "max_abs_difference": 0,
+     "pass": true
+    }
+   },
+   "workbook": "review/tiles/irr_pm/workbook.xlsx"
+  },
+  "irr_pa": {
+   "drift": null,
+   "checks_pass": true,
+   "max_abs_difference": 0,
+   "rule_violations": [],
+   "uncovered_branches": [],
+   "new_cases": [],
+   "signed_off": null,
+   "state": "built",
+   "workbook_current": true,
+   "can_sign_off": true,
+   "blockers": [],
+   "translatable": true,
+   "case_results": {
+    "base": {
+     "max_abs_difference": 0,
+     "pass": true
+    },
+    "zero_premium": {
+     "max_abs_difference": 0,
+     "pass": true
+    },
+    "high_charge": {
+     "max_abs_difference": 0,
+     "pass": true
+    }
+   },
+   "workbook": "review/tiles/irr_pa/workbook.xlsx"
+  }
+ },
+ "modules": {
+  "unit_projection": {
+   "state": "built",
+   "tiles_signed_off": 2,
+   "tiles_total": 4,
+   "stale": 1,
+   "unbuilt": [],
+   "workbook_current": true,
+   "signed_off": null,
+   "checks": [
+    {
+     "name": "Sheet agrees with Python",
+     "pass": true
+    },
+    {
+     "name": "Tile formulas match tile workbooks",
+     "pass": true
+    },
+    {
+     "name": "Every tile signed off",
+     "pass": false
+    }
+   ],
+   "workbook": "review/modules/unit_projection/workbook.xlsx",
+   "can_sign_off": false,
+   "blockers": [
+    "Tile units_amc is not signed off.",
+    "Tile units_eop is stale."
+   ]
+  },
+  "decrements": {
+   "state": "built",
+   "tiles_signed_off": 2,
+   "tiles_total": 3,
+   "stale": 0,
+   "unbuilt": [],
+   "workbook_current": true,
+   "signed_off": null,
+   "checks": [
+    {
+     "name": "Sheet agrees with Python",
+     "pass": true
+    },
+    {
+     "name": "Tile formulas match tile workbooks",
+     "pass": true,
+     "stale": true
+    },
+    {
+     "name": "Every tile signed off",
+     "pass": false
+    }
+   ],
+   "workbook": "review/modules/decrements/workbook.xlsx",
+   "can_sign_off": false,
+   "blockers": [
+    "Tile in_force_eop is not signed off."
+   ]
+  },
+  "cashflows": {
+   "state": "built",
+   "tiles_signed_off": 3,
+   "tiles_total": 9,
+   "stale": 3,
+   "unbuilt": [
+    "maintenance_expense"
+   ],
+   "workbook_current": false,
+   "signed_off": null,
+   "checks": [
+    {
+     "name": "Sheet agrees with Python",
+     "pass": true
+    },
+    {
+     "name": "Tile formulas match tile workbooks",
+     "pass": true
+    },
+    {
+     "name": "Every tile signed off",
+     "pass": false
+    }
+   ],
+   "workbook": "review/modules/cashflows/workbook.xlsx",
+   "can_sign_off": false,
+   "blockers": [
+    "Tile allocation_margin is stale.",
+    "Tile amc_income is stale.",
+    "Tile maintenance_expense is not signed off.",
+    "Tile acquisition_expense is not signed off.",
+    "Tile sum_at_risk is not signed off.",
+    "Tile gross_profit is stale."
+   ]
+  },
+  "quota_share": {
+   "state": "unbuilt",
+   "tiles_signed_off": 0,
+   "tiles_total": 4,
+   "stale": 0,
+   "unbuilt": [
+    "reinsurance_premium",
+    "net_profit"
+   ],
+   "workbook_current": true,
+   "signed_off": null,
+   "checks": [
+    {
+     "name": "Sheet agrees with Python",
+     "pass": true
+    },
+    {
+     "name": "Tile formulas match tile workbooks",
+     "pass": true
+    },
+    {
+     "name": "Every tile signed off",
+     "pass": false
+    }
+   ],
+   "workbook": null,
+   "can_sign_off": false,
+   "blockers": [
+    "Tile ceded_death_strain is not signed off.",
+    "Tile retained_death_strain is not signed off.",
+    "Tile reinsurance_premium is not signed off.",
+    "Tile net_profit is not signed off."
+   ]
+  },
+  "profit": {
+   "state": "built",
+   "tiles_signed_off": 0,
+   "tiles_total": 6,
+   "stale": 0,
+   "unbuilt": [],
+   "workbook_current": true,
+   "signed_off": null,
+   "checks": [
+    {
+     "name": "Sheet agrees with Python",
+     "pass": true
+    },
+    {
+     "name": "Tile formulas match tile workbooks",
+     "pass": true
+    },
+    {
+     "name": "Every tile signed off",
+     "pass": false
+    }
+   ],
+   "workbook": "review/modules/profit/workbook.xlsx",
+   "can_sign_off": false,
+   "blockers": [
+    "Tile pv_gross_profit is not signed off.",
+    "Tile pv_net_profit is not signed off.",
+    "Tile pv_premium is not signed off.",
+    "Tile profit_margin is not signed off.",
+    "Tile irr_pm is not signed off.",
+    "Tile irr_pa is not signed off."
+   ]
+  }
+ },
+ "model": {
+  "state": "built",
+  "modules_signed_off": 0,
+  "modules_total": 5,
+  "unbuilt": [
+   "quota_share"
+  ],
+  "workbook_current": true,
+  "can_sign_off": false,
+  "signed_off": null,
+  "blockers": [
+   "Module Unit projection is not signed off.",
+   "Module Decrements is not signed off.",
+   "Module Cashflows is not signed off.",
+   "Module Quota share is not signed off.",
+   "Module Profit is not signed off."
+  ],
+  "checks": [
+   {
+    "name": "Model workbook agrees with Python",
+    "pass": true
+   },
+   {
+    "name": "Tile formulas match tile workbooks",
+    "pass": true
+   },
+   {
+    "name": "Unit tests pass",
+    "pass": true,
+    "stale": true
+   },
+   {
+    "name": "Every module signed off",
+    "pass": false
+   }
+  ],
+  "workbook": "review/model/workbook.xlsx",
+  "workbooks": {
+   "base": "review/model/workbook.xlsx",
+   "zero_premium": "review/model/workbook-zero_premium.xlsx",
+   "high_charge": "review/model/workbook-high_charge.xlsx"
+  }
+ },
+ "counts": {
+  "tiles": 26,
+  "signed_off": 7,
+  "stale": 3,
+  "unbuilt": 3
+ }
+}

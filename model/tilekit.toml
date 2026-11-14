@@ -1,0 +1,120 @@
+[model]
+name = "Unit-linked pricing"
+package = "unit_linked"
+params = "unit_linked.params:Params"
+inputs = "unit_linked.inputs:build_inputs"
+months = 120
+default_case = "base"
+layers = ["Inputs", "Liability", "Treaty", "Results"]
+
+[[module]]
+id = "unit_projection"
+title = "Unit projection"
+layer = "Liability"
+python = "unit_linked.liability.units"
+
+[[module]]
+id = "decrements"
+title = "Decrements"
+layer = "Liability"
+python = "unit_linked.liability.decrements"
+
+[[module]]
+id = "cashflows"
+title = "Cashflows"
+layer = "Liability"
+python = "unit_linked.liability.cashflows"
+
+[[module]]
+id = "quota_share"
+title = "Quota share"
+layer = "Treaty"
+python = "unit_linked.treaty.quota_share"
+
+[[module]]
+id = "profit"
+title = "Profit"
+layer = "Results"
+python = "unit_linked.results.profit"
+timing = "summary"
+
+# ---------------------------------------------------------------- carried-forward state
+
+[state.units_bop]          # carried forward: next month's units_bop is this month's units_eop
+from = "units_eop"
+initial = 0.0
+label = "Opening units"
+format = "units"
+
+[state.in_force_bop]
+from = "in_force_eop"
+initial = 1.0
+label = "Opening in force"
+format = "number"
+
+# ---------------------------------------------------------------- assumption tables
+
+[table.mortality]          # header row; the first column is the key
+file = "assumptions/mortality.csv"
+label = "Mortality table"
+formats = { age = "integer", qx = "rate" }
+
+# ---------------------------------------------------------------- input series (built by build_inputs)
+# `excel`: how the model workbook's "Inputs" sheet replicates the series with a live formula.
+# {name} is this month's cell of another input, {table:T.col} a table column, a bare name a parameter.
+
+[input.month]
+label = "Month number"
+format = "integer"
+
+[input.premium]
+label = "Premium"
+format = "amount"
+
+[input.unit_price]
+label = "Unit price"
+format = "units"
+excel = "=initial_unit_price*(1+unit_growth_pa)^(({month}-1)/months_per_year)"
+
+[input.age_at_entry]
+label = "Age at entry"
+format = "integer"
+
+[input.attained_age]
+label = "Attained age"
+format = "integer"
+excel = "={age_at_entry}+INT(({month}-1)/months_per_year)"
+
+[input.mort_rate_pa]
+label = "Mortality rate per year"
+format = "rate"
+excel = "=INDEX({table:mortality.qx},MATCH({attained_age},{table:mortality.age},0))"
+
+[input.mort_rate_pm]
+label = "Mortality rate per month"
+format = "rate"
+excel = "=1-(1-{mort_rate_pa})^(1/months_per_year)"
+
+[input.lapse_rate_pm]
+label = "Lapse rate per month"
+format = "rate"
+excel = "=1-(1-lapse_rate_pa)^(1/months_per_year)"
+
+[input.sum_assured]
+label = "Sum assured"
+format = "amount"
+
+[input.acquisition_cost_paid]
+label = "Acquisition cost paid"
+format = "amount"
+excel = "=IF({month}=1,acquisition_cost,0)"
+
+[input.discount_rate_pm]
+label = "Discount rate per month"
+format = "rate"
+excel = "=(1+discount_rate_pa)^(1/months_per_year)-1"
+
+[input.discount_factor]
+label = "Discount factor"
+format = "number"
+excel = "=1/(1+{discount_rate_pm})^{month}"

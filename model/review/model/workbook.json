@@ -1,0 +1,493 @@
+{
+  "kind": "model",
+  "name": "Unit-linked pricing",
+  "built_at": "2026-11-14T10:32:04+00:00",
+  "stamp": {
+    "code": "173ace42346b1352ea53afd6e5a2158b7c78c2aebd91656ea82e2120b6d7713c",
+    "spec": "5e3972b6ac571c489e330f86116c8dd45a3daf883d7d32394b926ac2b0484dd3",
+    "upstream": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "cases": "a42493b46f4e2e1d7ec9309bfd93f977df0cf13535b4eaf45c63ac35f8dc13dc",
+    "params": "812034f1892d7390615060102f5c916d6d69193909bff8f65e2131436243fc32",
+    "translator": "7b0b6232790fd2c96c1ceb6d79634cd6d2ecd2a2e6c2f527ca64ec6b8907cd9a"
+  },
+  "workbook": "workbook.xlsx",
+  "tolerance": 1e-09,
+  "relative_tolerance": 1e-12,
+  "max_abs_difference": 1.1641532182693481e-10,
+  "checks_pass": true,
+  "tiles": {
+    "units_allocated": {
+      "module": "unit_projection",
+      "formula": "={premium}*allocation_rate/{unit_price}",
+      "translatable": true,
+      "max_abs_difference": 6.963318810448982e-13,
+      "checks_pass": true,
+      "near_ties": {}
+    },
+    "units_after_alloc": {
+      "module": "unit_projection",
+      "formula": "={units_bop}+{units_allocated}",
+      "translatable": true,
+      "max_abs_difference": 4.729372449219227e-11,
+      "checks_pass": true,
+      "near_ties": {}
+    },
+    "units_amc": {
+      "module": "unit_projection",
+      "formula": "=MIN({units_after_alloc}*amc_pm,amc_cap_units)",
+      "translatable": true,
+      "max_abs_difference": 3.019806626980426e-14,
+      "checks_pass": true,
+      "near_ties": {}
+    },
+    "units_eop": {
+      "module": "unit_projection",
+      "formula": "={units_after_alloc}-{units_amc}",
+      "translatable": true,
+      "max_abs_difference": 4.729372449219227e-11,
+      "checks_pass": true,
+      "near_ties": {}
+    },
+    "deaths": {
+      "module": "decrements",
+      "formula": "={in_force_bop}*{mort_rate_pm}",
+      "translatable": true,
+      "max_abs_difference": 0.0,
+      "checks_pass": true,
+      "near_ties": {}
+    },
+    "lapses": {
+      "module": "decrements",
+      "formula": "=({in_force_bop}-{deaths})*{lapse_rate_pm}",
+      "translatable": true,
+      "max_abs_difference": 0.0,
+      "checks_pass": true,
+      "near_ties": {}
+    },
+    "in_force_eop": {
+      "module": "decrements",
+      "formula": "={in_force_bop}-{deaths}-{lapses}",
+      "translatable": true,
+      "max_abs_difference": 0.0,
+      "checks_pass": true,
+      "near_ties": {}
+    },
+    "fund_value_eop": {
+      "module": "cashflows",
+      "formula": "={units_eop}*{unit_price}",
+      "translatable": true,
+      "max_abs_difference": 1.1641532182693481e-10,
+      "checks_pass": true,
+      "near_ties": {}
+    },
+    "premium_income": {
+      "module": "cashflows",
+      "formula": "={premium}*{in_force_bop}",
+      "translatable": true,
+      "max_abs_difference": 0.0,
+      "checks_pass": true,
+      "near_ties": {}
+    },
+    "allocation_margin": {
+      "module": "cashflows",
+      "formula": "={premium}*(1-allocation_rate)*{in_force_bop}",
+      "translatable": true,
+      "max_abs_difference": 0.0,
+      "checks_pass": true,
+      "near_ties": {}
+    },
+    "amc_income": {
+      "module": "cashflows",
+      "formula": "={units_amc}*{unit_price}*{in_force_bop}",
+      "translatable": true,
+      "max_abs_difference": 3.907985046680551e-14,
+      "checks_pass": true,
+      "near_ties": {}
+    },
+    "maintenance_expense": {
+      "module": "cashflows",
+      "formula": "=-expense_pm*{in_force_bop}",
+      "translatable": true,
+      "max_abs_difference": 0.0,
+      "checks_pass": true,
+      "near_ties": {}
+    },
+    "acquisition_expense": {
+      "module": "cashflows",
+      "formula": "=-{acquisition_cost_paid}*{in_force_bop}",
+      "translatable": true,
+      "max_abs_difference": 0.0,
+      "checks_pass": true,
+      "near_ties": {}
+    },
+    "sum_at_risk": {
+      "module": "cashflows",
+      "formula": "=MAX({sum_assured}-{fund_value_eop},0)",
+      "translatable": true,
+      "max_abs_difference": 1.1641532182693481e-10,
+      "checks_pass": true,
+      "near_ties": {}
+    },
+    "death_strain": {
+      "module": "cashflows",
+      "formula": "=-{deaths}*{sum_at_risk}",
+      "translatable": true,
+      "max_abs_difference": 1.865174681370263e-14,
+      "checks_pass": true,
+      "near_ties": {}
+    },
+    "gross_profit": {
+      "module": "cashflows",
+      "formula": "={allocation_margin}+{amc_income}+{maintenance_expense}+{acquisition_expense}+{death_strain}",
+      "translatable": true,
+      "max_abs_difference": 5.861977570020827e-14,
+      "checks_pass": true,
+      "near_ties": {}
+    },
+    "ceded_death_strain": {
+      "module": "quota_share",
+      "formula": "={death_strain}*quota_share",
+      "translatable": true,
+      "max_abs_difference": 9.325873406851315e-15,
+      "checks_pass": true,
+      "near_ties": {}
+    },
+    "retained_death_strain": {
+      "module": "quota_share",
+      "formula": "={death_strain}-{ceded_death_strain}",
+      "translatable": true,
+      "max_abs_difference": 9.325873406851315e-15,
+      "checks_pass": true,
+      "near_ties": {}
+    },
+    "reinsurance_premium": {
+      "module": "quota_share",
+      "formula": "=-{sum_at_risk}*{in_force_bop}*{mort_rate_pm}*quota_share*(1+reinsurance_loading)",
+      "translatable": true,
+      "max_abs_difference": 1.021405182655144e-14,
+      "checks_pass": true,
+      "near_ties": {}
+    },
+    "net_profit": {
+      "module": "quota_share",
+      "formula": "={gross_profit}-{ceded_death_strain}+{reinsurance_premium}",
+      "translatable": true,
+      "max_abs_difference": 6.039613253960852e-14,
+      "checks_pass": true,
+      "near_ties": {}
+    },
+    "pv_gross_profit": {
+      "module": "profit",
+      "formula": "=SUMPRODUCT({gross_profit},{discount_factor})",
+      "translatable": true,
+      "max_abs_difference": 1.4779288903810084e-12,
+      "checks_pass": true,
+      "near_ties": {}
+    },
+    "pv_net_profit": {
+      "module": "profit",
+      "formula": "=SUMPRODUCT({net_profit},{discount_factor})",
+      "translatable": true,
+      "max_abs_difference": 1.5347723092418164e-12,
+      "checks_pass": true,
+      "near_ties": {}
+    },
+    "pv_premium": {
+      "module": "profit",
+      "formula": "=SUMPRODUCT({premium_income},{discount_factor})",
+      "translatable": true,
+      "max_abs_difference": 3.637978807091713e-12,
+      "checks_pass": true,
+      "near_ties": {}
+    },
+    "profit_margin": {
+      "module": "profit",
+      "formula": "={pv_net_profit}/{pv_premium}",
+      "translatable": true,
+      "max_abs_difference": 8.673617379884035e-17,
+      "checks_pass": true,
+      "near_ties": {}
+    },
+    "irr_pm": {
+      "module": "profit",
+      "formula": "=IRR({net_profit})",
+      "translatable": true,
+      "max_abs_difference": 1.1796119636642288e-16,
+      "checks_pass": true,
+      "near_ties": {}
+    },
+    "irr_pa": {
+      "module": "profit",
+      "formula": "=(1+{irr_pm})^months_per_year-1",
+      "translatable": true,
+      "max_abs_difference": 3.3306690738754696e-15,
+      "checks_pass": true,
+      "near_ties": {}
+    }
+  },
+  "cases": {
+    "base": {
+      "sheet": "Inputs",
+      "tiles": {
+        "units_allocated": {
+          "max_abs_difference": 6.963318810448982e-13,
+          "checks_pass": true,
+          "branches": {},
+          "near_ties": []
+        },
+        "units_after_alloc": {
+          "max_abs_difference": 4.729372449219227e-11,
+          "checks_pass": true,
+          "branches": {},
+          "near_ties": []
+        },
+        "units_amc": {
+          "max_abs_difference": 3.019806626980426e-14,
+          "checks_pass": true,
+          "branches": {
+            "min: first": 120,
+            "min: second": 0
+          },
+          "near_ties": []
+        },
+        "units_eop": {
+          "max_abs_difference": 4.729372449219227e-11,
+          "checks_pass": true,
+          "branches": {},
+          "near_ties": []
+        },
+        "deaths": {
+          "max_abs_difference": 0.0,
+          "checks_pass": true,
+          "branches": {},
+          "near_ties": []
+        },
+        "lapses": {
+          "max_abs_difference": 0.0,
+          "checks_pass": true,
+          "branches": {},
+          "near_ties": []
+        },
+        "in_force_eop": {
+          "max_abs_difference": 0.0,
+          "checks_pass": true,
+          "branches": {},
+          "near_ties": []
+        },
+        "fund_value_eop": {
+          "max_abs_difference": 1.1641532182693481e-10,
+          "checks_pass": true,
+          "branches": {},
+          "near_ties": []
+        },
+        "premium_income": {
+          "max_abs_difference": 0.0,
+          "checks_pass": true,
+          "branches": {},
+          "near_ties": []
+        },
+        "allocation_margin": {
+          "max_abs_difference": 0.0,
+          "checks_pass": true,
+          "branches": {},
+          "near_ties": []
+        },
+        "amc_income": {
+          "max_abs_difference": 3.907985046680551e-14,
+          "checks_pass": true,
+          "branches": {},
+          "near_ties": []
+        },
+        "maintenance_expense": {
+          "max_abs_difference": 0.0,
+          "checks_pass": true,
+          "branches": {},
+          "near_ties": []
+        },
+        "acquisition_expense": {
+          "max_abs_difference": 0.0,
+          "checks_pass": true,
+          "branches": {},
+          "near_ties": []
+        },
+        "sum_at_risk": {
+          "max_abs_difference": 1.1641532182693481e-10,
+          "checks_pass": true,
+          "branches": {
+            "max: first": 120,
+            "max: second": 0
+          },
+          "near_ties": []
+        },
+        "death_strain": {
+          "max_abs_difference": 1.865174681370263e-14,
+          "checks_pass": true,
+          "branches": {},
+          "near_ties": []
+        },
+        "gross_profit": {
+          "max_abs_difference": 5.861977570020827e-14,
+          "checks_pass": true,
+          "branches": {},
+          "near_ties": []
+        },
+        "ceded_death_strain": {
+          "max_abs_difference": 9.325873406851315e-15,
+          "checks_pass": true,
+          "branches": {},
+          "near_ties": []
+        },
+        "retained_death_strain": {
+          "max_abs_difference": 9.325873406851315e-15,
+          "checks_pass": true,
+          "branches": {},
+          "near_ties": []
+        },
+        "reinsurance_premium": {
+          "max_abs_difference": 1.021405182655144e-14,
+          "checks_pass": true,
+          "branches": {},
+          "near_ties": []
+        },
+        "net_profit": {
+          "max_abs_difference": 6.039613253960852e-14,
+          "checks_pass": true,
+          "branches": {},
+          "near_ties": []
+        },
+        "pv_gross_profit": {
+          "max_abs_difference": 1.4779288903810084e-12,
+          "checks_pass": true,
+          "branches": {},
+          "near_ties": []
+        },
+        "pv_net_profit": {
+          "max_abs_difference": 1.5347723092418164e-12,
+          "checks_pass": true,
+          "branches": {},
+          "near_ties": []
+        },
+        "pv_premium": {
+          "max_abs_difference": 3.637978807091713e-12,
+          "checks_pass": true,
+          "branches": {},
+          "near_ties": []
+        },
+        "profit_margin": {
+          "max_abs_difference": 8.673617379884035e-17,
+          "checks_pass": true,
+          "branches": {},
+          "near_ties": []
+        },
+        "irr_pm": {
+          "max_abs_difference": 1.1796119636642288e-16,
+          "checks_pass": true,
+          "tolerance": 1e-07,
+          "branches": {},
+          "near_ties": []
+        },
+        "irr_pa": {
+          "max_abs_difference": 3.3306690738754696e-15,
+          "checks_pass": true,
+          "tolerance": 1e-07,
+          "branches": {},
+          "near_ties": []
+        }
+      },
+      "inputs": {
+        "unit_price": {
+          "max_abs_difference": 1.1546319456101628e-14,
+          "checks_pass": true
+        },
+        "attained_age": {
+          "max_abs_difference": 0.0,
+          "checks_pass": true
+        },
+        "mort_rate_pa": {
+          "max_abs_difference": 0.0,
+          "checks_pass": true
+        },
+        "mort_rate_pm": {
+          "max_abs_difference": 0.0,
+          "checks_pass": true
+        },
+        "lapse_rate_pm": {
+          "max_abs_difference": 0.0,
+          "checks_pass": true
+        },
+        "acquisition_cost_paid": {
+          "max_abs_difference": 0.0,
+          "checks_pass": true
+        },
+        "discount_rate_pm": {
+          "max_abs_difference": 0.0,
+          "checks_pass": true
+        },
+        "discount_factor": {
+          "max_abs_difference": 0.0,
+          "checks_pass": true
+        }
+      },
+      "max_abs_difference": 1.1641532182693481e-10,
+      "checks_pass": true
+    }
+  },
+  "case": "base",
+  "sheets": [
+    "Inputs",
+    "Assumptions",
+    "Unit projection",
+    "Decrements",
+    "Cashflows",
+    "Quota share",
+    "Profit",
+    "Scratch"
+  ],
+  "inputs": {
+    "unit_price": {
+      "excel": "=initial_unit_price*(1+unit_growth_pa)^(({month}-1)/months_per_year)",
+      "max_abs_difference": 1.1546319456101628e-14,
+      "checks_pass": true
+    },
+    "attained_age": {
+      "excel": "={age_at_entry}+INT(({month}-1)/months_per_year)",
+      "max_abs_difference": 0.0,
+      "checks_pass": true
+    },
+    "mort_rate_pa": {
+      "excel": "=INDEX({table:mortality.qx},MATCH({attained_age},{table:mortality.age},0))",
+      "max_abs_difference": 0.0,
+      "checks_pass": true
+    },
+    "mort_rate_pm": {
+      "excel": "=1-(1-{mort_rate_pa})^(1/months_per_year)",
+      "max_abs_difference": 0.0,
+      "checks_pass": true
+    },
+    "lapse_rate_pm": {
+      "excel": "=1-(1-lapse_rate_pa)^(1/months_per_year)",
+      "max_abs_difference": 0.0,
+      "checks_pass": true
+    },
+    "acquisition_cost_paid": {
+      "excel": "=IF({month}=1,acquisition_cost,0)",
+      "max_abs_difference": 0.0,
+      "checks_pass": true
+    },
+    "discount_rate_pm": {
+      "excel": "=(1+discount_rate_pa)^(1/months_per_year)-1",
+      "max_abs_difference": 0.0,
+      "checks_pass": true
+    },
+    "discount_factor": {
+      "excel": "=1/(1+{discount_rate_pm})^{month}",
+      "max_abs_difference": 0.0,
+      "checks_pass": true
+    }
+  },
+  "content_digest": "1be93e3b7c54cf4e73c1b4a2be8f2491393b6f56e61dc1ac852afc713f2711be",
+  "content_stat": {
+    "mtime_ns": 1794652324852103393,
+    "size": 175066
+  }
+}

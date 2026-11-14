@@ -1,0 +1,66 @@
+{
+  "kind": "tile",
+  "name": "pv_net_profit",
+  "module": "profit",
+  "built_at": "2026-11-14T10:32:01+00:00",
+  "stamp": {
+    "code": "8d5fa583d33f29fe2acaee3cc8420a237c019fc1fc2d6e29581ccd8d590aed7b",
+    "spec": "71633b185b4c7031047498f058b1bfd026453620a711ff8f475e3a936af0ff98",
+    "upstream": "204f35c5f16fda3d79cdffc6b065bd497ddc573ac2eb4c3886a60947110bad9c",
+    "cases": "a42493b46f4e2e1d7ec9309bfd93f977df0cf13535b4eaf45c63ac35f8dc13dc",
+    "params": "05fab2750280bae719ccdeae45603fce740d04232cbcda23e56fa79d7c849932",
+    "translator": "7b0b6232790fd2c96c1ceb6d79634cd6d2ecd2a2e6c2f527ca64ec6b8907cd9a"
+  },
+  "workbook": "workbook.xlsx",
+  "formula": "=SUMPRODUCT({net_profit},{discount_factor})",
+  "translatable": true,
+  "untranslatable_reason": null,
+  "branch_labels": [],
+  "tolerance": 1e-09,
+  "relative_tolerance": 1e-12,
+  "max_abs_difference": 4.547473508864641e-13,
+  "checks_pass": true,
+  "cases": {
+    "base": {
+      "sheet": "Base",
+      "max_abs_difference": 5.684341886080802e-14,
+      "checks_pass": true,
+      "branches": {},
+      "near_ties": []
+    },
+    "fund_overtakes": {
+      "sheet": "Fund overtakes",
+      "max_abs_difference": 4.547473508864641e-13,
+      "checks_pass": true,
+      "branches": {},
+      "near_ties": []
+    },
+    "high_charge": {
+      "sheet": "High charge",
+      "max_abs_difference": 4.547473508864641e-13,
+      "checks_pass": true,
+      "branches": {},
+      "near_ties": []
+    },
+    "older_short_term": {
+      "sheet": "Older, short term",
+      "max_abs_difference": 2.6645352591003757e-14,
+      "checks_pass": true,
+      "branches": {},
+      "near_ties": []
+    },
+    "zero_premium": {
+      "sheet": "Zero premium",
+      "max_abs_difference": 2.2737367544323206e-13,
+      "checks_pass": true,
+      "branches": {},
+      "near_ties": []
+    }
+  },
+  "near_ties": {},
+  "content_digest": "838d7005f21087d9469146d2c134976dfe1651fd0721a6167fb86f2620bd6fc5",
+  "content_stat": {
+    "mtime_ns": 1794652321602116212,
+    "size": 41879
+  }
+}

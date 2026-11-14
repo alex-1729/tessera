@@ -1,0 +1,66 @@
+{
+  "kind": "tile",
+  "name": "profit_margin",
+  "module": "profit",
+  "built_at": "2026-11-14T10:32:01+00:00",
+  "stamp": {
+    "code": "f79c1389779e13e5d1165f2db1c087426bc7651899ff015bd4b5299b938126f4",
+    "spec": "74ec4344c643141acd170b0b5cb6968b1cfbe347cfbe85e64f606ff74b6bf443",
+    "upstream": "6d2bbbd4e2b149ef817960596a0855aa9c45d89b35c72d40b91458ca0a87addc",
+    "cases": "a42493b46f4e2e1d7ec9309bfd93f977df0cf13535b4eaf45c63ac35f8dc13dc",
+    "params": "05fab2750280bae719ccdeae45603fce740d04232cbcda23e56fa79d7c849932",
+    "translator": "7b0b6232790fd2c96c1ceb6d79634cd6d2ecd2a2e6c2f527ca64ec6b8907cd9a"
+  },
+  "workbook": "workbook.xlsx",
+  "formula": "={pv_net_profit}/{pv_premium}",
+  "translatable": true,
+  "untranslatable_reason": null,
+  "branch_labels": [],
+  "tolerance": 1e-09,
+  "relative_tolerance": 1e-12,
+  "max_abs_difference": 0.0,
+  "checks_pass": true,
+  "cases": {
+    "base": {
+      "sheet": "Base",
+      "max_abs_difference": 0.0,
+      "checks_pass": true,
+      "branches": {},
+      "near_ties": []
+    },
+    "fund_overtakes": {
+      "sheet": "Fund overtakes",
+      "max_abs_difference": 0.0,
+      "checks_pass": true,
+      "branches": {},
+      "near_ties": []
+    },
+    "high_charge": {
+      "sheet": "High charge",
+      "max_abs_difference": 0.0,
+      "checks_pass": true,
+      "branches": {},
+      "near_ties": []
+    },
+    "older_short_term": {
+      "sheet": "Older, short term",
+      "max_abs_difference": 0.0,
+      "checks_pass": true,
+      "branches": {},
+      "near_ties": []
+    },
+    "zero_premium": {
+      "sheet": "Zero premium",
+      "max_abs_difference": 0.0,
+      "checks_pass": true,
+      "branches": {},
+      "near_ties": []
+    }
+  },
+  "near_ties": {},
+  "content_digest": "fade144af0155eaeacd9acbc1601e284434a657d5526cb612869b57ba2c0fa31",
+  "content_stat": {
+    "mtime_ns": 1794652321680326914,
+    "size": 8684
+  }
+}

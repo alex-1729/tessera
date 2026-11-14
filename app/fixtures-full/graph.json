@@ -1,0 +1,1286 @@
+{
+ "model": {
+  "name": "Unit-linked pricing",
+  "months": 120
+ },
+ "layers": [
+  "Inputs",
+  "Liability",
+  "Treaty",
+  "Results"
+ ],
+ "modules": [
+  {
+   "id": "unit_projection",
+   "title": "Unit projection",
+   "layer": "Liability",
+   "timing": "step",
+   "tiles": [
+    "units_allocated",
+    "units_after_alloc",
+    "units_amc",
+    "units_eop"
+   ],
+   "inputs": [
+    "premium",
+    "allocation_rate",
+    "unit_price",
+    "units_bop",
+    "amc_pm",
+    "amc_cap_units"
+   ],
+   "feeds": [
+    "cashflows"
+   ],
+   "fed_by": []
+  },
+  {
+   "id": "decrements",
+   "title": "Decrements",
+   "layer": "Liability",
+   "timing": "step",
+   "tiles": [
+    "deaths",
+    "lapses",
+    "in_force_eop"
+   ],
+   "inputs": [
+    "in_force_bop",
+    "mortality_pm",
+    "lapse_pm"
+   ],
+   "feeds": [
+    "cashflows"
+   ],
+   "fed_by": []
+  },
+  {
+   "id": "cashflows",
+   "title": "Cashflows",
+   "layer": "Liability",
+   "timing": "step",
+   "tiles": [
+    "fund_value_eop",
+    "premium_income",
+    "allocation_margin",
+    "amc_income",
+    "maintenance_expense",
+    "acquisition_expense",
+    "sum_at_risk",
+    "death_strain",
+    "gross_profit"
+   ],
+   "inputs": [
+    "units_eop",
+    "unit_price",
+    "premium",
+    "in_force_eop",
+    "allocation_rate",
+    "units_amc",
+    "expense_pm",
+    "acq_expense_pct",
+    "acq_expense_fixed",
+    "sum_assured",
+    "deaths"
+   ],
+   "feeds": [
+    "profit",
+    "quota_share"
+   ],
+   "fed_by": [
+    "decrements",
+    "unit_projection"
+   ]
+  },
+  {
+   "id": "quota_share",
+   "title": "Quota share",
+   "layer": "Treaty",
+   "timing": "step",
+   "tiles": [
+    "ceded_death_strain",
+    "retained_death_strain",
+    "reinsurance_premium",
+    "net_profit"
+   ],
+   "inputs": [
+    "death_strain",
+    "qs_share",
+    "sum_at_risk",
+    "reins_rate_pm",
+    "gross_profit"
+   ],
+   "feeds": [
+    "profit"
+   ],
+   "fed_by": [
+    "cashflows"
+   ]
+  },
+  {
+   "id": "profit",
+   "title": "Profit",
+   "layer": "Results",
+   "timing": "summary",
+   "tiles": [
+    "pv_gross_profit",
+    "pv_net_profit",
+    "pv_premium",
+    "profit_margin",
+    "irr_pm",
+    "irr_pa"
+   ],
+   "inputs": [
+    "gross_profit",
+    "disc_pm",
+    "net_profit",
+    "premium_income"
+   ],
+   "feeds": [],
+   "fed_by": [
+    "cashflows",
+    "quota_share"
+   ]
+  }
+ ],
+ "quantities": {
+  "units_allocated": {
+   "kind": "tile",
+   "module": "unit_projection",
+   "label": "Units allocated",
+   "spec": "Premium after the allocation rate, converted to units at the month's unit price.",
+   "units": "units per policy",
+   "timing": "start of month",
+   "format": "units",
+   "assumed": [],
+   "args": [
+    "premium",
+    "allocation_rate",
+    "unit_price"
+   ],
+   "used_by": [
+    "units_after_alloc"
+   ],
+   "source": {
+    "file": "src/unit_linked/unit_projection.py",
+    "line": 8,
+    "code": "def units_allocated(premium, allocation_rate, unit_price):\n    \"\"\"Units allocated.\n\n    Premium after the allocation rate, converted to units at the month's unit price.\n\n    Units: units per policy\n    Timing: start of month\n    Format: units\n    \"\"\"\n    return premium * allocation_rate / unit_price"
+   },
+   "expression": "premium * allocation_rate / unit_price",
+   "formula": "={premium}*allocation_rate/{unit_price}",
+   "translatable": true,
+   "branches": []
+  },
+  "units_after_alloc": {
+   "kind": "tile",
+   "module": "unit_projection",
+   "label": "Units after allocation",
+   "spec": "Opening units plus the units allocated this month.",
+   "units": "units per policy",
+   "timing": "during month, after allocation",
+   "format": "units",
+   "assumed": [],
+   "args": [
+    "units_bop",
+    "units_allocated"
+   ],
+   "used_by": [
+    "units_amc",
+    "units_eop"
+   ],
+   "source": {
+    "file": "src/unit_linked/unit_projection.py",
+    "line": 8,
+    "code": "def units_after_alloc(units_bop, units_allocated):\n    \"\"\"Units after allocation.\n\n    Opening units plus the units allocated this month.\n\n    Units: units per policy\n    Timing: during month, after allocation\n    Format: units\n    \"\"\"\n    return units_bop + units_allocated"
+   },
+   "expression": "units_bop + units_allocated",
+   "formula": "={units_bop}+{units_allocated}",
+   "translatable": true,
+   "branches": []
+  },
+  "units_amc": {
+   "kind": "tile",
+   "module": "unit_projection",
+   "label": "AMC units",
+   "spec": "Monthly management charge deducted in units, after allocation, capped at a fixed number of units.",
+   "units": "units per policy",
+   "timing": "end of month",
+   "format": "units",
+   "assumed": [
+    "the charge is on units after the same month's allocation"
+   ],
+   "args": [
+    "units_after_alloc",
+    "amc_pm",
+    "amc_cap_units"
+   ],
+   "used_by": [
+    "units_eop",
+    "amc_income"
+   ],
+   "source": {
+    "file": "src/unit_linked/unit_projection.py",
+    "line": 8,
+    "code": "def units_amc(units_after_alloc, amc_pm, amc_cap_units):\n    \"\"\"AMC units.\n\n    Monthly management charge deducted in units, after allocation, capped at a fixed number of units.\n\n    Units: units per policy\n    Timing: end of month\n    Format: units\n    Assumed: the charge is on units after the same month's allocation\n    \"\"\"\n    return np.minimum(units_after_alloc * amc_pm, amc_cap_units)"
+   },
+   "expression": "np.minimum(units_after_alloc * amc_pm, amc_cap_units)",
+   "formula": "=MIN({units_after_alloc}*amc_pm,amc_cap_units)",
+   "translatable": true,
+   "branches": [
+    "min: first",
+    "min: second"
+   ]
+  },
+  "units_eop": {
+   "kind": "tile",
+   "module": "unit_projection",
+   "label": "Closing units",
+   "spec": "Units after allocation less the management charge.",
+   "units": "units per policy",
+   "timing": "end of month",
+   "format": "units",
+   "assumed": [],
+   "args": [
+    "units_after_alloc",
+    "units_amc"
+   ],
+   "used_by": [
+    "fund_value_eop"
+   ],
+   "source": {
+    "file": "src/unit_linked/unit_projection.py",
+    "line": 8,
+    "code": "def units_eop(units_after_alloc, units_amc):\n    \"\"\"Closing units.\n\n    Units after allocation less the management charge.\n\n    Units: units per policy\n    Timing: end of month\n    Format: units\n    \"\"\"\n    return units_after_alloc - units_amc"
+   },
+   "expression": "units_after_alloc - units_amc",
+   "formula": "={units_after_alloc}-{units_amc}",
+   "translatable": true,
+   "branches": []
+  },
+  "deaths": {
+   "kind": "tile",
+   "module": "decrements",
+   "label": "Deaths",
+   "spec": "Expected deaths in the month, from the opening in-force and the monthly mortality rate.",
+   "units": "proportion of policies",
+   "timing": "end of month, first decrement",
+   "format": "rate",
+   "assumed": [
+    "deaths occur before lapses within the month"
+   ],
+   "args": [
+    "in_force_bop",
+    "mortality_pm"
+   ],
+   "used_by": [
+    "lapses",
+    "in_force_eop",
+    "death_strain"
+   ],
+   "source": {
+    "file": "src/unit_linked/decrements.py",
+    "line": 8,
+    "code": "def deaths(in_force_bop, mortality_pm):\n    \"\"\"Deaths.\n\n    Expected deaths in the month, from the opening in-force and the monthly mortality rate.\n\n    Units: proportion of policies\n    Timing: end of month, first decrement\n    Format: rate\n    Assumed: deaths occur before lapses within the month\n    \"\"\"\n    return in_force_bop * mortality_pm"
+   },
+   "expression": "in_force_bop * mortality_pm",
+   "formula": "={in_force_bop}*mortality_pm",
+   "translatable": true,
+   "branches": []
+  },
+  "lapses": {
+   "kind": "tile",
+   "module": "decrements",
+   "label": "Lapses",
+   "spec": "Expected lapses among the survivors of the month's deaths.",
+   "units": "proportion of policies",
+   "timing": "end of month, second decrement",
+   "format": "rate",
+   "assumed": [],
+   "args": [
+    "in_force_bop",
+    "deaths",
+    "lapse_pm"
+   ],
+   "used_by": [
+    "in_force_eop"
+   ],
+   "source": {
+    "file": "src/unit_linked/decrements.py",
+    "line": 8,
+    "code": "def lapses(in_force_bop, deaths, lapse_pm):\n    \"\"\"Lapses.\n\n    Expected lapses among the survivors of the month's deaths.\n\n    Units: proportion of policies\n    Timing: end of month, second decrement\n    Format: rate\n    \"\"\"\n    return (in_force_bop - deaths) * lapse_pm"
+   },
+   "expression": "(in_force_bop - deaths) * lapse_pm",
+   "formula": "=({in_force_bop}-{deaths})*lapse_pm",
+   "translatable": true,
+   "branches": []
+  },
+  "in_force_eop": {
+   "kind": "tile",
+   "module": "decrements",
+   "label": "Closing in force",
+   "spec": "Opening in-force less deaths and lapses.",
+   "units": "proportion of policies",
+   "timing": "end of month",
+   "format": "number",
+   "assumed": [],
+   "args": [
+    "in_force_bop",
+    "deaths",
+    "lapses"
+   ],
+   "used_by": [
+    "premium_income",
+    "allocation_margin",
+    "amc_income",
+    "maintenance_expense"
+   ],
+   "source": {
+    "file": "src/unit_linked/decrements.py",
+    "line": 8,
+    "code": "def in_force_eop(in_force_bop, deaths, lapses):\n    \"\"\"Closing in force.\n\n    Opening in-force less deaths and lapses.\n\n    Units: proportion of policies\n    Timing: end of month\n    Format: number\n    \"\"\"\n    return in_force_bop - deaths - lapses"
+   },
+   "expression": "in_force_bop - deaths - lapses",
+   "formula": "={in_force_bop}-{deaths}-{lapses}",
+   "translatable": true,
+   "branches": []
+  },
+  "fund_value_eop": {
+   "kind": "tile",
+   "module": "cashflows",
+   "label": "Fund value",
+   "spec": "Closing units valued at the month's unit price.",
+   "units": "amount per policy",
+   "timing": "end of month",
+   "format": "amount",
+   "assumed": [],
+   "args": [
+    "units_eop",
+    "unit_price"
+   ],
+   "used_by": [
+    "sum_at_risk"
+   ],
+   "source": {
+    "file": "src/unit_linked/cashflows.py",
+    "line": 8,
+    "code": "def fund_value_eop(units_eop, unit_price):\n    \"\"\"Fund value.\n\n    Closing units valued at the month's unit price.\n\n    Units: amount per policy\n    Timing: end of month\n    Format: amount\n    \"\"\"\n    return units_eop * unit_price"
+   },
+   "expression": "units_eop * unit_price",
+   "formula": "={units_eop}*{unit_price}",
+   "translatable": true,
+   "branches": []
+  },
+  "premium_income": {
+   "kind": "tile",
+   "module": "cashflows",
+   "label": "Premium income",
+   "spec": "Premium received from policies in force at the end of the month.",
+   "units": "amount per policy",
+   "timing": "start of month",
+   "format": "amount",
+   "assumed": [],
+   "args": [
+    "premium",
+    "in_force_eop"
+   ],
+   "used_by": [
+    "pv_premium"
+   ],
+   "source": {
+    "file": "src/unit_linked/cashflows.py",
+    "line": 8,
+    "code": "def premium_income(premium, in_force_eop):\n    \"\"\"Premium income.\n\n    Premium received from policies in force at the end of the month.\n\n    Units: amount per policy\n    Timing: start of month\n    Format: amount\n    \"\"\"\n    return premium * in_force_eop"
+   },
+   "expression": "premium * in_force_eop",
+   "formula": "={premium}*{in_force_eop}",
+   "translatable": true,
+   "branches": []
+  },
+  "allocation_margin": {
+   "kind": "tile",
+   "module": "cashflows",
+   "label": "Allocation margin",
+   "spec": "The part of the premium not allocated to units, kept by the insurer.",
+   "units": "amount per policy",
+   "timing": "start of month",
+   "format": "amount",
+   "assumed": [],
+   "args": [
+    "premium",
+    "allocation_rate",
+    "in_force_eop"
+   ],
+   "used_by": [
+    "gross_profit"
+   ],
+   "source": {
+    "file": "src/unit_linked/cashflows.py",
+    "line": 8,
+    "code": "def allocation_margin(premium, allocation_rate, in_force_eop):\n    \"\"\"Allocation margin.\n\n    The part of the premium not allocated to units, kept by the insurer.\n\n    Units: amount per policy\n    Timing: start of month\n    Format: amount\n    \"\"\"\n    return premium * (1 - allocation_rate) * in_force_eop"
+   },
+   "expression": "premium * (1 - allocation_rate) * in_force_eop",
+   "formula": "={premium}*(1-allocation_rate)*{in_force_eop}",
+   "translatable": true,
+   "branches": []
+  },
+  "amc_income": {
+   "kind": "tile",
+   "module": "cashflows",
+   "label": "AMC income",
+   "spec": "The management charge taken in units, valued at the unit price.",
+   "units": "amount per policy",
+   "timing": "end of month",
+   "format": "amount",
+   "assumed": [],
+   "args": [
+    "units_amc",
+    "unit_price",
+    "in_force_eop"
+   ],
+   "used_by": [
+    "gross_profit"
+   ],
+   "source": {
+    "file": "src/unit_linked/cashflows.py",
+    "line": 8,
+    "code": "def amc_income(units_amc, unit_price, in_force_eop):\n    \"\"\"AMC income.\n\n    The management charge taken in units, valued at the unit price.\n\n    Units: amount per policy\n    Timing: end of month\n    Format: amount\n    \"\"\"\n    return units_amc * unit_price * in_force_eop"
+   },
+   "expression": "units_amc * unit_price * in_force_eop",
+   "formula": "={units_amc}*{unit_price}*{in_force_eop}",
+   "translatable": true,
+   "branches": []
+  },
+  "maintenance_expense": {
+   "kind": "tile",
+   "module": "cashflows",
+   "label": "Maintenance expense",
+   "spec": "Monthly policy maintenance cost, paid while the policy is in force.",
+   "units": "amount per policy",
+   "timing": "start of month",
+   "format": "amount",
+   "assumed": [
+    "expenses do not inflate"
+   ],
+   "args": [
+    "expense_pm",
+    "in_force_eop"
+   ],
+   "used_by": [
+    "gross_profit"
+   ],
+   "source": {
+    "file": "src/unit_linked/cashflows.py",
+    "line": 8,
+    "code": "def maintenance_expense(expense_pm, in_force_eop):\n    \"\"\"Maintenance expense.\n\n    Monthly policy maintenance cost, paid while the policy is in force.\n\n    Units: amount per policy\n    Timing: start of month\n    Format: amount\n    Assumed: expenses do not inflate\n    \"\"\"\n    return -expense_pm * in_force_eop"
+   },
+   "expression": "-expense_pm * in_force_eop",
+   "formula": "=-expense_pm*{in_force_eop}",
+   "translatable": true,
+   "branches": []
+  },
+  "acquisition_expense": {
+   "kind": "tile",
+   "module": "cashflows",
+   "label": "Acquisition expense",
+   "spec": "A percentage of premium plus a fixed amount, charged in the first month only.",
+   "units": "amount per policy",
+   "timing": "start of month",
+   "format": "amount",
+   "assumed": [],
+   "args": [
+    "premium",
+    "acq_expense_pct",
+    "acq_expense_fixed"
+   ],
+   "used_by": [
+    "gross_profit"
+   ],
+   "source": {
+    "file": "src/unit_linked/cashflows.py",
+    "line": 8,
+    "code": "def acquisition_expense(premium, acq_expense_pct, acq_expense_fixed):\n    \"\"\"Acquisition expense.\n\n    A percentage of premium plus a fixed amount, charged in the first month only.\n\n    Units: amount per policy\n    Timing: start of month\n    Format: amount\n    \"\"\"\n    return -(premium * acq_expense_pct + acq_expense_fixed)"
+   },
+   "expression": "-(premium * acq_expense_pct + acq_expense_fixed)",
+   "formula": "=-({premium}*acq_expense_pct+acq_expense_fixed)",
+   "translatable": true,
+   "branches": []
+  },
+  "sum_at_risk": {
+   "kind": "tile",
+   "module": "cashflows",
+   "label": "Sum at risk",
+   "spec": "Sum assured less the fund value, never below zero.",
+   "units": "amount per policy",
+   "timing": "end of month",
+   "format": "amount",
+   "assumed": [],
+   "args": [
+    "sum_assured",
+    "fund_value_eop"
+   ],
+   "used_by": [
+    "death_strain",
+    "reinsurance_premium"
+   ],
+   "source": {
+    "file": "src/unit_linked/cashflows.py",
+    "line": 8,
+    "code": "def sum_at_risk(sum_assured, fund_value_eop):\n    \"\"\"Sum at risk.\n\n    Sum assured less the fund value, never below zero.\n\n    Units: amount per policy\n    Timing: end of month\n    Format: amount\n    \"\"\"\n    return np.maximum(sum_assured - fund_value_eop, 0)"
+   },
+   "expression": "np.maximum(sum_assured - fund_value_eop, 0)",
+   "formula": "=MAX(sum_assured-{fund_value_eop},0)",
+   "translatable": true,
+   "branches": [
+    "max: first",
+    "max: second"
+   ]
+  },
+  "death_strain": {
+   "kind": "tile",
+   "module": "cashflows",
+   "label": "Death strain",
+   "spec": "Cost of deaths in the month: deaths times the sum at risk.",
+   "units": "amount per policy",
+   "timing": "end of month",
+   "format": "amount",
+   "assumed": [],
+   "args": [
+    "sum_at_risk",
+    "deaths"
+   ],
+   "used_by": [
+    "gross_profit",
+    "ceded_death_strain",
+    "retained_death_strain"
+   ],
+   "source": {
+    "file": "src/unit_linked/cashflows.py",
+    "line": 8,
+    "code": "def death_strain(sum_at_risk, deaths):\n    \"\"\"Death strain.\n\n    Cost of deaths in the month: deaths times the sum at risk.\n\n    Units: amount per policy\n    Timing: end of month\n    Format: amount\n    \"\"\"\n    return -sum_at_risk * deaths"
+   },
+   "expression": "-sum_at_risk * deaths",
+   "formula": "=-{sum_at_risk}*{deaths}",
+   "translatable": true,
+   "branches": []
+  },
+  "gross_profit": {
+   "kind": "tile",
+   "module": "cashflows",
+   "label": "Gross profit",
+   "spec": "Allocation margin and charges less expenses and death strain.",
+   "units": "amount per policy",
+   "timing": "end of month",
+   "format": "amount",
+   "assumed": [],
+   "args": [
+    "allocation_margin",
+    "amc_income",
+    "maintenance_expense",
+    "acquisition_expense",
+    "death_strain"
+   ],
+   "used_by": [
+    "net_profit",
+    "pv_gross_profit"
+   ],
+   "source": {
+    "file": "src/unit_linked/cashflows.py",
+    "line": 8,
+    "code": "def gross_profit(allocation_margin, amc_income, maintenance_expense, acquisition_expense, death_strain):\n    \"\"\"Gross profit.\n\n    Allocation margin and charges less expenses and death strain.\n\n    Units: amount per policy\n    Timing: end of month\n    Format: amount\n    \"\"\"\n    return allocation_margin + amc_income + maintenance_expense + acquisition_expense + death_strain"
+   },
+   "expression": "allocation_margin + amc_income + maintenance_expense + acquisition_expense + death_strain",
+   "formula": "={allocation_margin}+{amc_income}+{maintenance_expense}+{acquisition_expense}+{death_strain}",
+   "translatable": true,
+   "branches": []
+  },
+  "ceded_death_strain": {
+   "kind": "tile",
+   "module": "quota_share",
+   "label": "Ceded death strain",
+   "spec": "The reinsurer's share of the death strain.",
+   "units": "amount per policy",
+   "timing": "end of month",
+   "format": "amount",
+   "assumed": [],
+   "args": [
+    "death_strain",
+    "qs_share"
+   ],
+   "used_by": [
+    "retained_death_strain",
+    "net_profit"
+   ],
+   "source": {
+    "file": "src/unit_linked/quota_share.py",
+    "line": 8,
+    "code": "def ceded_death_strain(death_strain, qs_share):\n    \"\"\"Ceded death strain.\n\n    The reinsurer's share of the death strain.\n\n    Units: amount per policy\n    Timing: end of month\n    Format: amount\n    \"\"\"\n    return death_strain * qs_share"
+   },
+   "expression": "death_strain * qs_share",
+   "formula": "={death_strain}*qs_share",
+   "translatable": true,
+   "branches": []
+  },
+  "retained_death_strain": {
+   "kind": "tile",
+   "module": "quota_share",
+   "label": "Retained death strain",
+   "spec": "Death strain less the ceded part.",
+   "units": "amount per policy",
+   "timing": "end of month",
+   "format": "amount",
+   "assumed": [],
+   "args": [
+    "death_strain",
+    "ceded_death_strain"
+   ],
+   "used_by": [],
+   "source": {
+    "file": "src/unit_linked/quota_share.py",
+    "line": 8,
+    "code": "def retained_death_strain(death_strain, ceded_death_strain):\n    \"\"\"Retained death strain.\n\n    Death strain less the ceded part.\n\n    Units: amount per policy\n    Timing: end of month\n    Format: amount\n    \"\"\"\n    return death_strain - ceded_death_strain"
+   },
+   "expression": "death_strain - ceded_death_strain",
+   "formula": "={death_strain}-{ceded_death_strain}",
+   "translatable": true,
+   "branches": []
+  },
+  "reinsurance_premium": {
+   "kind": "tile",
+   "module": "quota_share",
+   "label": "Reinsurance premium",
+   "spec": "Reinsurance rate applied to the ceded share of the sum at risk.",
+   "units": "amount per policy",
+   "timing": "end of month",
+   "format": "amount",
+   "assumed": [
+    "premium is paid in arrears"
+   ],
+   "args": [
+    "sum_at_risk",
+    "qs_share",
+    "reins_rate_pm"
+   ],
+   "used_by": [
+    "net_profit"
+   ],
+   "source": {
+    "file": "src/unit_linked/quota_share.py",
+    "line": 8,
+    "code": "def reinsurance_premium(sum_at_risk, qs_share, reins_rate_pm):\n    \"\"\"Reinsurance premium.\n\n    Reinsurance rate applied to the ceded share of the sum at risk.\n\n    Units: amount per policy\n    Timing: end of month\n    Format: amount\n    Assumed: premium is paid in arrears\n    \"\"\"\n    return -sum_at_risk * qs_share * reins_rate_pm"
+   },
+   "expression": "-sum_at_risk * qs_share * reins_rate_pm",
+   "formula": "=-{sum_at_risk}*qs_share*reins_rate_pm",
+   "translatable": true,
+   "branches": []
+  },
+  "net_profit": {
+   "kind": "tile",
+   "module": "quota_share",
+   "label": "Net profit",
+   "spec": "Gross profit after the reinsurance recovery and premium.",
+   "units": "amount per policy",
+   "timing": "end of month",
+   "format": "amount",
+   "assumed": [],
+   "args": [
+    "gross_profit",
+    "ceded_death_strain",
+    "reinsurance_premium"
+   ],
+   "used_by": [
+    "pv_net_profit",
+    "irr_pm"
+   ],
+   "source": {
+    "file": "src/unit_linked/quota_share.py",
+    "line": 8,
+    "code": "def net_profit(gross_profit, ceded_death_strain, reinsurance_premium):\n    \"\"\"Net profit.\n\n    Gross profit after the reinsurance recovery and premium.\n\n    Units: amount per policy\n    Timing: end of month\n    Format: amount\n    \"\"\"\n    return gross_profit - ceded_death_strain + reinsurance_premium"
+   },
+   "expression": "gross_profit - ceded_death_strain + reinsurance_premium",
+   "formula": "={gross_profit}-{ceded_death_strain}+{reinsurance_premium}",
+   "translatable": true,
+   "branches": []
+  },
+  "pv_gross_profit": {
+   "kind": "tile",
+   "module": "profit",
+   "label": "PV of gross profit",
+   "spec": "Gross profit discounted at the monthly rate.",
+   "units": "amount per policy",
+   "timing": "whole projection",
+   "format": "amount",
+   "assumed": [],
+   "args": [
+    "gross_profit",
+    "disc_pm"
+   ],
+   "used_by": [],
+   "source": {
+    "file": "src/unit_linked/profit.py",
+    "line": 8,
+    "code": "def pv_gross_profit(gross_profit, disc_pm):\n    \"\"\"PV of gross profit.\n\n    Gross profit discounted at the monthly rate.\n\n    Units: amount per policy\n    Timing: whole projection\n    Format: amount\n    \"\"\"\n    return np.sum(gross_profit / (1 + disc_pm) ** np.arange(1, len(gross_profit) + 1))"
+   },
+   "expression": "np.sum(gross_profit / (1 + disc_pm) ** np.arange(1, len(gross_profit) + 1))",
+   "formula": "=NPV(disc_pm,{gross_profit})",
+   "translatable": true,
+   "branches": []
+  },
+  "pv_net_profit": {
+   "kind": "tile",
+   "module": "profit",
+   "label": "PV of net profit",
+   "spec": "Net profit discounted at the monthly rate.",
+   "units": "amount per policy",
+   "timing": "whole projection",
+   "format": "amount",
+   "assumed": [],
+   "args": [
+    "net_profit",
+    "disc_pm"
+   ],
+   "used_by": [
+    "profit_margin"
+   ],
+   "source": {
+    "file": "src/unit_linked/profit.py",
+    "line": 8,
+    "code": "def pv_net_profit(net_profit, disc_pm):\n    \"\"\"PV of net profit.\n\n    Net profit discounted at the monthly rate.\n\n    Units: amount per policy\n    Timing: whole projection\n    Format: amount\n    \"\"\"\n    return np.sum(net_profit / (1 + disc_pm) ** np.arange(1, len(net_profit) + 1))"
+   },
+   "expression": "np.sum(net_profit / (1 + disc_pm) ** np.arange(1, len(net_profit) + 1))",
+   "formula": "=NPV(disc_pm,{net_profit})",
+   "translatable": true,
+   "branches": []
+  },
+  "pv_premium": {
+   "kind": "tile",
+   "module": "profit",
+   "label": "PV of premium",
+   "spec": "Premium income discounted at the monthly rate.",
+   "units": "amount per policy",
+   "timing": "whole projection",
+   "format": "amount",
+   "assumed": [],
+   "args": [
+    "premium_income",
+    "disc_pm"
+   ],
+   "used_by": [
+    "profit_margin"
+   ],
+   "source": {
+    "file": "src/unit_linked/profit.py",
+    "line": 8,
+    "code": "def pv_premium(premium_income, disc_pm):\n    \"\"\"PV of premium.\n\n    Premium income discounted at the monthly rate.\n\n    Units: amount per policy\n    Timing: whole projection\n    Format: amount\n    \"\"\"\n    return np.sum(premium_income / (1 + disc_pm) ** np.arange(1, len(premium_income) + 1))"
+   },
+   "expression": "np.sum(premium_income / (1 + disc_pm) ** np.arange(1, len(premium_income) + 1))",
+   "formula": "=NPV(disc_pm,{premium_income})",
+   "translatable": true,
+   "branches": []
+  },
+  "profit_margin": {
+   "kind": "tile",
+   "module": "profit",
+   "label": "Profit margin",
+   "spec": "PV of net profit as a share of PV of premium.",
+   "units": "ratio",
+   "timing": "whole projection",
+   "format": "percent",
+   "assumed": [],
+   "args": [
+    "pv_net_profit",
+    "pv_premium"
+   ],
+   "used_by": [],
+   "source": {
+    "file": "src/unit_linked/profit.py",
+    "line": 8,
+    "code": "def profit_margin(pv_net_profit, pv_premium):\n    \"\"\"Profit margin.\n\n    PV of net profit as a share of PV of premium.\n\n    Units: ratio\n    Timing: whole projection\n    Format: percent\n    \"\"\"\n    return pv_net_profit / pv_premium"
+   },
+   "expression": "pv_net_profit / pv_premium",
+   "formula": "={pv_net_profit}/{pv_premium}",
+   "translatable": true,
+   "branches": []
+  },
+  "irr_pm": {
+   "kind": "tile",
+   "module": "profit",
+   "label": "IRR per month",
+   "spec": "The monthly rate at which net profit has a present value of zero.",
+   "units": "rate per month",
+   "timing": "whole projection",
+   "format": "rate",
+   "assumed": [],
+   "args": [
+    "net_profit"
+   ],
+   "used_by": [
+    "irr_pa"
+   ],
+   "source": {
+    "file": "src/unit_linked/profit.py",
+    "line": 8,
+    "code": "def irr_pm(net_profit):\n    \"\"\"IRR per month.\n\n    The monthly rate at which net profit has a present value of zero.\n\n    Units: rate per month\n    Timing: whole projection\n    Format: rate\n    \"\"\"\n    return irr(net_profit)"
+   },
+   "expression": "irr(net_profit)",
+   "formula": "=IRR({net_profit})",
+   "translatable": false,
+   "branches": []
+  },
+  "irr_pa": {
+   "kind": "tile",
+   "module": "profit",
+   "label": "IRR per annum",
+   "spec": "The monthly IRR compounded to a year.",
+   "units": "rate per annum",
+   "timing": "whole projection",
+   "format": "irr",
+   "assumed": [],
+   "args": [
+    "irr_pm"
+   ],
+   "used_by": [],
+   "source": {
+    "file": "src/unit_linked/profit.py",
+    "line": 8,
+    "code": "def irr_pa(irr_pm):\n    \"\"\"IRR per annum.\n\n    The monthly IRR compounded to a year.\n\n    Units: rate per annum\n    Timing: whole projection\n    Format: irr\n    \"\"\"\n    return (1 + irr_pm) ** 12 - 1"
+   },
+   "expression": "(1 + irr_pm) ** 12 - 1",
+   "formula": "=(1+{irr_pm})^12-1",
+   "translatable": true,
+   "branches": []
+  },
+  "premium": {
+   "kind": "input",
+   "label": "Premium",
+   "format": "amount",
+   "used_by": [
+    "units_allocated",
+    "premium_income",
+    "allocation_margin",
+    "acquisition_expense"
+   ]
+  },
+  "unit_price": {
+   "kind": "input",
+   "label": "Unit price",
+   "format": "number",
+   "used_by": [
+    "units_allocated",
+    "fund_value_eop",
+    "amc_income"
+   ]
+  },
+  "allocation_rate": {
+   "kind": "param",
+   "label": "Allocation rate",
+   "format": "percent",
+   "value": 0.97,
+   "used_by": [
+    "units_allocated",
+    "allocation_margin"
+   ]
+  },
+  "amc_pm": {
+   "kind": "param",
+   "label": "AMC per month",
+   "format": "rate",
+   "value": 0.000625,
+   "used_by": [
+    "units_amc"
+   ]
+  },
+  "amc_cap_units": {
+   "kind": "param",
+   "label": "AMC cap, units",
+   "format": "units",
+   "value": 0.5,
+   "used_by": [
+    "units_amc"
+   ]
+  },
+  "mortality_pm": {
+   "kind": "param",
+   "label": "Mortality per month",
+   "format": "rate",
+   "value": 0.0004,
+   "used_by": [
+    "deaths"
+   ]
+  },
+  "lapse_pm": {
+   "kind": "param",
+   "label": "Lapse per month",
+   "format": "rate",
+   "value": 0.004,
+   "used_by": [
+    "lapses"
+   ]
+  },
+  "sum_assured": {
+   "kind": "param",
+   "label": "Sum assured",
+   "format": "amount",
+   "value": 25000.0,
+   "used_by": [
+    "sum_at_risk"
+   ]
+  },
+  "expense_pm": {
+   "kind": "param",
+   "label": "Maintenance expense per month",
+   "format": "amount",
+   "value": 4.5,
+   "used_by": [
+    "maintenance_expense"
+   ]
+  },
+  "acq_expense_pct": {
+   "kind": "param",
+   "label": "Acquisition expense, % of premium",
+   "format": "percent",
+   "value": 0.6,
+   "used_by": [
+    "acquisition_expense"
+   ]
+  },
+  "acq_expense_fixed": {
+   "kind": "param",
+   "label": "Acquisition expense, fixed",
+   "format": "amount",
+   "value": 150.0,
+   "used_by": [
+    "acquisition_expense"
+   ]
+  },
+  "qs_share": {
+   "kind": "param",
+   "label": "Quota share",
+   "format": "percent",
+   "value": 0.5,
+   "used_by": [
+    "ceded_death_strain",
+    "reinsurance_premium"
+   ]
+  },
+  "reins_rate_pm": {
+   "kind": "param",
+   "label": "Reinsurance rate per month",
+   "format": "rate",
+   "value": 0.00035,
+   "used_by": [
+    "reinsurance_premium"
+   ]
+  },
+  "disc_pm": {
+   "kind": "param",
+   "label": "Discount rate per month",
+   "format": "rate",
+   "value": 0.0065,
+   "used_by": [
+    "pv_gross_profit",
+    "pv_net_profit",
+    "pv_premium"
+   ]
+  },
+  "units_bop": {
+   "kind": "state",
+   "label": "Opening units",
+   "format": "units",
+   "from": "units_eop",
+   "initial": 0.0,
+   "used_by": [
+    "units_after_alloc"
+   ]
+  },
+  "in_force_bop": {
+   "kind": "state",
+   "label": "Opening in force",
+   "format": "number",
+   "from": "in_force_eop",
+   "initial": 1.0,
+   "used_by": [
+    "deaths",
+    "lapses",
+    "in_force_eop"
+   ]
+  }
+ },
+ "order": [
+  "units_allocated",
+  "units_after_alloc",
+  "units_amc",
+  "units_eop",
+  "deaths",
+  "lapses",
+  "in_force_eop",
+  "fund_value_eop",
+  "premium_income",
+  "allocation_margin",
+  "amc_income",
+  "maintenance_expense",
+  "acquisition_expense",
+  "sum_at_risk",
+  "death_strain",
+  "gross_profit",
+  "ceded_death_strain",
+  "retained_death_strain",
+  "reinsurance_premium",
+  "net_profit",
+  "pv_gross_profit",
+  "pv_net_profit",
+  "pv_premium",
+  "profit_margin",
+  "irr_pm",
+  "irr_pa"
+ ],
+ "edges": [
+  {
+   "from": "premium",
+   "to": "units_allocated"
+  },
+  {
+   "from": "allocation_rate",
+   "to": "units_allocated"
+  },
+  {
+   "from": "unit_price",
+   "to": "units_allocated"
+  },
+  {
+   "from": "units_bop",
+   "to": "units_after_alloc"
+  },
+  {
+   "from": "units_allocated",
+   "to": "units_after_alloc"
+  },
+  {
+   "from": "units_after_alloc",
+   "to": "units_amc"
+  },
+  {
+   "from": "amc_pm",
+   "to": "units_amc"
+  },
+  {
+   "from": "amc_cap_units",
+   "to": "units_amc"
+  },
+  {
+   "from": "units_after_alloc",
+   "to": "units_eop"
+  },
+  {
+   "from": "units_amc",
+   "to": "units_eop"
+  },
+  {
+   "from": "in_force_bop",
+   "to": "deaths"
+  },
+  {
+   "from": "mortality_pm",
+   "to": "deaths"
+  },
+  {
+   "from": "in_force_bop",
+   "to": "lapses"
+  },
+  {
+   "from": "deaths",
+   "to": "lapses"
+  },
+  {
+   "from": "lapse_pm",
+   "to": "lapses"
+  },
+  {
+   "from": "in_force_bop",
+   "to": "in_force_eop"
+  },
+  {
+   "from": "deaths",
+   "to": "in_force_eop"
+  },
+  {
+   "from": "lapses",
+   "to": "in_force_eop"
+  },
+  {
+   "from": "units_eop",
+   "to": "fund_value_eop"
+  },
+  {
+   "from": "unit_price",
+   "to": "fund_value_eop"
+  },
+  {
+   "from": "premium",
+   "to": "premium_income"
+  },
+  {
+   "from": "in_force_eop",
+   "to": "premium_income"
+  },
+  {
+   "from": "premium",
+   "to": "allocation_margin"
+  },
+  {
+   "from": "allocation_rate",
+   "to": "allocation_margin"
+  },
+  {
+   "from": "in_force_eop",
+   "to": "allocation_margin"
+  },
+  {
+   "from": "units_amc",
+   "to": "amc_income"
+  },
+  {
+   "from": "unit_price",
+   "to": "amc_income"
+  },
+  {
+   "from": "in_force_eop",
+   "to": "amc_income"
+  },
+  {
+   "from": "expense_pm",
+   "to": "maintenance_expense"
+  },
+  {
+   "from": "in_force_eop",
+   "to": "maintenance_expense"
+  },
+  {
+   "from": "premium",
+   "to": "acquisition_expense"
+  },
+  {
+   "from": "acq_expense_pct",
+   "to": "acquisition_expense"
+  },
+  {
+   "from": "acq_expense_fixed",
+   "to": "acquisition_expense"
+  },
+  {
+   "from": "sum_assured",
+   "to": "sum_at_risk"
+  },
+  {
+   "from": "fund_value_eop",
+   "to": "sum_at_risk"
+  },
+  {
+   "from": "sum_at_risk",
+   "to": "death_strain"
+  },
+  {
+   "from": "deaths",
+   "to": "death_strain"
+  },
+  {
+   "from": "allocation_margin",
+   "to": "gross_profit"
+  },
+  {
+   "from": "amc_income",
+   "to": "gross_profit"
+  },
+  {
+   "from": "maintenance_expense",
+   "to": "gross_profit"
+  },
+  {
+   "from": "acquisition_expense",
+   "to": "gross_profit"
+  },
+  {
+   "from": "death_strain",
+   "to": "gross_profit"
+  },
+  {
+   "from": "death_strain",
+   "to": "ceded_death_strain"
+  },
+  {
+   "from": "qs_share",
+   "to": "ceded_death_strain"
+  },
+  {
+   "from": "death_strain",
+   "to": "retained_death_strain"
+  },
+  {
+   "from": "ceded_death_strain",
+   "to": "retained_death_strain"
+  },
+  {
+   "from": "sum_at_risk",
+   "to": "reinsurance_premium"
+  },
+  {
+   "from": "qs_share",
+   "to": "reinsurance_premium"
+  },
+  {
+   "from": "reins_rate_pm",
+   "to": "reinsurance_premium"
+  },
+  {
+   "from": "gross_profit",
+   "to": "net_profit"
+  },
+  {
+   "from": "ceded_death_strain",
+   "to": "net_profit"
+  },
+  {
+   "from": "reinsurance_premium",
+   "to": "net_profit"
+  },
+  {
+   "from": "gross_profit",
+   "to": "pv_gross_profit"
+  },
+  {
+   "from": "disc_pm",
+   "to": "pv_gross_profit"
+  },
+  {
+   "from": "net_profit",
+   "to": "pv_net_profit"
+  },
+  {
+   "from": "disc_pm",
+   "to": "pv_net_profit"
+  },
+  {
+   "from": "premium_income",
+   "to": "pv_premium"
+  },
+  {
+   "from": "disc_pm",
+   "to": "pv_premium"
+  },
+  {
+   "from": "pv_net_profit",
+   "to": "profit_margin"
+  },
+  {
+   "from": "pv_premium",
+   "to": "profit_margin"
+  },
+  {
+   "from": "net_profit",
+   "to": "irr_pm"
+  },
+  {
+   "from": "irr_pm",
+   "to": "irr_pa"
+  }
+ ]
+}

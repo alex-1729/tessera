@@ -1,0 +1,16 @@
+node_modules/
+.venv/
+__pycache__/
+*.pyc
+dist/
+out/
+.DS_Store
+# GridCraft binaries: fetched by scripts/fetch-gridcraft.sh, not committed
+vendor/gridcraft/
+# Workbooks generated from real policy data never go in the repo
+real-data/
+# GridCraft source checkout for the patched web build (scripts/build-gridcraft-web.sh)
+vendor/gridcraft-src/
+
+# Test screenshots and other generated output
+app/test/out/

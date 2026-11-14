@@ -1,0 +1,96 @@
+{
+  "reviewer_default": "A. Reviewer",
+  "tiles": {
+    "units_allocated": {
+      "drift": null,
+      "checks_pass": true,
+      "max_abs_difference": 0,
+      "rule_violations": [],
+      "uncovered_branches": [],
+      "new_cases": [],
+      "signed_off": {
+        "reviewer": "A. Reviewer",
+        "at": "2026-11-10T09:14:00Z",
+        "comment": "Checked against the product spec."
+      },
+      "state": "signed_off",
+      "workbook": "review/tiles/units_allocated/workbook.xlsx"
+    },
+    "units_after_alloc": {
+      "drift": null,
+      "checks_pass": true,
+      "max_abs_difference": 0,
+      "rule_violations": [],
+      "uncovered_branches": [],
+      "new_cases": [],
+      "signed_off": {
+        "reviewer": "A. Reviewer",
+        "at": "2026-11-10T09:31:00Z",
+        "comment": ""
+      },
+      "state": "signed_off",
+      "workbook": "review/tiles/units_after_alloc/workbook.xlsx"
+    },
+    "units_amc": {
+      "drift": null,
+      "checks_pass": true,
+      "max_abs_difference": 0,
+      "rule_violations": [],
+      "uncovered_branches": [],
+      "new_cases": [],
+      "signed_off": null,
+      "state": "built",
+      "workbook": "review/tiles/units_amc/workbook.xlsx"
+    },
+    "units_eop": {
+      "drift": "values",
+      "checks_pass": true,
+      "max_abs_difference": 0,
+      "rule_violations": [],
+      "uncovered_branches": [],
+      "new_cases": [],
+      "signed_off": null,
+      "state": "stale",
+      "workbook": "review/tiles/units_eop/workbook.xlsx"
+    }
+  },
+  "modules": {
+    "unit_projection": {
+      "state": "built",
+      "tiles_signed_off": 2,
+      "tiles_total": 4,
+      "stale": 1,
+      "checks": [
+        {
+          "name": "Sheet agrees with Python",
+          "pass": true
+        },
+        {
+          "name": "Tile formulas match tile workbooks",
+          "pass": true
+        },
+        {
+          "name": "Every tile signed off",
+          "pass": false
+        }
+      ],
+      "workbook": "review/modules/unit_projection/workbook.xlsx"
+    }
+  },
+  "model": {
+    "state": "built",
+    "modules_signed_off": 0,
+    "modules_total": 1,
+    "checks": [
+      {
+        "name": "Model workbook agrees with Python",
+        "pass": true
+      },
+      {
+        "name": "Every module signed off",
+        "pass": false
+      }
+    ],
+    "workbook": "review/model/workbook.xlsx"
+  }
+}

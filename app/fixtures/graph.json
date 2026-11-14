@@ -1,0 +1,249 @@
+{
+  "model": {
+    "name": "Unit-linked pricing",
+    "months": 120
+  },
+  "layers": [
+    "Inputs",
+    "Liability",
+    "Treaty",
+    "Results"
+  ],
+  "modules": [
+    {
+      "id": "unit_projection",
+      "title": "Unit projection",
+      "layer": "Liability",
+      "timing": "step",
+      "tiles": [
+        "units_allocated",
+        "units_after_alloc",
+        "units_amc",
+        "units_eop"
+      ],
+      "inputs": [
+        "premium",
+        "unit_price",
+        "allocation_rate",
+        "amc_pm",
+        "amc_cap_units",
+        "units_bop"
+      ],
+      "feeds": [],
+      "fed_by": []
+    }
+  ],
+  "quantities": {
+    "units_allocated": {
+      "kind": "tile",
+      "module": "unit_projection",
+      "label": "Units allocated",
+      "spec": "Premium after the allocation rate, converted to units at the month's unit price.",
+      "units": "units per policy",
+      "timing": "start of month",
+      "format": "units",
+      "assumed": [],
+      "args": [
+        "premium",
+        "allocation_rate",
+        "unit_price"
+      ],
+      "used_by": [
+        "units_after_alloc"
+      ],
+      "source": {
+        "file": "src/unit_linked/liability/units.py",
+        "line": 8,
+        "code": "def units_allocated(premium, allocation_rate, unit_price):\n    \"\"\"Units allocated.\n\n    Premium after the allocation rate, converted to units at the month's unit price.\n\n    Units: units per policy\n    Timing: start of month\n    Format: units\n    \"\"\"\n    return premium * allocation_rate / unit_price"
+      },
+      "expression": "premium * allocation_rate / unit_price",
+      "formula": "={premium}*allocation_rate/{unit_price}",
+      "translatable": true,
+      "branches": []
+    },
+    "units_after_alloc": {
+      "kind": "tile",
+      "module": "unit_projection",
+      "label": "Units after allocation",
+      "spec": "Opening units plus the units allocated this month.",
+      "units": "units per policy",
+      "timing": "after allocation, before charges",
+      "format": "units",
+      "assumed": [],
+      "args": [
+        "units_bop",
+        "units_allocated"
+      ],
+      "used_by": [
+        "units_amc",
+        "units_eop"
+      ],
+      "source": {
+        "file": "src/unit_linked/liability/units.py",
+        "line": 20,
+        "code": "def units_after_alloc(units_bop, units_allocated):\n    \"\"\"Units after allocation.\n\n    Opening units plus the units allocated this month.\n\n    Units: units per policy\n    Timing: after allocation, before charges\n    Format: units\n    \"\"\"\n    return units_bop + units_allocated"
+      },
+      "expression": "units_bop + units_allocated",
+      "formula": "={units_bop}+{units_allocated}",
+      "translatable": true,
+      "branches": []
+    },
+    "units_amc": {
+      "kind": "tile",
+      "module": "unit_projection",
+      "label": "AMC units",
+      "spec": "Monthly management charge deducted in units, after allocation, capped at a fixed number of units.",
+      "units": "units per policy",
+      "timing": "end of month",
+      "format": "units",
+      "assumed": [
+        "the charge is on units after the same month's allocation"
+      ],
+      "args": [
+        "units_after_alloc",
+        "amc_pm",
+        "amc_cap_units"
+      ],
+      "used_by": [
+        "units_eop"
+      ],
+      "source": {
+        "file": "src/unit_linked/liability/units.py",
+        "line": 31,
+        "code": "def units_amc(units_after_alloc, amc_pm, amc_cap_units):\n    \"\"\"AMC units.\n\n    Monthly management charge deducted in units, after allocation,\n    capped at a fixed number of units.\n\n    Units: units per policy\n    Timing: end of month\n    Format: units\n    Assumed: the charge is on units after the same month's allocation\n    \"\"\"\n    return np.minimum(units_after_alloc * amc_pm, amc_cap_units)"
+      },
+      "expression": "np.minimum(units_after_alloc * amc_pm, amc_cap_units)",
+      "formula": "=MIN({units_after_alloc}*amc_pm,amc_cap_units)",
+      "translatable": true,
+      "branches": [
+        "min: first",
+        "min: second"
+      ]
+    },
+    "units_eop": {
+      "kind": "tile",
+      "module": "unit_projection",
+      "label": "Closing units",
+      "spec": "Units after allocation less the management charge. Carried forward as next month's opening units.",
+      "units": "units per policy",
+      "timing": "end of month",
+      "format": "units",
+      "assumed": [],
+      "args": [
+        "units_after_alloc",
+        "units_amc"
+      ],
+      "used_by": [],
+      "source": {
+        "file": "src/unit_linked/liability/units.py",
+        "line": 44,
+        "code": "def units_eop(units_after_alloc, units_amc):\n    \"\"\"Closing units.\n\n    Units after allocation less the management charge. Carried forward\n    as next month's opening units.\n\n    Units: units per policy\n    Timing: end of month\n    Format: units\n    \"\"\"\n    return units_after_alloc - units_amc"
+      },
+      "expression": "units_after_alloc - units_amc",
+      "formula": "={units_after_alloc}-{units_amc}",
+      "translatable": true,
+      "branches": []
+    },
+    "premium": {
+      "kind": "input",
+      "label": "Premium",
+      "format": "amount",
+      "used_by": [
+        "units_allocated"
+      ]
+    },
+    "unit_price": {
+      "kind": "input",
+      "label": "Unit price",
+      "format": "number",
+      "used_by": [
+        "units_allocated"
+      ]
+    },
+    "allocation_rate": {
+      "kind": "param",
+      "label": "Allocation rate",
+      "format": "percent",
+      "value": 0.97,
+      "used_by": [
+        "units_allocated"
+      ]
+    },
+    "amc_pm": {
+      "kind": "param",
+      "label": "AMC per month",
+      "format": "rate",
+      "value": 0.000625,
+      "used_by": [
+        "units_amc"
+      ]
+    },
+    "amc_cap_units": {
+      "kind": "param",
+      "label": "AMC cap, units",
+      "format": "units",
+      "value": 0.5,
+      "used_by": [
+        "units_amc"
+      ]
+    },
+    "units_bop": {
+      "kind": "state",
+      "label": "Opening units",
+      "format": "units",
+      "from": "units_eop",
+      "initial": 0,
+      "used_by": [
+        "units_after_alloc"
+      ]
+    }
+  },
+  "order": [
+    "units_allocated",
+    "units_after_alloc",
+    "units_amc",
+    "units_eop"
+  ],
+  "edges": [
+    {
+      "from": "premium",
+      "to": "units_allocated"
+    },
+    {
+      "from": "allocation_rate",
+      "to": "units_allocated"
+    },
+    {
+      "from": "unit_price",
+      "to": "units_allocated"
+    },
+    {
+      "from": "units_bop",
+      "to": "units_after_alloc"
+    },
+    {
+      "from": "units_allocated",
+      "to": "units_after_alloc"
+    },
+    {
+      "from": "units_after_alloc",
+      "to": "units_amc"
+    },
+    {
+      "from": "amc_pm",
+      "to": "units_amc"
+    },
+    {
+      "from": "amc_cap_units",
+      "to": "units_amc"
+    },
+    {
+      "from": "units_after_alloc",
+      "to": "units_eop"
+    },
+    {
+      "from": "units_amc",
+      "to": "units_eop"
+    }
+  ]
+}
