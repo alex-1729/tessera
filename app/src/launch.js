@@ -45,7 +45,7 @@ function registerLaunch({ ipcMain, dialog, shell, wrap, models, cfg, getWin, swi
     try {
       const st = await mkRunner(m.dir)('status');
       const t = (st.counts && st.counts.tiles) || {};
-      return { total: t.total || 0, signed_off: t.signed_off || 0, stale: t.stale || 0, not_built: t.not_built || 0 };
+      return { total: t.total || 0, signed_off: t.signed_off || 0, stale: t.stale || 0, not_built: t.not_built || 0, tooling: st.tooling || null };
     } finally { release(); }
   }));
 

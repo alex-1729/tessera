@@ -19,6 +19,16 @@ export const reviewWords = r => {
   return `${r.signed_off} of ${plural(r.total, 'tile', 'tiles')} signed off${r.stale ? `, ${r.stale} stale` : ''}`;
 };
 
+// How the model gets the Python tooling, in words. Empty when there is nothing to say.
+export const toolingWords = t => {
+  if (!t || t.source === 'none') return '';
+  if (t.source === 'path') return 'Tooling from a folder on this machine';
+  if (t.source === 'git' && t.pinned && t.match) return `Tooling ${t.pinned}`;
+  if (t.source === 'git' && t.pinned) return `Tooling pinned to ${t.pinned}; the app runs ${t.running}`;
+  if (t.source === 'git') return `Tooling from ${t.ref || 'a repository'}, not a version tag`;
+  return 'Tooling declared another way';
+};
+
 // ---------------------------------------------------------------- the page
 
 // root: the element that holds the page. Draws the tiles at once from the saved list, then fills in each tile's git
@@ -38,17 +48,18 @@ export async function paintLaunch(root, { notice }) {
       : h('span', { class: 'mlink grey' }, 'no GitHub link');
     const git = h('div', { class: 'mgit grey' }, 'Checking git…');
     const review = h('div', { class: 'mreview grey' }, 'Checking review progress…');
+    const tooling = h('div', { class: 'mtooling grey' }, '');
     const box = h('div', { class: 'mtile', 'data-id': m.id, role: 'button', tabindex: '0',
       onclick: () => open(m), onkeydown: e => { if (e.key === 'Enter') open(m); } },
       h('div', { class: 'mname' }, m.name),
       h('div', { class: 'mdir' }, m.dir),
-      link, git, review,
+      link, git, review, tooling,
       h('div', { class: 'mopened grey' }, m.lastOpened ? `Last opened ${fmtDate(m.lastOpened)}` : 'Not opened yet'));
     const btns = h('div', { class: 'mbtns' },
       h('button', { type: 'button', class: 'linkbtn', 'data-act': 'commit', onclick: () => commitDialog(m.id, reload) }, 'Commit and push…'),
       h('button', { type: 'button', class: 'linkbtn', 'data-act': 'settings', onclick: () => settingsDialog(m.id, reload) }, 'Settings…'),
       h('button', { type: 'button', class: 'linkbtn', 'data-act': 'remove', onclick: () => removeDialog(m, reload) }, 'Remove from list'));
-    cells.set(m.id, { git, review });
+    cells.set(m.id, { git, review, tooling });
     return h('div', { class: 'mcell' }, box, btns);
   }
 
@@ -70,7 +81,7 @@ export async function paintLaunch(root, { notice }) {
   for (const m of list) {
     const c = cells.get(m.id);
     api().launch.git(m.id).then(g => { c.git.classList.remove('grey'); c.git.textContent = g.isRepo ? `${g.branch || 'no branch'}: ${g.words}` : g.words; }, e => { c.git.textContent = 'could not read git: ' + e.message; });
-    api().launch.review(m.id).then(r => { c.review.classList.remove('grey'); c.review.textContent = reviewWords(r); }, e => { c.review.classList.remove('grey'); c.review.textContent = reviewWords({ error: e.message }); });
+    api().launch.review(m.id).then(r => { c.review.classList.remove('grey'); c.review.textContent = reviewWords(r); c.tooling.textContent = toolingWords(r.tooling); }, e => { c.review.classList.remove('grey'); c.review.textContent = reviewWords({ error: e.message }); });
   }
 }
 

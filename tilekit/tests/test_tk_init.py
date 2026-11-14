@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from tilekit.cli import main
+from tilekit.errors import TilekitError
 from tilekit.init import init_model
 
 
@@ -23,9 +24,12 @@ def fresh_package():
 def test_init_writes_a_model(tmp_path, capsys):
     target = tmp_path / "level_term"
     package = fresh_package()
-    code, doc = run(capsys, "init", "--model", str(target), "--name", "Level term", "--package", package)
+    code, doc = run(capsys, "init", "--model", str(target), "--name", "Level term", "--package", package,
+                    "--tooling", "path")
     assert code == 0
+    tooling = doc.pop("tooling")
     assert doc == {"created": str(target.resolve()), "package": package, "next": "uv sync"}
+    assert tooling["source"] == "path" and tooling["match"] is True and tooling["pinned"] is None
     for relative in ["pyproject.toml", ".python-version", "tilekit.toml", f"src/{package}/__init__.py",
                      f"src/{package}/params.py", f"src/{package}/inputs.py", "cases/base.json",
                      "tests/conftest.py", "tests/test_model.py", "review/.gitkeep"]:
@@ -123,3 +127,43 @@ def test_init_writes_a_gitignore(tmp_path, capsys):
     for want in (".venv/", "__pycache__/", "real-data/", "review/.cache/", "review/**/log.jsonl",
                  "review/model/chat.jsonl", "review/drafts/", "review/requests/"):
         assert want in lines
+
+
+def test_init_pins_the_tooling_to_this_versions_tag_by_default(tmp_path):
+    from tilekit import version
+
+    doc = init_model(tmp_path / "pinned", "Pinned model")
+    source = tomllib.loads((tmp_path / "pinned" / "pyproject.toml").read_text())["tool"]["uv"]["sources"]["tilekit"]
+    assert source == {"git": version.REPO, "tag": "tilekit-v" + version.VERSION, "subdirectory": "tilekit"}
+    assert doc["tooling"] == {"running": version.VERSION, "source": "git", "pinned": version.VERSION,
+                              "ref": "tilekit-v" + version.VERSION, "match": True}
+
+
+def test_tooling_info_reports_a_different_pin_and_other_sources(tmp_path):
+    from tilekit import version
+
+    def info(text):
+        (tmp_path / "pyproject.toml").write_text(text)
+        return version.tooling_info(tmp_path)
+
+    older = info('[tool.uv.sources]\ntilekit = { git = "https://example.org/r", tag = "tilekit-v0.0.9", subdirectory = "tilekit" }\n')
+    assert older["pinned"] == "0.0.9" and older["match"] is False and older["source"] == "git"
+    branch = info('[tool.uv.sources]\ntilekit = { git = "https://example.org/r", branch = "main" }\n')
+    assert branch["pinned"] is None and branch["match"] is False and branch["ref"] == "main"
+    local = info('[tool.uv.sources]\ntilekit = { path = "../tilekit", editable = true }\n')
+    assert local["source"] == "path" and local["match"] is True
+    assert info("[project]\nname = 'x'\n")["source"] == "none"
+    (tmp_path / "pyproject.toml").unlink()
+    assert version.tooling_info(tmp_path)["source"] == "none"
+
+
+def test_the_version_constant_matches_the_package_version():
+    from tilekit import version
+
+    pyproject = Path(version.__file__).resolve().parents[2] / "pyproject.toml"
+    assert tomllib.loads(pyproject.read_text())["project"]["version"] == version.VERSION
+
+
+def test_init_refuses_an_unknown_tooling_choice(tmp_path):
+    with pytest.raises(TilekitError):
+        init_model(tmp_path / "bad", "Bad", tooling="wheel")

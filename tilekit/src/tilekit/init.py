@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 
 import tilekit
+from tilekit import version
 from tilekit.errors import TilekitError
 
 LAYERS = ("Inputs", "Liability", "Results")
@@ -31,7 +32,7 @@ def _toml_string(text):
     return json.dumps(text)  # a JSON string is a valid TOML basic string
 
 
-def _pyproject(name, package, target):
+def _pyproject(name, package, target, tooling):
     project = _tilekit_project()
     lines = [
         "[project]",
@@ -45,7 +46,12 @@ def _pyproject(name, package, target):
         "]",
         "",
     ]
-    if project is not None:
+    if tooling == "git":
+        # Pin the tooling to this version's tag, so the model works from any folder or machine.
+        source = version.git_source()
+        entry = ", ".join(f"{key} = {_toml_string(value)}" for key, value in source.items())
+        lines += ["[tool.uv.sources]", f"tilekit = {{ {entry} }}", ""]
+    elif project is not None:
         relative = Path(os.path.relpath(project, target)).as_posix()
         lines += ["[tool.uv.sources]", f"tilekit = {{ path = {_toml_string(relative)}, editable = true }}", ""]
     lines += [
@@ -259,11 +265,13 @@ review/requests/
 """
 
 
-def init_model(directory, name, package=None):
+def init_model(directory, name, package=None, tooling="git"):
     """Create a new model directory; returns {"created", "package", "next"}."""
     if not name or not str(name).strip():
         raise TilekitError("init needs --name \"Model name\"")
     name = str(name).strip()
+    if tooling not in ("git", "path"):
+        raise TilekitError("--tooling is 'git' (pin to this version's tag) or 'path' (the copy on this machine)")
     package = package if package is not None else _default_package(name)
     if not isinstance(package, str) or not package.isidentifier() or not package.isascii() \
             or keyword.iskeyword(package):
@@ -277,7 +285,7 @@ def init_model(directory, name, package=None):
             raise TilekitError(f"{target} exists and is not empty; init needs a new or empty directory")
 
     files = {
-        "pyproject.toml": _pyproject(name, package, target),
+        "pyproject.toml": _pyproject(name, package, target, tooling),
         ".python-version": "3.12\n",
         "tilekit.toml": _tilekit_toml(name, package),
         f"src/{package}/__init__.py": _init_source(name),
@@ -293,4 +301,5 @@ def init_model(directory, name, package=None):
         path = target / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text)
-    return {"created": str(target), "package": package, "next": "uv sync"}
+    return {"created": str(target), "package": package, "next": "uv sync",
+            "tooling": version.tooling_info(target)}

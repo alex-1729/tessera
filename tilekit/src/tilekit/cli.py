@@ -119,7 +119,7 @@ def cmd_promote(args):
 
 def cmd_init(args):
     from tilekit.init import init_model
-    return init_model(args.model, args.name, package=args.package)
+    return init_model(args.model, args.name, package=args.package, tooling=args.tooling)
 
 
 def cmd_sample_portfolio(args):
@@ -204,6 +204,8 @@ def promote_options(parser):
 def init_options(parser):
     parser.add_argument("--name", metavar="NAME", required=True, help="the model's name")
     parser.add_argument("--package", metavar="PKG", help="Python package name (default: from the name)")
+    parser.add_argument("--tooling", choices=("git", "path"), default="git",
+                        help="how the model gets tilekit: pinned to this version's tag (default) or this machine's copy")
 
 
 def sample_options(parser):

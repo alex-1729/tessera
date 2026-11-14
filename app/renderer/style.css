@@ -250,7 +250,7 @@ body.launching #mods, body.launching #tiles, body.launching #main, body.launchin
 .mname { font: 400 19px/1.2 var(--serif); margin: 0 0 3px; overflow-wrap: anywhere; }
 .mdir { font: 11px var(--mono); color: var(--slate); overflow-wrap: anywhere; margin: 0 0 6px; }
 .mlink { display: block; font-size: 12px; margin: 0 0 6px; overflow-wrap: anywhere; }
-.mgit, .mreview, .mopened { font-size: 12px; margin: 2px 0; overflow-wrap: anywhere; }
+.mgit, .mreview, .mtooling, .mopened { font-size: 12px; margin: 2px 0; overflow-wrap: anywhere; }
 .mbtns { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 6px; }
 .newtile { min-height: 120px; background: transparent; border: 1px dashed var(--navy); font: 400 17px var(--serif); text-align: center; padding: 0; }
 .newtile:hover { background: var(--white); }

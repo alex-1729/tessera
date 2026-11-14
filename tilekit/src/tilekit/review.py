@@ -24,6 +24,7 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from pathlib import Path
 
+from tilekit import version
 from tilekit.build import workbook_state
 from tilekit.cases import case_months, get_case, load_cases
 from tilekit.checks import run_checks
@@ -435,6 +436,7 @@ def status_json(model):
     document = compute_status(model)
     for entry in document["tiles"].values():
         entry.pop("_formula", None)
+    document["tooling"] = version.tooling_info(model.root)  # how the model pins the tooling, and what is running
     document["runs"] = _runs_summary(model)  # real-data runs: informational only, never part of sign-off
     return document
 
@@ -489,6 +491,7 @@ def _write_signoff(model, kind, name, reviewer, comment, values_only_reason=None
         "reviewer": reviewer, "at": at, "comment": comment or "", "stamp": stamp,
         "cases": case_ids, "case_hashes": hash_now,
         "assumed": list(model.graph.tiles[name].doc.assumed) if kind == "tile" else [],
+        "tooling_version": version.VERSION,
     }
     if kind == "tile":
         document["formula"] = model_translations(model)[name].formula

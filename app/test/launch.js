@@ -77,7 +77,7 @@ function copyExample(dst) {
   const idle = async () => { await ev('window.__app.idle()'); await waitFor('document.getElementById("working").hidden', 60000); await ev('window.__app.idle()'); };
   const onLaunch = () => waitFor(`window.__app && window.__app.ready && location.hash==='#/launch' && !!document.getElementById('newmodel')`, 30000);
   const onModel = async name => { const ok = await waitFor(`window.__app && window.__app.ready && location.hash==='#/model' && document.getElementById('title') && document.getElementById('title').textContent.includes(${JSON.stringify(name)})`, 90000); if (ok) await idle(); return ok; };
-  const tiles = () => ev(`[...document.querySelectorAll('.mtile[data-id]')].map(t => ({ id: t.dataset.id, name: t.querySelector('.mname').textContent, dir: t.querySelector('.mdir').textContent, link: t.querySelector('.mlink').textContent, git: t.querySelector('.mgit').textContent, review: t.querySelector('.mreview').textContent, opened: t.querySelector('.mopened').textContent }))`);
+  const tiles = () => ev(`[...document.querySelectorAll('.mtile[data-id]')].map(t => ({ id: t.dataset.id, name: t.querySelector('.mname').textContent, dir: t.querySelector('.mdir').textContent, link: t.querySelector('.mlink').textContent, tooling: (t.querySelector('.mtooling') || {}).textContent || '', git: t.querySelector('.mgit').textContent, review: t.querySelector('.mreview').textContent, opened: t.querySelector('.mopened').textContent }))`);
   const tileOf = async name => (await tiles()).find(t => t.name === name);
   const waitTile = async (name, pred, ms = 90000) => { const t0 = Date.now(); let t; while (Date.now() - t0 < ms) { t = await tileOf(name).catch(() => null); if (t && pred(t)) return t; await sleep(200); } return t || null; };
   const setVal = (id, v) => ev(`(()=>{const n=document.getElementById(${JSON.stringify(id)}); n.value=${JSON.stringify(v)}; n.dispatchEvent(new Event('input',{bubbles:true}))})()`);
@@ -98,6 +98,7 @@ function copyExample(dst) {
   const ex = await waitTile('Unit-linked pricing', t => /tiles signed off|could not read/.test(t.review) && !/Checking/.test(t.git));
   check('the example tile fills in its review progress in words', ex && /^\d+ of 26 tiles signed off/.test(ex.review), JSON.stringify(ex));
   check('the example model lives inside this repository, so the tile says it has no repository of its own', ex && /not a git repository of its own/.test(ex.git), JSON.stringify(ex));
+  check('the example model takes the tooling from a folder on this machine, and its tile says so', ex && ex.tooling === 'Tooling from a folder on this machine', ex && ex.tooling);
   check('the example model has not been opened or written to by the launch page', cacheState() === cacheBefore && ctl.cfg.modelDir === null);
   check('a new tile is dashed and last, with Add existing folder… beside it', await ev(`(()=>{const c=[...document.querySelectorAll('#models .mcell')]; const last=c[c.length-1]; return !!last.querySelector('#newmodel') && getComputedStyle(last.querySelector('#newmodel')).borderStyle.includes('dashed') && !!last.querySelector('#addfolder')})()`));
   check('the example is in the settings file list', settingsOnDisk().models.length === 1 && settingsOnDisk().models[0].dir === REAL_MODEL);
@@ -178,6 +179,7 @@ function copyExample(dst) {
   check('launch: the new model is a tile too (two tiles), "last opened" is a date', ts.length === 2 && /Last opened \d{4}-\d{2}-\d{2}/.test((await tileOf('Empty one')).opened), JSON.stringify(ts));
   const tb = await waitTile('Empty one', t => /no tiles yet/.test(t.review) && /commit/.test(t.git));
   check('tile for an empty model: "no tiles yet" and "1 commit not pushed" (no upstream yet)', tb && /no tiles yet/.test(tb.review) && /^main: (\d+ files changed, )?1 commit not pushed$/.test(tb.git), JSON.stringify(tb));
+  check('a new model is pinned to this version of the tooling, and its tile says so', tb && /^Tooling \d+\.\d+\.\d+$/.test(tb.tooling), tb && tb.tooling);
 
   // New model: non-empty repository that is a model
   const remoteFull = bare('seeded');
