@@ -1,5 +1,7 @@
 'use strict';
-// Per-scope conversation logs (review/.../log.jsonl), session ids and drafts (review/drafts/<id>.json).
+// The model's one conversation (review/model/chat.jsonl: every event in order, with its scope, and the
+// session id), the per-scope audit trails (review/.../log.jsonl), drafts (review/drafts/<id>.json) and
+// sign-off requests (review/requests/<id>.json).
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -37,7 +39,10 @@ function appendLog(modelDir, scope, entry) {
 }
 
 function readLog(modelDir, scope) {
-  const file = logPath(modelDir, scope);
+  return readJsonl(logPath(modelDir, scope));
+}
+
+function readJsonl(file) {
   let text;
   try { text = fs.readFileSync(file, 'utf8'); } catch { return []; }
   const out = [];
@@ -48,10 +53,72 @@ function readLog(modelDir, scope) {
   return out;
 }
 
-// The last session id recorded for the scope; a `session` entry with null id resets it.
-function lastSession(modelDir, scope) {
-  const entries = readLog(modelDir, scope).filter(e => e.type === 'session');
+// ---------------------------------------------------------------- the model's conversation
+
+function chatPath(modelDir) {
+  return path.join(modelDir, 'review', 'model', 'chat.jsonl');
+}
+
+function appendChat(modelDir, entry) {
+  const file = chatPath(modelDir);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.appendFileSync(file, JSON.stringify(entry) + '\n');
+}
+
+function readChat(modelDir) {
+  return readJsonl(chatPath(modelDir));
+}
+
+// An event goes into the conversation and into its scope's audit trail.
+function appendEvent(modelDir, scope, event) {
+  appendChat(modelDir, event);
+  appendLog(modelDir, scope, event);
+}
+
+// The conversation's last session id; a `session` entry with a null id starts a new one.
+// Without chat.jsonl there is no session yet (old per-scope sessions are not resumed).
+function lastSession(modelDir) {
+  const entries = readChat(modelDir).filter(e => e.type === 'session');
   return entries.length ? entries[entries.length - 1].session_id || null : null;
+}
+
+// ---------------------------------------------------------------- sign-off requests
+
+function requestsDir(modelDir) {
+  return path.join(modelDir, 'review', 'requests');
+}
+
+function newRequestId() {
+  const stamp = now().replace(/[-:TZ]/g, '').slice(0, 14);
+  return `r${stamp}-${crypto.randomBytes(3).toString('hex')}`;
+}
+
+function requestPath(modelDir, id) {
+  if (typeof id !== 'string' || !/^r\d{14}-[0-9a-f]{6}$/.test(id)) throw new Error('Unknown sign-off request id.');
+  return path.join(requestsDir(modelDir), id + '.json');
+}
+
+function saveRequest(modelDir, request) {
+  fs.mkdirSync(requestsDir(modelDir), { recursive: true });
+  fs.writeFileSync(requestPath(modelDir, request.id), JSON.stringify(request, null, 2) + '\n');
+  return request;
+}
+
+function loadRequest(modelDir, id) {
+  const file = requestPath(modelDir, id);
+  if (!fs.existsSync(file)) throw new Error(`There is no sign-off request ${id}.`);
+  return JSON.parse(fs.readFileSync(file, 'utf8'));
+}
+
+function listRequests(modelDir) {
+  let names;
+  try { names = fs.readdirSync(requestsDir(modelDir)); } catch { return []; }
+  const out = [];
+  for (const n of names) {
+    if (!n.endsWith('.json')) continue;
+    try { out.push(JSON.parse(fs.readFileSync(path.join(requestsDir(modelDir), n), 'utf8'))); } catch { /* skip */ }
+  }
+  return out.sort((a, b) => String(a.at).localeCompare(String(b.at)));
 }
 
 // ---------------------------------------------------------------- drafts
@@ -95,5 +162,7 @@ function listDrafts(modelDir) {
 
 module.exports = {
   now, checkScope, scopeKey, logPath, appendLog, readLog, lastSession,
+  chatPath, appendChat, readChat, appendEvent,
   newDraftId, saveDraft, loadDraft, listDrafts, draftPath,
+  newRequestId, saveRequest, loadRequest, listRequests, requestPath,
 };

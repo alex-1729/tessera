@@ -104,8 +104,10 @@ export function createSpecLine(ctx) {
     const cid = ctx.caseId(s.sheet);
     if (cid) extra.case = cid;
     shown = null; paint();
-    try { await ctx.send('Use the typed formula as the spec.', extra); } finally { working = false; }
-    await grid.reload();
+    // `working` stays on until the workbook has been read again: the grid still holds the typed formula until then,
+    // and the poll would offer the line a second time.
+    try { await ctx.send('Use the typed formula as the spec.', extra); await grid.reload(); } finally { working = false; }
+    shown = null; paint();
     base = null;
     await capture();
   }

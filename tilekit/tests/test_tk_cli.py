@@ -40,4 +40,4 @@ def test_errors_are_json(make_model, capsys):
 
 def test_every_contract_command_is_registered():
     assert set(COMMANDS) == {"graph", "cases", "trace", "check", "build", "status", "signoff", "reconfirm",
-                             "export", "test", "run", "runs", "policies", "promote", "sample-portfolio"}
+                             "export", "test", "run", "runs", "policies", "promote", "sample-portfolio", "init"}

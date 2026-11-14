@@ -30,6 +30,88 @@ function caseResultsSentence(entry) {
   return `differences are zero in ${zero.length} of ${results.length} cases; not zero in ${bad.join(', ')}`;
 }
 
+// ---------------------------------------------------------------- rebuilding workbooks
+
+const reviewFile = (ctx, ...parts) => path.join(ctx.modelDir, 'review', ...parts);
+
+function builtName(b) {
+  if (b.kind === 'tile') return b.name;
+  if (b.kind === 'module') return `the ${b.name} module workbook`;
+  return 'the model workbook';
+}
+
+function listWords(items) {
+  return items.length > 1 ? items.slice(0, -1).join(', ') + ' and ' + items[items.length - 1] : items[0];
+}
+
+// One sentence for a set of `tilekit build` results: what was rebuilt and whether every difference is zero.
+function builtSentence(built, failures = []) {
+  const parts = [];
+  if (built.length) {
+    const names = built.length > 5 ? [count(built.length, 'workbook')] : built.map(builtName);
+    const bad = built.filter(b => b.checks_pass === false);
+    const diff = bad.length
+      ? `differences are not zero in ${bad.map(b => `${b.kind === 'model' ? 'the model' : b.name} (largest ${fmt(b.max_abs_difference)})`).join(', ')}`
+      : 'every difference is zero';
+    parts.push(`Rebuilt ${listWords(names)}: ${diff}.`);
+  }
+  for (const f of failures) parts.push(f);
+  return parts.join(' ') || null;
+}
+
+async function buildOne(ctx, args, built, failures, what) {
+  try {
+    const r = await ctx.tilekit('build', args);
+    built.push(...(r.built || []));
+  } catch (e) {
+    failures.push(`${what[0].toUpperCase()}${what.slice(1)} did not build: ${String(e.message).replace(/\.$/, '')}.`);
+  }
+}
+
+// After a change: rebuild the given modules' workbooks and the model workbook, when they exist.
+async function rebuildRelated(ctx, modules) {
+  const built = [], failures = [];
+  for (const m of [...new Set(modules)].filter(Boolean)) {
+    if (fs.existsSync(reviewFile(ctx, 'modules', m, 'workbook.xlsx'))) await buildOne(ctx, ['--module', m], built, failures, `the ${m} module workbook`);
+  }
+  if (fs.existsSync(reviewFile(ctx, 'model', 'workbook.xlsx'))) await buildOne(ctx, ['--whole-model'], built, failures, 'the model workbook');
+  return { built, failures, sentence: builtSentence(built, failures) };
+}
+
+/**
+ * Rebuild what is out of date for a target: {kind: 'tile'|'module'|'model', name}. A tile also rebuilds its
+ * module and the model workbook (when they exist); a module rebuilds its stale tiles, itself and the model
+ * workbook; the model rebuilds everything that is unbuilt or stale.
+ */
+async function rebuildTarget(ctx, target) {
+  const tk = ctx.tilekit;
+  const built = [], failures = [];
+  if (target.kind === 'model') {
+    await buildOne(ctx, [], built, failures, 'the rebuild');
+  } else {
+    const [graph, status] = await Promise.all([tk('graph'), tk('status')]);
+    if (target.kind === 'tile') {
+      const q = graph.quantities[target.name];
+      if (!q || q.kind !== 'tile') return { built, failures, sentence: `${target.name} is not a tile in the model.`, error: true };
+      if (q.status === 'not_built') return { built, failures, sentence: `${target.name} is not built yet, so it has no workbook.`, error: true };
+      await buildOne(ctx, ['--tile', target.name], built, failures, `the ${target.name} workbook`);
+      const r = await rebuildRelated(ctx, [q.module]);
+      built.push(...r.built); failures.push(...r.failures);
+    } else {
+      const m = graph.modules.find(x => x.id === target.name);
+      if (!m) return { built, failures, sentence: `${target.name} is not a module in the model.`, error: true };
+      for (const t of m.tiles) {
+        const e = status.tiles[t] || {};
+        if (e.state === 'not_built' || e.workbook_current) continue;
+        await buildOne(ctx, ['--tile', t], built, failures, `the ${t} workbook`);
+      }
+      if (m.tiles.length) await buildOne(ctx, ['--module', m.id], built, failures, `the ${m.id} module workbook`);
+      if (fs.existsSync(reviewFile(ctx, 'model', 'workbook.xlsx'))) await buildOne(ctx, ['--whole-model'], built, failures, 'the model workbook');
+    }
+  }
+  return { built, failures, sentence: builtSentence(built, failures) || 'Every workbook was already up to date.' };
+}
+
 // Module python file for a module id, from a tile in it or from tilekit.toml.
 function moduleFile(ctx, graph, moduleId) {
   const m = graph.modules.find(x => x.id === moduleId);
@@ -130,6 +212,8 @@ async function applyTileCode(ctx, { name, code, testCode, approved }) {
     buildText = `The workbook did not build: ${e.message}`;
     lines.push(buildText);
   }
+  const related = await rebuildRelated(ctx, [q.module]);
+  if (related.sentence) lines.push(related.sentence);
 
   let testText = '';
   if (ctx.runPytest && exists(testFile)) {
@@ -138,6 +222,7 @@ async function applyTileCode(ctx, { name, code, testCode, approved }) {
     lines.push(r.passed ? 'Hand-calculation test passes.' : 'Hand-calculation test FAILS:\n' + r.output);
   }
   actions.push(buildText + (testText ? `; ${testText}.` : '.'));
+  if (related.sentence) actions.push(related.sentence);
   return { ok: true, changed: !unchanged || !!testCode, actions, text: `Wrote ${name}.\n` + lines.join('\n') };
 
   function fail(text) { return { ok: false, changed: false, actions: [], text }; }
@@ -266,7 +351,7 @@ async function whatIf(ctx, { name, code, params }) {
 async function acceptTileDraft(ctx, draft) {
   const tk = ctx.tilekit;
   const graph = await tk('graph');
-  const moduleId = draft.scope.id;
+  const moduleId = draft.module || draft.scope.id;
   const { problems } = validateTileDraft(graph, moduleId, draft.items);
   if (problems.length) throw new Error('The draft no longer fits the model: ' + problems.join(' '));
   const file = moduleFile(ctx, graph, moduleId);
@@ -316,6 +401,8 @@ async function acceptTileDraft(ctx, draft) {
   const actions = [];
   if (ordered.length) actions.push(`Added ${count(ordered.length, 'tile skeleton')} to ${moduleId}: ${ordered.map(i => i.name).join(', ')}.`);
   if (changed.length) actions.push(`Respecified ${changed.map(i => i.name).join(', ')}; ${changed.length === 1 ? 'it is' : 'they are'} now not built.`);
+  const related = await rebuildRelated(ctx, [moduleId]);
+  if (related.sentence) actions.push(related.sentence);
   return { accepted: true, actions };
 }
 
@@ -335,7 +422,9 @@ async function acceptModuleDraft(ctx, draft) {
   const base = exists(path.join(ctx.modelDir, 'src')) ? path.join(ctx.modelDir, 'src') : ctx.modelDir;
   try {
     for (const it of added) {
-      const layerPkg = it.layer.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+      let layerPkg = it.layer.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'layer';
+      // a layer called "Inputs" must not shadow inputs.py (or params.py) with a package of the same name
+      if (exists(path.join(base, pkg, `${layerPkg}.py`)) || /^\d/.test(layerPkg)) layerPkg = `${layerPkg}_layer`;
       const python = `${pkg}.${layerPkg}.${it.id}`;
       const dir = path.join(base, pkg, layerPkg);
       if (!exists(dir)) { fs.mkdirSync(dir, { recursive: true }); created.push(dir); }
@@ -363,4 +452,7 @@ async function acceptModuleDraft(ctx, draft) {
   return { accepted: true, actions };
 }
 
-module.exports = { applyTileCode, whatIf, acceptTileDraft, acceptModuleDraft, moduleFile, caseResultsSentence, fmt, testRel, copyModel };
+module.exports = {
+  applyTileCode, whatIf, acceptTileDraft, acceptModuleDraft, moduleFile, caseResultsSentence, fmt, testRel, copyModel,
+  rebuildRelated, rebuildTarget, builtSentence,
+};

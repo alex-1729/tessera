@@ -1,12 +1,15 @@
 'use strict';
-// The embedded modelling agent: one Claude Agent SDK conversation per scope, in-process tiles tools,
-// drafts that apply only when accepted. Plain Node; no Electron imports.
+// The embedded modelling agent: one Claude Agent SDK conversation per model, in-process tiles tools,
+// drafts that apply only when accepted, sign-off requests that only the reviewer's click records.
+// Plain Node; no Electron imports.
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 const store = require('./store');
 const edits = require('./edits');
-const { systemPrompt } = require('./prompt');
+const scaffold = require('./scaffold');
+const signoff = require('./signoff');
+const { systemPrompt, turnPreamble } = require('./prompt');
 const { createHandlers, sdkTools } = require('./tools');
 const { findUv } = require('../tilekit');
 
@@ -30,7 +33,7 @@ function loadSdk() {
 
 function plain(text) {
   // The log is plain text: drop headings, bold and bullets the model may still produce.
-  return String(text).replace(/^#{1,6}\s+/gm, '').replace(/\*\*(.+?)\*\*/g, '$1').replace(/^\s*[-*]\s+/gm, '').trim();
+  return String(text).replace(/^#{1,6}\s+/gm, '').replace(/\*\*(.+?)\*\*/g, '$1').replace(/`([^`\n]+)`/g, '$1').replace(/^\s*[-*]\s+/gm, '').trim();
 }
 
 function errorSentence(kind, detail) {
@@ -103,6 +106,18 @@ function builtinSentence(name, input, modelDir) {
   return `Used ${name}.`;
 }
 
+const SCAFFOLD_KINDS = new Set(['params', 'inputs', 'cases']);
+const FORBIDDEN_FOR_TOOLS = new Set(['signoff', 'reconfirm']);
+
+// The parts of a sign-off request the window shows (no stamps or scope).
+function publicRequest(r) {
+  const out = { id: r.id, kind: r.kind, name: r.name, label: r.label, spec: r.spec, formula: r.formula, assumed: r.assumed,
+    cases: r.cases, blockers: r.blockers, values_only: r.values_only, status: r.status };
+  if (r.checks) out.checks = r.checks;
+  if (r.kind === 'reconfirm') { out.tiles = r.tiles; out.skipped = r.skipped; out.module = r.module; }
+  return out;
+}
+
 /**
  * createAgentService({modelDir, repoRoot, tilekit, emit, confirm, modelName, pythonProject, runPytest, maxTurns})
  */
@@ -112,7 +127,8 @@ function createAgentService(options) {
   const modelName = options.modelName || DEFAULT_MODEL;
   const runPytest = options.runPytest === undefined
     ? defaultPytest({ modelDir, project: options.pythonProject || modelDir }) : options.runPytest;
-  const active = new Map(); // scopeKey -> {controller, scope, started}
+  let active = null; // {controller, scope, started}
+  const notes = []; // what happened outside the chat since the model's last turn (confirmations, drafts accepted)
   const totals = { turns: 0, cost_usd: 0, last: null };
   let signedIn = null;
   let lastError = null;
@@ -120,16 +136,41 @@ function createAgentService(options) {
   function emitEvent(scope, ev) {
     const event = { scope, ...ev, at: store.now() };
     if (event.text !== undefined) event.text = String(event.text);
-    try { store.appendLog(modelDir, scope, event); } catch (e) { /* the log must not stop the agent */ }
+    try { store.appendEvent(modelDir, scope, event); } catch (e) { /* the log must not stop the agent */ }
     try { emit(event); } catch { /* listener errors are theirs */ }
     return event;
   }
 
+  // The tools get a tilekit that cannot sign off or re-confirm; only confirmSignoff uses the real one.
+  const toolTilekit = (command, args = []) => (FORBIDDEN_FOR_TOOLS.has(command)
+    ? Promise.reject(new Error('The agent cannot sign off or re-confirm; only the reviewer can, with the button in the app.'))
+    : tilekit(command, args));
+
+  // After the reviewer agreed to an add_input_request, a scaffolding draft may be proposed from any level.
+  function inputRequestOpen() {
+    const chat = store.readChat(modelDir);
+    let q = -1;
+    for (let i = chat.length - 1; i >= 0; i--) if (chat[i].type === 'question' && chat[i].request) { q = i; break; }
+    if (q < 0) return false;
+    const after = chat.slice(q + 1);
+    return after.some(e => e.type === 'user') && !after.some(e => e.type === 'draft' && e.draft && SCAFFOLD_KINDS.has(e.draft.kind));
+  }
+
   const svc = {
-    modelDir, repoRoot, tilekit, confirm, runPytest, emitEvent,
+    modelDir, repoRoot, tilekit: toolTilekit, confirm, runPytest, emitEvent, inputRequestOpen,
     saveDraftEvent(draft) {
       store.saveDraft(modelDir, draft);
-      emitEvent(draft.scope, { type: 'draft', text: draft.summary, draft: { id: draft.id, kind: draft.kind, items: draft.items, warnings: draft.warnings || [], result: draft.result } });
+      emitEvent(draft.scope, { type: 'draft', text: draft.summary, draft: { id: draft.id, kind: draft.kind, items: draft.items, warnings: draft.warnings || [], result: draft.result, ...(draft.module ? { module: draft.module } : {}) } });
+    },
+    saveRequestEvent(req) {
+      for (const old of store.listRequests(modelDir)) {
+        if (old.status === 'pending' && old.kind === req.kind && old.name === req.name) {
+          old.status = 'superseded'; old.superseded_by = req.id;
+          store.saveRequest(modelDir, old);
+        }
+      }
+      store.saveRequest(modelDir, req);
+      emitEvent(req.scope, { type: 'signoff_request', text: signoff.requestSentence(req), request: publicRequest(req) });
     },
   };
 
@@ -140,32 +181,34 @@ function createAgentService(options) {
     return !!(graph.quantities[scope.id] && graph.quantities[scope.id].kind === 'tile');
   }
 
-  // One agent turn in `scope`. Returns {ok, asked, writes, drafts, cost_usd, ms, num_turns, error}.
-  async function runTurn(scope, prompt, { batchModule = null } = {}) {
-    const key = store.scopeKey(scope);
-    if (active.size) {
-      const busy = [...active.values()][0].scope;
-      const text = `The agent is busy with ${busy.level === 'model' ? 'the model' : `${busy.level} ${busy.id}`}. Wait for it or stop it first.`;
-      emitEvent(scope, { type: 'error', text });
-      return { ok: false, error: text };
+  const scopeWords = s => (s.level === 'model' ? 'the model' : `${s.level} ${s.id}`);
+
+  // One agent turn in the model's conversation, with `scope` selected.
+  // Returns {ok, asked, writes, drafts, cost_usd, ms, num_turns, error}.
+  async function runTurn(scope, text, { batchModule = null } = {}) {
+    if (active) {
+      const msg = `The agent is busy with ${scopeWords(active.scope)}. Wait for it or stop it first.`;
+      emitEvent(scope, { type: 'error', text: msg });
+      return { ok: false, error: msg };
     }
     const controller = new AbortController();
-    active.set(key, { controller, scope, started: Date.now() });
+    active = { controller, scope, started: Date.now() };
     const turn = { scope, batchModule, asked: false, approved: new Set(), writes: [], drafts: [] };
     const started = Date.now();
     let outcome = { ok: false };
     try {
       const { sdk, z } = await loadSdk();
       const handlers = createHandlers(svc, turn);
-      let resume = store.lastSession(modelDir, scope);
+      const prompt = `${turnPreamble(scope, { batchModule, notes: notes.splice(0) })}\n${text}`;
+      let resume = store.lastSession(modelDir);
       for (let attempt = 0; attempt < 2; attempt++) {
-        const server = sdk.createSdkMcpServer({ name: 'tiles', version: '0.1.0', tools: sdkTools(sdk, z, handlers, scope) });
+        const server = sdk.createSdkMcpServer({ name: 'tiles', version: '0.2.0', tools: sdkTools(sdk, z, handlers) });
         const q = sdk.query({
           prompt,
           options: {
             cwd: modelDir,
             model: modelName,
-            systemPrompt: systemPrompt(scope, { batchModule }),
+            systemPrompt: systemPrompt(),
             tools: ['Read', 'Glob', 'Grep'],
             mcpServers: { tiles: server },
             allowedTools: ['Read', 'Glob', 'Grep', 'mcp__tiles__*'],
@@ -181,7 +224,7 @@ function createAgentService(options) {
         });
         const r = await consume(q, scope, resume);
         if (r.resumeFailed && attempt === 0) {
-          store.appendLog(modelDir, scope, { type: 'session', session_id: null, at: store.now(), note: 'previous session could not be resumed' });
+          store.appendChat(modelDir, { type: 'session', session_id: null, at: store.now(), note: 'previous session could not be resumed' });
           resume = null;
           continue;
         }
@@ -191,14 +234,14 @@ function createAgentService(options) {
     } catch (e) {
       if (controller.signal.aborted) outcome = { ok: false, aborted: true };
       else {
-        const text = AUTH_TEXT.test(String(e && e.message)) ? NOT_SIGNED_IN : errorSentence('other', e && e.message);
-        if (text === NOT_SIGNED_IN) signedIn = false;
-        lastError = text;
-        emitEvent(scope, { type: 'error', text });
-        outcome = { ok: false, error: text };
+        const msg = AUTH_TEXT.test(String(e && e.message)) ? NOT_SIGNED_IN : errorSentence('other', e && e.message);
+        if (msg === NOT_SIGNED_IN) signedIn = false;
+        lastError = msg;
+        emitEvent(scope, { type: 'error', text: msg });
+        outcome = { ok: false, error: msg };
       }
     } finally {
-      active.delete(key);
+      active = null;
     }
     const ms = Date.now() - started;
     totals.turns += 1;
@@ -213,11 +256,11 @@ function createAgentService(options) {
     let sessionId = null;
     let sawAssistant = false;
     let reported = false;
-    const report = text => { if (!reported) { reported = true; lastError = text; emitEvent(scope, { type: 'error', text }); } };
+    const report = msg => { if (!reported) { reported = true; lastError = msg; emitEvent(scope, { type: 'error', text: msg }); } };
     for await (const m of q) {
       if (m.type === 'system' && m.subtype === 'init') {
         sessionId = m.session_id;
-        if (sessionId && sessionId !== resumed) store.appendLog(modelDir, scope, { type: 'session', session_id: sessionId, model: m.model, at: store.now() });
+        if (sessionId && sessionId !== resumed) store.appendChat(modelDir, { type: 'session', session_id: sessionId, model: m.model, scope, at: store.now() });
       } else if (m.type === 'assistant') {
         if (m.error) {
           if (m.error === 'authentication_failed' || m.error === 'oauth_org_not_allowed') signedIn = false;
@@ -229,6 +272,11 @@ function createAgentService(options) {
         for (const block of (m.message && m.message.content) || []) {
           if (block.type === 'text' && block.text && block.text.trim()) emitEvent(scope, { type: 'agent', text: plain(block.text) });
           else if (block.type === 'tool_use' && BUILTIN.has(block.name)) emitEvent(scope, { type: 'action', text: builtinSentence(block.name, block.input || {}, modelDir) });
+          if (block.type === 'tool_use' && options.debug) options.debug({ use: block.name, input: block.input });
+        }
+      } else if (m.type === 'user' && options.debug) {
+        for (const block of (m.message && Array.isArray(m.message.content) ? m.message.content : [])) {
+          if (block.type === 'tool_result') options.debug({ result: JSON.stringify(block.content).slice(0, 400), isError: !!block.is_error });
         }
       } else if (m.type === 'result') {
         const base = { cost_usd: m.total_cost_usd, num_turns: m.num_turns, usage: m.usage, session_id: sessionId };
@@ -259,9 +307,8 @@ function createAgentService(options) {
     return parts.length ? '\n\n' + parts.join('\n') : '';
   }
 
-  function selectionLine(scope) {
-    return scope.level === 'model' ? '[Selected: the whole model]' : `[Selected: ${scope.level} ${scope.id}]`;
-  }
+  // A plain end-of-action marker for things the window started (no model turn).
+  const doneEvent = (scope, ok = true) => emitEvent(scope, { type: 'done', text: '', ms: 0, cost_usd: 0, num_turns: 0, usage: null, ok });
 
   return {
     async send(scopeIn, text, extra) {
@@ -273,18 +320,19 @@ function createAgentService(options) {
         return { ok: false, error: msg };
       }
       emitEvent(scope, { type: 'user', text: text.trim(), ...(extra ? { extra } : {}) });
-      return runTurn(scope, `${selectionLine(scope)}\n${text.trim()}${extraText(extra)}`);
+      return runTurn(scope, `${text.trim()}${extraText(extra)}`);
     },
 
-    interrupt(scopeIn) {
-      const scope = store.checkScope(scopeIn);
-      const a = active.get(store.scopeKey(scope));
-      if (!a) return false;
-      a.controller.abort();
+    // Stops the running turn, whatever was selected when it started. `scope` is accepted and ignored.
+    interrupt() {
+      if (!active) return false;
+      active.controller.abort();
       return true;
     },
 
+    // The whole conversation (every event with its scope), or one scope's audit trail.
     history(scopeIn) {
+      if (scopeIn === undefined || scopeIn === null) return store.readChat(modelDir).filter(e => e.type !== 'session');
       return store.readLog(modelDir, store.checkScope(scopeIn)).filter(e => e.type !== 'session');
     },
 
@@ -292,25 +340,38 @@ function createAgentService(options) {
       return store.listDrafts(modelDir);
     },
 
+    requests() {
+      return store.listRequests(modelDir).map(r => ({ ...publicRequest(r), scope: r.scope, at: r.at,
+        ...(r.reviewer ? { reviewer: r.reviewer } : {}), ...(r.reason ? { reason: r.reason } : {}) }));
+    },
+
     async acceptDraft(id) {
       const draft = store.loadDraft(modelDir, id);
       if (draft.status !== 'proposed') throw new Error(`Draft ${id} is already ${draft.status}.`);
-      if (active.size) throw new Error('Wait for the agent to finish before accepting a draft.');
+      if (active) throw new Error('Wait for the agent to finish before accepting a draft.');
       let r;
       if (draft.kind === 'tiles') r = await edits.acceptTileDraft(svc, draft);
       else if (draft.kind === 'modules') r = await edits.acceptModuleDraft(svc, draft);
-      else if (draft.kind === 'what_if') {
+      else if (SCAFFOLD_KINDS.has(draft.kind)) {
+        r = await scaffold.acceptScaffoldDraft(svc, draft);
+        if (r.accepted) {
+          const rb = await edits.rebuildTarget(svc, { kind: 'model' });
+          if (rb.built.length || rb.failures.length) r.actions.push(rb.sentence);
+        }
+      } else if (draft.kind === 'what_if') {
         const it = draft.items[0];
         if (!it.code) throw new Error('This what-if changes parameters; it is for information only and cannot be applied from here.');
         const a = await edits.applyTileCode(svc, { name: it.name, code: it.code, testCode: null, approved: null });
         r = { accepted: a.ok, actions: a.ok ? a.actions : [...a.actions, a.declined ? 'The what-if was not applied.' : `The what-if was not applied: ${a.text.split('\n')[0]}`] };
       } else throw new Error(`Unknown draft kind ${draft.kind}.`);
       for (const t of r.actions) emitEvent(draft.scope, { type: 'action', text: t });
+      const what = draft.summary.replace(/^Draft: |\.$/g, '');
       if (r.accepted) {
         draft.status = 'accepted';
         draft.accepted_at = store.now();
         store.saveDraft(modelDir, draft);
-      }
+        notes.push(`The user accepted draft ${id} (${what}). ${r.actions.join(' ')}`);
+      } else notes.push(`The user tried to accept draft ${id} (${what}) but it was not applied: ${r.actions.join(' ')}`);
       return { accepted: !!r.accepted, actions: r.actions, draft };
     },
 
@@ -320,8 +381,51 @@ function createAgentService(options) {
       draft.status = 'discarded';
       draft.discarded_at = store.now();
       store.saveDraft(modelDir, draft);
-      emitEvent(draft.scope, { type: 'action', text: `Discarded the draft (${draft.summary.replace(/^Draft: |\.$/g, '')}).` });
+      const what = draft.summary.replace(/^Draft: |\.$/g, '');
+      emitEvent(draft.scope, { type: 'action', text: `Discarded the draft (${what}).` });
+      notes.push(`The user discarded draft ${id} (${what}).`);
       return { discarded: true, draft };
+    },
+
+    // The reviewer's click on a sign-off request. Never reachable from the model's tools.
+    async confirmSignoff(id, { reviewer, comment, valuesOnlyReason } = {}) {
+      const req = store.loadRequest(modelDir, id);
+      const scope = req.scope || { level: 'model', id: 'model' };
+      const refuse = (error, expire) => {
+        if (expire) { req.status = 'expired'; req.reason = error; store.saveRequest(modelDir, req); }
+        emitEvent(scope, { type: 'error', text: error });
+        doneEvent(scope, false);
+        notes.push(`The reviewer tried to confirm the sign-off request for ${req.name}, but it was refused: ${error}`);
+        return { signed: false, error, request: publicRequest(req) };
+      };
+      if (req.status !== 'pending') return refuse(`This sign-off request is already ${req.status}.`, false);
+      if (active) return refuse('Wait for the agent to finish before signing off.', false);
+      let r;
+      try { r = await signoff.performRequest(tilekit, modelDir, req, { reviewer, comment, valuesOnlyReason }); }
+      catch (e) { return refuse(`Not signed: ${String(e.message).replace(/\.$/, '')}.`, false); }
+      if (!r.ok) return refuse(r.error, !!r.expired);
+      req.status = 'confirmed';
+      req.confirmed_at = store.now();
+      req.reviewer = r.reviewer;
+      if (comment) req.comment = String(comment);
+      store.saveRequest(modelDir, req);
+      emitEvent(scope, { type: 'action', text: r.text });
+      doneEvent(scope, true);
+      notes.push(`The reviewer confirmed with the button: ${r.text}`);
+      return { signed: true, text: r.text, result: r.result, request: publicRequest(req) };
+    },
+
+    declineSignoff(id) {
+      const req = store.loadRequest(modelDir, id);
+      if (req.status !== 'pending') throw new Error(`This sign-off request is already ${req.status}.`);
+      const scope = req.scope || { level: 'model', id: 'model' };
+      req.status = 'declined';
+      req.declined_at = store.now();
+      store.saveRequest(modelDir, req);
+      emitEvent(scope, { type: 'action', text: 'Not signed.' });
+      doneEvent(scope, true);
+      notes.push(`The reviewer declined the sign-off request for ${req.kind === 'reconfirm' ? 're-confirmation' : req.name}; nothing was signed.`);
+      return { declined: true, request: publicRequest(req) };
     },
 
     async buildModule(moduleId) {
@@ -339,7 +443,7 @@ function createAgentService(options) {
       for (const name of todo) {
         const tscope = { level: 'tile', id: name };
         emitEvent(tscope, { type: 'user', text: `Implement ${name} from its spec (batch build of ${moduleId}).` });
-        const r = await runTurn(tscope, `${selectionLine(tscope)}\nImplement ${name} from the spec in its docstring, with its hand-calculation test. Remove the \`Status: not built\` line. Ask with ask_user if the spec leaves an actuarial choice open.`, { batchModule: moduleId });
+        const r = await runTurn(tscope, `Implement ${name} from the spec in its docstring, with its hand-calculation test.`, { batchModule: moduleId });
         const status = await tilekit('status').catch(() => null);
         const entry = status && status.tiles[name];
         const done = entry && entry.state !== 'not_built' && r.writes.some(w => w.name === name && w.ok);
@@ -348,16 +452,22 @@ function createAgentService(options) {
           emitEvent(scope, { type: 'action', text: `Built ${name}: ${edits.caseResultsSentence(entry)}.` });
           continue;
         }
-        const why = r.asked ? 'it needs an answer to a question (see the tile log)' : r.aborted ? 'it was stopped' : r.error ? r.error.replace(/\.$/, '') : 'it was not written';
+        const why = r.asked ? 'it needs an answer to a question' : r.aborted ? 'it was stopped' : r.error ? r.error.replace(/\.$/, '') : 'it was not written';
         emitEvent(scope, { type: 'action', text: `Stopped at ${name}: ${why}.` });
         return { built, stoppedAt: name, reason: why };
       }
       return { built, stoppedAt: null };
     },
 
+    // The tools exactly as the model gets them, for a selection (tests call handlers directly; no model).
+    handlersFor(scopeIn, { batchModule = null } = {}) {
+      const scope = store.checkScope(scopeIn);
+      return createHandlers(svc, { scope, batchModule, asked: false, approved: new Set(), writes: [], drafts: [] });
+    },
+
     status() {
       return {
-        busy: [...active.values()].map(a => ({ scope: a.scope, since: new Date(a.started).toISOString() })),
+        busy: active ? [{ scope: active.scope, since: new Date(active.started).toISOString() }] : [],
         model: modelName, strongModel: STRONG_MODEL, signedIn, lastError,
         turns: totals.turns, cost_usd: Number(totals.cost_usd.toFixed(4)), last: totals.last,
       };
@@ -365,4 +475,4 @@ function createAgentService(options) {
   };
 }
 
-module.exports = { createAgentService, readGuard, DEFAULT_MODEL, STRONG_MODEL, NOT_SIGNED_IN };
+module.exports = { createAgentService, readGuard, publicRequest, DEFAULT_MODEL, STRONG_MODEL, NOT_SIGNED_IN };

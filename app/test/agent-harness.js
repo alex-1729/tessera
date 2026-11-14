@@ -90,6 +90,7 @@ function env(modelDir, confirmAnswer = false) {
     modelDir, repoRoot: REPO, tilekit, emit: e => events.push(e),
     confirm: async req => { confirms.push(req); return confirmAnswer; },
     runPytest: pytestFor(modelDir),
+    ...(process.env.AGENT_DEBUG ? { debug: d => process.stderr.write('debug ' + JSON.stringify(d).slice(0, 500) + '\n') } : {}),
   });
   return { modelDir, events, confirms, tilekit, service };
 }
@@ -281,6 +282,14 @@ async function offline() {
     check('events are appended to the scope log', logOk);
   });
 
+  await guard('one conversation, sign-off requests, scaffolding drafts, overview, rebuild', async () => {
+    await chatChecks(check);
+  });
+
+  await guard('tilekit init and scaffolding a fresh model', async () => {
+    await freshModelChecks(check);
+  });
+
   await guard('read guard', async () => {
     const dir = copyModel();
     const g = require('../src/agent').readGuard(dir);
@@ -293,6 +302,264 @@ async function offline() {
     check('read guard denies Glob with ..', denied(await g({ tool_name: 'Glob', tool_input: { pattern: '../**/*.py' } })));
   });
   return results;
+}
+
+const storeMod = require('../src/agent/store');
+const { TOOL_NAMES } = require('../src/agent/tools');
+
+// A tilekit runner that records every command (to prove the tools never run signoff or reconfirm).
+function recording(tk) {
+  const calls = [];
+  const run = (command, args = []) => { calls.push(command); return tk(command, args); };
+  run.calls = calls;
+  return run;
+}
+
+function serviceFor(dir, { confirmAnswer = true } = {}) {
+  const events = [];
+  const confirms = [];
+  const raw = runnerFor(dir);
+  const tilekit = recording(raw);
+  const service = createAgentService({ modelDir: dir, repoRoot: REPO, tilekit, emit: e => events.push(e),
+    confirm: async req => { confirms.push(req); return confirmAnswer; }, runPytest: null });
+  return { dir, events, confirms, tilekit, raw, service };
+}
+
+const lastOf = (events, type) => events.filter(x => x.type === type).pop();
+const draftIdOf = text => (String(text).match(/draft (d\d{14}-[0-9a-f]{6})/) || [])[1];
+
+async function chatChecks(check) {
+  const dir = copyModel();
+  const e = serviceFor(dir);
+  const tileScope = { level: 'tile', id: 'units_amc' };
+  const modScope = { level: 'module', id: 'unit_projection' };
+  const modelScope = { level: 'model', id: 'model' };
+  const ht = e.service.handlersFor(tileScope);
+  const hm = e.service.handlersFor(modScope);
+  const hmodel = e.service.handlersFor(modelScope);
+
+  // Migration: an old per-scope log with a session is readable, but is not resumed.
+  storeMod.appendLog(dir, { level: 'tile', id: 'units_eop' }, { type: 'session', session_id: 'old-session', at: storeMod.now() });
+  storeMod.appendLog(dir, { level: 'tile', id: 'units_eop' }, { scope: { level: 'tile', id: 'units_eop' }, type: 'user', text: 'old question', at: storeMod.now() });
+  check('without chat.jsonl a new conversation starts', storeMod.lastSession(dir) === null && !fs.existsSync(storeMod.chatPath(dir)));
+  check('old per-scope logs stay readable', e.service.history({ level: 'tile', id: 'units_eop' }).some(x => x.text === 'old question'));
+
+  // One conversation, filed per scope.
+  await e.service.handlersFor(tileScope).ask_user({ question: 'Tile question?' });
+  await e.service.handlersFor(modScope).ask_user({ question: 'Module question?' });
+  const chat = storeMod.readChat(dir);
+  check('every event goes into chat.jsonl in order with its scope', chat.length === 2 && chat[0].scope.level === 'tile' && chat[1].scope.level === 'module', chat);
+  const tileLog = storeMod.readLog(dir, tileScope);
+  const modLog = storeMod.readLog(dir, modScope);
+  check('each event is also filed in its scope log', tileLog.some(x => x.text === 'Tile question?') && !tileLog.some(x => x.text === 'Module question?') &&
+    modLog.some(x => x.text === 'Module question?'));
+  const all = e.service.history();
+  const onlyTile = e.service.history(tileScope);
+  check('history() is the whole conversation, history(scope) one scope', all.length === 2 && all.every(x => x.scope) && onlyTile.length === 1 && onlyTile[0].text === 'Tile question?', { all, onlyTile });
+
+  // Reading ranges over the model from any level.
+  const other = await ht.get_selection({ module: 'profit' });
+  check('get_selection reads another module from tile level', !other.isError && /pv_net_profit/.test(other.text) && /read only/.test(other.text), other.text.slice(0, 200));
+  const ov = await ht.model_overview();
+  const ovDoc = JSON.parse(ov.text);
+  check('model_overview has counts, modules with tile states, and cases', ovDoc.counts.tiles.total === 26 && ovDoc.modules.length === 5 &&
+    ovDoc.modules.every(m => m.tiles.every(t => t.state)) && ovDoc.cases.length >= 1 && Array.isArray(ovDoc.model.blockers), Object.keys(ovDoc));
+
+  // Sign-off requests.
+  const refused = await ht.request_signoff({ kind: 'tile', name: 'units_eop' });
+  check('request_signoff refuses a tile that is not the selection', refused.isError && !fs.existsSync(path.join(dir, 'review', 'requests')), refused.text);
+  const r1 = await ht.request_signoff({ kind: 'tile', name: 'units_amc' });
+  const ev1 = lastOf(e.events, 'signoff_request');
+  const req1 = ev1 && ev1.request;
+  check('request_signoff emits a signoff_request event with the request', !r1.isError && req1 && req1.kind === 'tile' && req1.name === 'units_amc' &&
+    req1.label === 'AMC units' && /MIN/.test(req1.formula) && req1.assumed.length >= 1 && req1.cases.length >= 5 && req1.cases.every(c => 'pass' in c) &&
+    Array.isArray(req1.blockers) && req1.values_only === false && ev1.scope.id === 'units_amc', { ev1, text: r1.text });
+  check('the request is saved pending under review/requests', storeMod.loadRequest(dir, req1.id).status === 'pending');
+  check('the tool result says it is not signed off', /not signed off/.test(r1.text) && /button/.test(r1.text), r1.text);
+  check('nothing is signed off by the request', (await e.raw('status')).tiles.units_amc.state !== 'signed_off');
+  const c1 = await e.service.confirmSignoff(req1.id, { reviewer: 'Harness', comment: 'Checked the cap.' });
+  const st1 = await e.raw('status');
+  check('confirmSignoff records the sign-off', c1.signed && st1.tiles.units_amc.state === 'signed_off' && st1.tiles.units_amc.signed_off.reviewer === 'Harness', c1);
+  check('confirmSignoff emits the action line and done', e.events.some(x => x.type === 'action' && x.text === 'Signed off units_amc as Harness.') && e.events[e.events.length - 1].type === 'done');
+  check('the request is marked confirmed', storeMod.loadRequest(dir, req1.id).status === 'confirmed');
+  const again = await e.service.confirmSignoff(req1.id, { reviewer: 'Harness' });
+  check('a request cannot be confirmed twice', !again.signed && /already confirmed/.test(again.error), again);
+
+  // Stamp changed since the request.
+  await hm.request_signoff({ kind: 'tile', name: 'units_after_alloc' });
+  const req2 = lastOf(e.events, 'signoff_request').request;
+  const uf = unitsFile(dir);
+  fs.writeFileSync(uf, fs.readFileSync(uf, 'utf8').replace('"""Units after allocation.', '"""Units after allocation.\n\n    Changed after the request.'));
+  const c2 = await e.service.confirmSignoff(req2.id, { reviewer: 'Harness' });
+  check('confirmSignoff refuses when the item changed since the request', !c2.signed && /changed since/.test(c2.error) &&
+    (await e.raw('status')).tiles.units_after_alloc.state !== 'signed_off' && storeMod.loadRequest(dir, req2.id).status === 'expired', c2);
+
+  // Blockers at confirm time.
+  await hm.request_signoff({ kind: 'module', name: 'unit_projection' });
+  const req3 = lastOf(e.events, 'signoff_request').request;
+  check('a request with blockers is still shown, listing them', req3.blockers.length > 0, req3);
+  const c3 = await e.service.confirmSignoff(req3.id, { reviewer: 'Harness' });
+  check('confirmSignoff refuses while blockers exist', !c3.signed && /cannot be signed off/.test(c3.error) && (await e.raw('status')).modules.unit_projection.state !== 'signed_off', c3);
+
+  // Decline.
+  await hmodel.request_signoff({ kind: 'tile', name: 'units_eop' });
+  const req4 = lastOf(e.events, 'signoff_request').request;
+  const d4 = e.service.declineSignoff(req4.id);
+  check('declineSignoff marks it declined and says Not signed.', d4.declined && storeMod.loadRequest(dir, req4.id).status === 'declined' &&
+    e.events.some(x => x.type === 'action' && x.text === 'Not signed.') && (await e.raw('status')).tiles.units_eop.state !== 'signed_off');
+  const listed = e.service.requests();
+  check('requests() lists every request with its status', listed.length === 4 && listed.some(r => r.status === 'declined') && listed.some(r => r.status === 'confirmed'), listed.map(r => r.status));
+
+  // Re-confirmation of values-only drift: restore units.py, sign units_eop off, change a parameter default, rebuild.
+  await e.raw('build', ['--tile', 'units_after_alloc']);
+  await e.raw('build', ['--tile', 'units_eop']);
+  await e.raw('signoff', ['--tile', 'units_eop', '--reviewer', 'Harness']);
+  const pf = path.join(dir, 'src', 'unit_linked', 'params.py');
+  fs.writeFileSync(pf, fs.readFileSync(pf, 'utf8').replace('_param(1.25, "Initial unit price"', '_param(1.3, "Initial unit price"'));
+  const rb = await hm.rebuild({});
+  check('rebuild at module level rebuilds stale tiles, the module and the model workbook', !rb.isError && /Rebuilt/.test(rb.text) && /every difference is zero/.test(rb.text), rb.text);
+  const rbOut = await hm.rebuild({ kind: 'tile', name: 'deaths' });
+  check('rebuild refuses an item outside the selection', rbOut.isError, rbOut.text);
+  const rr = await hm.request_reconfirm({});
+  const req5 = lastOf(e.events, 'signoff_request').request;
+  check('request_reconfirm lists the tiles it would renew', !rr.isError && req5.kind === 'reconfirm' && req5.tiles.map(t => t.name).includes('units_amc') && req5.tiles.map(t => t.name).includes('units_eop'), { text: rr.text, req5 });
+  check('nothing is re-confirmed by the request', (await e.raw('status')).tiles.units_amc.state === 'stale');
+  const c5 = await e.service.confirmSignoff(req5.id, { reviewer: 'Harness' });
+  const st5 = await e.raw('status');
+  check('confirmSignoff on a re-confirmation runs tilekit reconfirm', c5.signed && /Re-confirmed/.test(c5.text) && st5.tiles.units_amc.state === 'signed_off' && st5.tiles.units_eop.state === 'signed_off', c5);
+  const rt = await ht.request_reconfirm({});
+  check('request_reconfirm is refused at tile level', rt.isError);
+
+  // No tool can sign off: the tools' tilekit refuses signoff/reconfirm, and no tool name reaches confirmSignoff.
+  check('no tool is a sign-off or confirmation', TOOL_NAMES.every(n => !/confirm_?signoff|^signoff|decline|^reconfirm/.test(n)) &&
+    TOOL_NAMES.filter(n => /signoff|reconfirm/.test(n)).every(n => n.startsWith('request_')), TOOL_NAMES);
+  const callsBefore = e.tilekit.calls.length;
+  const statesOf = async () => JSON.stringify(Object.fromEntries(Object.entries((await e.raw('status')).tiles).map(([k, x]) => [k, x.state])));
+  const signedBefore = await statesOf();
+  const toolArgs = { request_signoff: { kind: 'tile', name: 'units_allocated' }, request_reconfirm: {}, rebuild: { kind: 'tile', name: 'units_amc' },
+    read_trace: { case: 'base', quantities: ['units_amc'] }, write_tile: { name: 'units_amc', code: 'x', test_code: '' }, what_if: {},
+    propose_params: { params: [] }, propose_cases: { cases: [] }, propose_inputs: {}, propose_structure: {}, ask_user: null, add_input_request: null };
+  for (const scope of [tileScope, modScope, modelScope]) {
+    const h = e.service.handlersFor(scope);
+    for (const name of TOOL_NAMES) {
+      const args = name in toolArgs ? toolArgs[name] : {};
+      if (args === null) continue; // these end the turn; tested elsewhere
+      try { await h[name](args); } catch { /* refusals are fine */ }
+    }
+  }
+  const used = e.tilekit.calls.slice(callsBefore);
+  check('calling every tool at every level never runs signoff or reconfirm', !used.includes('signoff') && !used.includes('reconfirm') && (await statesOf()) === signedBefore, { used: [...new Set(used)] });
+  const toolSrc = ['tools.js', 'edits.js', 'scaffold.js', 'validate.js', 'source.js', 'prompt.js'].map(f => fs.readFileSync(path.join(__dirname, '..', 'src', 'agent', f), 'utf8')).join('\n');
+  check('tool code never names the signoff or reconfirm command', !/tk\(\s*'(signoff|reconfirm)'|tilekit\(\s*'(signoff|reconfirm)'|performRequest|confirmSignoff/.test(toolSrc));
+  // Superseded: a second request for the same item replaces the first.
+  await ht.request_signoff({ kind: 'tile', name: 'units_amc' });
+  const s1 = lastOf(e.events, 'signoff_request').request;
+  await ht.request_signoff({ kind: 'tile', name: 'units_amc' });
+  check('a new request for the same item supersedes the pending one', storeMod.loadRequest(dir, s1.id).status === 'superseded');
+
+  // Scaffolding drafts: parameters.
+  const tp = await ht.propose_params({ summary: 'x', params: [{ name: 'policy_fee_pm', default: 1.5, label: 'Policy fee', format: 'amount', units: 'currency per month' }] });
+  check('propose_params is refused at tile level without an agreed request', tp.isError, tp.text);
+  const bad = await hmodel.propose_params({ summary: 'x', params: [{ name: 'Bad Name', default: 1, label: 'x', format: 'amount', units: 'u' },
+    { name: 'amc_cap_units', default: Infinity, label: '', format: 'nope', units: '' }, { name: 'premium', default: 1, label: 'P', format: 'amount', units: 'u' }] });
+  check('propose_params validates names, defaults, formats and clashes', bad.isError && /snake_case/.test(bad.text) && /finite/.test(bad.text) && /format 'nope'/.test(bad.text) && /already exists as a input/.test(bad.text), bad.text);
+  const okp = await hmodel.propose_params({ summary: 'Adds a policy fee and raises expenses.', params: [
+    { name: 'policy_fee_pm', default: 1.5, label: 'Policy fee per month', format: 'amount', units: 'currency per policy per month' },
+    { name: 'expense_pm', default: 2.5, label: 'Maintenance expense per month', format: 'amount', units: 'currency per policy per month' }] });
+  const paramsBefore = fs.readFileSync(pf, 'utf8');
+  check('a valid params draft is saved and changes nothing yet', !okp.isError && draftIdOf(okp.text) && fs.readFileSync(pf, 'utf8') === paramsBefore, okp.text);
+  const ap = await e.service.acceptDraft(draftIdOf(okp.text));
+  const gp = await e.raw('graph');
+  check('accepting the params draft edits params.py and the model loads', ap.accepted && gp.quantities.policy_fee_pm && gp.quantities.policy_fee_pm.value === 1.5 &&
+    gp.quantities.expense_pm.value === 2.5 && gp.quantities.policy_fee_pm.label === 'Policy fee per month', ap);
+  check('accepting asks first when sign-offs would need re-confirming', e.confirms.some(c => /re-confirming/.test(c.message)));
+  check('accepting rebuilds the stale workbooks and says so', ap.actions.some(a => /^Rebuilt/.test(a)), ap.actions);
+  check('the check is still clean after the params draft', ((await e.raw('check')).counts.error) === 0);
+
+  // Inputs: restore on failure, then a valid one.
+  const inputsPy = path.join(dir, 'src', 'unit_linked', 'inputs.py');
+  const tomlPath = path.join(dir, 'tilekit.toml');
+  const [inBefore, tomlBefore] = [fs.readFileSync(inputsPy, 'utf8'), fs.readFileSync(tomlPath, 'utf8')];
+  const broken = await hmodel.propose_inputs({ summary: 'Broken.', inputs: [{ name: 'broken_series', label: 'Broken', format: 'amount', description: 'Fails at run time.', python: 'broken_series = month * params.no_such_parameter' }] });
+  const ab = await e.service.acceptDraft(draftIdOf(broken.text));
+  check('an inputs draft that breaks the model is restored', !ab.accepted && /restored/.test(ab.actions.join(' ')) &&
+    fs.readFileSync(inputsPy, 'utf8') === inBefore && fs.readFileSync(tomlPath, 'utf8') === tomlBefore, ab.actions);
+  const badIn = await hmodel.propose_inputs({ summary: 'x', inputs: [{ name: 'premium', label: 'P', format: 'amount', description: 'd', python: 'premium = 1' },
+    { name: 'no_assign', label: 'N', format: 'amount', description: 'd', python: 'x = 1' }, { name: 'sneaky', label: 'S', format: 'amount', description: 'd', python: 'import os\nsneaky = 1' }] });
+  check('propose_inputs validates names and code', badIn.isError && /already exists/.test(badIn.text) && /must assign no_assign/.test(badIn.text) && /plain assignments/.test(badIn.text), badIn.text);
+  const goodIn = await hmodel.propose_inputs({ summary: 'Adds a policy term.', model_point_fields: [{ name: 'term_months', label: 'Policy term in months', format: 'integer', example: 120 }],
+    inputs: [{ name: 'in_term', label: 'In term', format: 'integer', description: 'one while the month is within the policy term, otherwise zero',
+      python: 'in_term = np.where(month <= term_months, 1.0, 0.0)' }],
+    tables: [{ name: 'fee_scale', label: 'Fee scale', columns: ['year', 'scale'], rows: [[1, 1.0], [2, 1.1]], formats: { year: 'integer', scale: 'number' } }] });
+  const ai = await e.service.acceptDraft(draftIdOf(goodIn.text));
+  const gi = await e.raw('graph');
+  const tr = await e.raw('trace', ['--case', 'base']);
+  check('accepting an inputs draft edits inputs.py, tilekit.toml, cases and adds the table', ai.accepted && gi.quantities.in_term && gi.quantities.in_term.kind === 'input' &&
+    gi.tables.some(t => t.name === 'fee_scale') && tr.series.in_term[0] === 1 && JSON.parse(fs.readFileSync(path.join(dir, 'cases', 'base.json'), 'utf8')).model_point.term_months === 120 &&
+    /in_term: one while the month/.test(fs.readFileSync(inputsPy, 'utf8')), { ai, text: goodIn.text });
+
+  // Cases.
+  const badCase = await hmodel.propose_cases({ summary: 'x', cases: [{ id: 'short', name: 'Short', purpose: 'p', model_point: { premium_pm: 100 } }] });
+  check('propose_cases needs every model-point field', badCase.isError && /missing model-point fields/.test(badCase.text), badCase.text);
+  const base = JSON.parse(fs.readFileSync(path.join(dir, 'cases', 'base.json'), 'utf8'));
+  const goodCase = await hmodel.propose_cases({ summary: 'A short term.', cases: [{ id: 'short_term', name: 'Short term', purpose: 'Term ends in month 24, so in_term takes both values.', model_point: { ...base.model_point, term_months: 24 }, params: { policy_fee_pm: 2 } }] });
+  const ac = await e.service.acceptDraft(draftIdOf(goodCase.text));
+  check('accepting a cases draft writes the case and it runs', ac.accepted && (await e.raw('cases')).cases.some(c => c.id === 'short_term'), { ac, text: goodCase.text });
+
+  // A tile-level request for a missing input opens the way to a draft once the user answers.
+  const hq = e.service.handlersFor(tileScope);
+  await hq.add_input_request({ description: 'a monthly policy fee parameter', kind: 'parameter' });
+  storeMod.appendChat(dir, { scope: tileScope, type: 'user', text: 'Yes, add it at 1.0 a month.', at: storeMod.now() });
+  const after = await e.service.handlersFor(tileScope).propose_params({ summary: 'Adds a fee.', params: [{ name: 'admin_fee_pm', default: 1, label: 'Admin fee per month', format: 'amount', units: 'currency per policy per month' }] });
+  check('after the user agrees to an add_input_request, a params draft can be proposed from tile level', !after.isError && draftIdOf(after.text), after.text);
+  const again2 = await e.service.handlersFor(tileScope).propose_params({ summary: 'x', params: [{ name: 'other_fee_pm', default: 1, label: 'Other', format: 'amount', units: 'u' }] });
+  check('only one draft per agreed request', again2.isError, again2.text);
+
+  // Model-level tile draft names its module; accepting rebuilds the module and model workbooks.
+  const md = await hmodel.propose_structure({ summary: 'Adds net units.', module: 'unit_projection', tiles: [
+    { name: 'units_net_change', label: 'Change in units', args: ['units_eop', 'units_bop'], units: 'units per policy', timing: 'during month', format: 'units', spec: 'Closing units less opening units.' }] });
+  const am = await e.service.acceptDraft(draftIdOf(md.text));
+  check('a tile draft made at model level is accepted into its module, with rebuilds reported', am.accepted &&
+    (await e.raw('graph')).quantities.units_net_change.module === 'unit_projection' && am.actions.some(a => /Rebuilt the unit_projection module workbook and the model workbook/.test(a)), am.actions);
+
+  // write_tile reports the module and model rebuild.
+  const hw = e.service.handlersFor({ level: 'tile', id: 'units_after_alloc' });
+  const gw = await e.raw('graph');
+  const code = gw.quantities.units_after_alloc.source.code.replace('Changed after the request.', 'Changed again by write_tile.');
+  const w = await hw.write_tile({ name: 'units_after_alloc', code, test_code: '' });
+  check('write_tile also rebuilds the module and model workbooks and says whether every difference is zero',
+    !w.isError && e.events.some(x => x.type === 'action' && /^Rebuilt the unit_projection module workbook and the model workbook: every difference is zero/.test(x.text)), w.text);
+}
+
+async function freshModelChecks(check) {
+  const dir = path.join(TMP_ROOT, `fresh-${++copies}`);
+  const tk = runnerFor(dir);
+  const init = await tk('init', ['--name', 'Level term assurance', '--package', `level_term_${copies}`]);
+  check('tilekit init creates the model', /^level_term_/.test(init.package) && fs.existsSync(path.join(dir, 'tilekit.toml')), init);
+  const e = serviceFor(dir);
+  const h = e.service.handlersFor({ level: 'model', id: 'model' });
+  const ov = JSON.parse((await h.model_overview()).text);
+  check('model_overview works on an empty model', ov.modules.length === 0 && ov.counts.tiles.total === 0, ov);
+  const md = await h.propose_structure({ summary: 'Policy and results blocks.', modules: [
+    { id: 'policy', title: 'Policy', layer: 'Liability', purpose: 'In force, premiums and death benefits.', feeds: ['results'] },
+    { id: 'results', title: 'Results', layer: 'Results', purpose: 'Present values and profit.', feeds: [] }] });
+  const am = await e.service.acceptDraft(draftIdOf(md.text));
+  const pd = await h.propose_params({ summary: 'Basis.', params: [
+    { name: 'mortality_rate_pa', default: 0.002, label: 'Mortality rate per year', format: 'rate', units: 'proportion per year' },
+    { name: 'lapse_rate_pa', default: 0.05, label: 'Lapse rate per year', format: 'percent', units: 'proportion per year' }] });
+  const ap = await e.service.acceptDraft(draftIdOf(pd.text));
+  const g = await tk('graph');
+  const chk = await tk('check');
+  check('on a fresh model, accepting a module draft and a params draft leaves a model that passes check', am.accepted && ap.accepted &&
+    g.modules.length === 2 && g.quantities.mortality_rate_pa && chk.counts.error === 0, { am: am.actions, ap: ap.actions, chk: chk.counts });
+  const ind = await h.propose_inputs({ summary: 'Sum assured and premium.', model_point_fields: [{ name: 'sum_assured', label: 'Sum assured', format: 'amount', example: 100000 }, { name: 'premium_pm', label: 'Monthly premium', format: 'amount', example: 20 }],
+    inputs: [{ name: 'sum_assured', label: 'Sum assured', format: 'amount', description: 'the model-point sum assured in every month' },
+      { name: 'mort_rate_pm', label: 'Mortality rate per month', format: 'rate', description: 'the monthly equivalent of the annual mortality rate',
+        python: 'mort_rate_pm = -monthly_rate_from_annual(-params.mortality_rate_pa, params.months_per_year)', excel: '=1-(1-mortality_rate_pa)^(1/months_per_year)' }] });
+  const ai = await e.service.acceptDraft(draftIdOf(ind.text));
+  const tr = await tk('trace', ['--case', 'base']);
+  check('on a fresh model, an inputs draft with a model-point field and an excel template applies', ai.accepted && tr.series.sum_assured[0] === 100000 &&
+    Math.abs(tr.series.mort_rate_pm[0] - (1 - Math.pow(1 - 0.002, 1 / 12))) < 1e-15, { ai: ai.actions, ind: ind.text });
 }
 
 // ---------------------------------------------------------------- live scenarios
@@ -425,7 +692,7 @@ async function scenario7() {
   const scope = { level: 'tile', id: 'units_amc' };
   await withTimeout(e.service.send(scope, 'In one sentence: what does this tile do?'), e.service, scope);
   const r2 = await withTimeout(e.service.send(scope, 'And what was my previous question? Answer in a few words.'), e.service, scope);
-  const sessions = require('../src/agent/store').readLog(e.modelDir, scope).filter(x => x.type === 'session');
+  const sessions = require('../src/agent/store').readChat(e.modelDir).filter(x => x.type === 'session');
   const answer = e.events.filter(x => x.type === 'agent').map(x => x.text).pop() || '';
   const p = e.service.send(scope, 'Explain in detail why closing units grow in the high_charge case over all 120 months.');
   await new Promise(res => setTimeout(res, 4000));
@@ -463,6 +730,70 @@ async function scenario8() {
   return { checks, r, e };
 }
 
+async function scenario9() {
+  // With a tile selected, a question about another module is answered from the model.
+  const e = env(copyModel());
+  const scope = { level: 'tile', id: 'units_amc' };
+  const g0 = await e.tilekit('graph');
+  const users = g0.quantities.discount_factor.used_by;
+  const r = await withTimeout(e.service.send(scope, 'Which tiles in the profit module use the discount factor? Just the names.'), e.service, scope);
+  const g1 = await e.tilekit('graph');
+  const text = e.events.filter(x => x.type === 'agent').map(x => x.text).join(' ');
+  const checks = {
+    answered: users.every(u => text.includes(u)),
+    nothing_changed: g0.order.every(n => fnCode(g0, n) === fnCode(g1, n)),
+    no_refusal: !e.events.some(x => x.type === 'action' && /^Refused/.test(x.text)),
+  };
+  return { checks, r, e };
+}
+
+async function scenario10() {
+  // "Sign it off" produces a request; only confirmSignoff (the button) records the sign-off.
+  const e = env(copyModel());
+  const scope = { level: 'tile', id: 'units_amc' };
+  const r = await withTimeout(e.service.send(scope, "I'm happy with this tile, sign it off."), e.service, scope);
+  const req = e.events.filter(x => x.type === 'signoff_request').pop();
+  const before = (await e.tilekit('status')).tiles.units_amc.state;
+  const checks = {
+    signoff_request_event: !!(req && req.request.kind === 'tile' && req.request.name === 'units_amc'),
+    not_signed_before_button: before !== 'signed_off',
+  };
+  if (req) {
+    const c = await e.service.confirmSignoff(req.request.id, { reviewer: 'Harness' });
+    checks.signed_after_button = c.signed && (await e.tilekit('status')).tiles.units_amc.state === 'signed_off';
+  }
+  return { checks, r, e };
+}
+
+async function scenario11() {
+  // A fresh `tilekit init` model and one scaffolding exchange: questions or a first structure draft; then
+  // accepting a module draft and a params draft leaves a model that passes check.
+  const dir = path.join(TMP_ROOT, `fresh-${++copies}`);
+  await runnerFor(dir)('init', ['--name', 'Level term assurance', '--package', 'level_term']);
+  const e = env(dir, true);
+  const scope = { level: 'model', id: 'model' };
+  const say = text => withTimeout(e.service.send(scope, text), e.service, scope);
+  const drafts = kind => e.events.filter(x => x.type === 'draft' && x.draft.kind === kind);
+  let r = await say('This is a level term assurance: monthly premiums, a death benefit, mortality and lapse decrements. Scaffold it.');
+  const first = { question: e.events.some(x => x.type === 'question'), draft: drafts('modules').length > 0 };
+  const checks = { questions_or_structure_draft: first.question || first.draft };
+  if (!drafts('modules').length) {
+    r = await say('Pricing, per policy. Level sum assured paid at the end of the month of death. Premiums monthly in advance for the term. ' +
+      'Deaths first, then lapses on the survivors. Monthly steps over 120 months. No reinsurance. Results: the profit signature and the present value of profit. ' +
+      'Use your judgement for the rest, record it as assumptions, and propose the modules now.');
+  }
+  const mod = drafts('modules').pop();
+  const accept = id => e.service.acceptDraft(id).catch(err => ({ accepted: false, error: err.message }));
+  checks.module_draft_accepted = mod ? (await accept(mod.draft.id)).accepted : false;
+  if (!drafts('params').length) r = await say('Accepted. Now propose the parameters.');
+  const par = drafts('params').pop();
+  checks.params_draft_accepted = par ? (await accept(par.draft.id)).accepted : false;
+  const chk = await e.tilekit('check');
+  const g = await e.tilekit('graph');
+  checks.model_passes_check = chk.counts.error === 0 && g.modules.length > 0;
+  return { checks, r, e, outcome: `${first.question ? 'question' : 'draft'} first; ${g.modules.length} modules, ${Object.values(g.quantities).filter(q => q.kind === 'param').length} parameters` };
+}
+
 // ---------------------------------------------------------------- main
 
 async function main() {
@@ -478,6 +809,9 @@ async function main() {
       [6, 'batch build of one module', scenario6],
       [7, 'resume and interrupt', scenario7],
       [8, 'authentication failure', scenario8],
+      [9, 'tile level: question about another module', scenario9],
+      [10, 'sign-off through chat needs the button', scenario10],
+      [11, 'scaffold a fresh model', scenario11],
     ];
     for (const [n, name, fn] of all) {
       if (ONLY && !ONLY.has(n)) continue;

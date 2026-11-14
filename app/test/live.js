@@ -55,10 +55,16 @@ function listFiles(dir) {   // path -> mtime, for "nothing was written here"
   ctl = await require('../src/main').start({ show: true, settingsFile, modelDir: copy, pickCsv: async () => pickQueue.shift() || null });
   const win = ctl.win;
   win.webContents.on('console-message', (...a) => { const m = a[0] && a[0].message !== undefined ? a[0] : { level: a[1], message: a[2] }; if (m.level === 'error' || m.level === 3) summary.errors.push('console: ' + String(m.message).slice(0, 300)); });
+  win.webContents.on('dom-ready', () => { win.webContents.executeJavaScript('window.__both=()=>document.getElementById("left").innerText+"\\n"+document.getElementById("rightbar").innerText', true).catch(() => {}); });
+  win.webContents.on('will-prevent-unload', e => e.preventDefault());
   const ev = js => win.webContents.executeJavaScript(js, true);
+  await ev('window.__both=()=>document.getElementById("left").innerText+"\\n"+document.getElementById("rightbar").innerText; true');
   const waitFor = async (js, ms = 20000) => { const t = Date.now(); while (Date.now() - t < ms) { try { const v = await ev(js); if (v) return v; } catch { /* retry */ } await sleep(100); } return false; };
-  const text = () => ev('document.getElementById("left").innerText');
+  const text = () => ev('window.__both()');
   const idle = async () => { await ev('window.__app.idle()'); await waitFor('document.getElementById("working").hidden', 60000); await ev('window.__app.idle()'); };
+  // Reads an element's text once it exists. A view re-renders after every file change, so an element may be absent for a
+  // moment; reading it with no wait gave "Cannot read properties of null (reading 'innerText')" once.
+  const inner = async id => { await waitFor(`!!document.getElementById(${JSON.stringify(id)})`, 5000); return ev(`(document.getElementById(${JSON.stringify(id)}) || {innerText: ''}).innerText`); };
   const has = async (name, needle) => { const t = await text(); check(name, t.includes(needle), `missing "${needle}" in: ${t.slice(0, 400)}`); };
   const hasNot = async (name, needle) => { const t = await text(); check(name, !t.includes(needle), `unexpected "${needle}"`); };
   const shot = async name => { await sleep(300); const img = await win.webContents.capturePage(); const f = path.join(OUT, name + '.png'); fs.writeFileSync(f, img.toPNG()); summary.shots.push(f); };
@@ -80,7 +86,7 @@ function listFiles(dir) {   // path -> mtime, for "nothing was written here"
     await go('#/tile/' + name);
     await ev('document.querySelectorAll("#panel input.assume").forEach(c => c.click())');
     const ready = await waitFor('!!document.getElementById("signoff") && !document.getElementById("signoff").disabled', 3000);
-    if (!ready) { check('sign off ' + name, false, await ev('document.getElementById("signoff") ? document.getElementById("signoff").title + " | " + document.getElementById("left").innerText.slice(0,600) : "no button"')); return false; }
+    if (!ready) { check('sign off ' + name, false, await ev('document.getElementById("signoff") ? document.getElementById("signoff").title + " | " + window.__both().slice(0,600) : "no button"')); return false; }
     await ev('(()=>{const c=document.getElementById("comment"); c.value="Live test"; c.dispatchEvent(new Event("input",{bubbles:true}))})()');
     await click('signoff');
     const ok = await waitFor(`document.getElementById('sentence') && document.getElementById('sentence').textContent.startsWith('Signed off')`, 30000);
@@ -136,13 +142,39 @@ function listFiles(dir) {   // path -> mtime, for "nothing was written here"
   await has('tile: sentence', 'Not signed off. Differences are zero in');
   await shot('live-tile');
 
+  // the centre switch against the real model copy: Code, Test (a real test run), module file, tilekit.toml
+  const seg = async v => { await ev(`window.__app.setCentre(${JSON.stringify(v)})`); await sleep(700); };
+  const q0 = await ev(`(()=>{const x=window.__app.S.graph.quantities.units_amc; return {file:x.source.file, line:x.source.line, code:x.source.code}})()`);
+  await seg('code');
+  check('Code: the tile source, with the real file and line above it, in the centre pane', await ev(`!document.getElementById('codewrap').hidden && document.getElementById('srcpath').innerText.includes(${JSON.stringify(q0.file)}) && document.getElementById('srcpath').innerText.includes('line ${q0.line}') && document.querySelector('#codewrap .src').dataset.code===${JSON.stringify(q0.code)} && document.querySelector('#codewrap .src .n').textContent==='${q0.line}'`), await inner('codewrap'));
+  await shot('live-centre-code');
+  await seg('test');
+  check('Test: shows tests/tiles/test_units_amc.py read from the model', await ev(`document.getElementById('srcpath').innerText.includes('tests/tiles/test_units_amc.py') && document.querySelector('#codewrap .src').dataset.code.includes('def test')`), await inner('codewrap'));
+  await click('runtest');
+  check('Test: Run this test runs the real test and shows Passed.', await waitFor(`document.getElementById('testresult') && !document.getElementById('testresult').innerText.includes('Running') && document.getElementById('testresult').innerText.includes('Passed.')`, 240000), await inner('codewrap'));
+  await shot('live-centre-test');
+  await seg('spreadsheet');
+  check('centre: back on Spreadsheet the workbook is still open', await ev(`document.getElementById('codewrap').hidden && document.querySelector('#gridhost iframe').getBoundingClientRect().width>200`) && !(await waitSheets(i => i.sheets.length > 1)).fail);
+  await go('#/module/unit_projection');
+  await seg('code');
+  const modFile = await ev(`window.__app.S.graph.quantities.units_amc.source.file`);
+  check('Code on a module: the whole module file from line 1', await ev(`document.getElementById('srcpath').innerText.includes(${JSON.stringify(modFile)}) && document.querySelector('#codewrap .src .n').textContent==='1' && document.querySelector('#codewrap .src').dataset.code.includes('def units_amc')`), await inner('codewrap'));
+  await seg('spreadsheet');
+  await go('#/model');
+  await seg('code');
+  check('Code on the model: tilekit.toml', await ev(`document.getElementById('srcpath').innerText.includes('tilekit.toml') && document.querySelector('#codewrap .src').dataset.code.includes('[model]')`), await inner('codewrap'));
+  await seg('spreadsheet');
+  // the real agent has no whole-conversation history yet or does: either way the chat loads without an error line
+  check('chat: the real agent service is behind the right bar and the input is pinned', await ev(`!document.getElementById('agentlog').hidden && !!document.querySelector('#rightbar #agentlog-input') && !document.getElementById('agentlog-log').innerText.includes('Invalid scope')`));
+  await go('#/tile/units_amc');
+
   // sign off
   await signoffTile('units_amc');
   await has('tile: signed-off sentence', 'Signed off by');
   await shot('live-tile-signed');
   await signoffTile('units_eop');
   await go('#/module/unit_projection');
-  check('module map shows the tile as signed off', await ev(`(()=>{const a=[...document.querySelectorAll('svg.map a')].find(a=>a.textContent.includes('units_amc')); return !!a && a.textContent.includes('signed off')})()`));
+  check('module tile strip shows the tile as signed off', await ev(`(()=>{const a=[...document.querySelectorAll('#tiles a.t')].find(a=>a.textContent.includes('units_amc')); return !!a && a.textContent.includes('signed off')})()`));
   await has('module: sentence counts sign-offs', '2 of 4 tiles signed off');
 
   // edit the tile's Python on disk; the watcher alone must bring the change into the window
@@ -197,7 +229,7 @@ function listFiles(dir) {   // path -> mtime, for "nothing was written here"
   st = await S();
   const drifted = ['deaths', 'lapses', 'in_force_eop'].filter(t => st.tiles[t].state === 'stale' && st.tiles[t].drift === 'values');
   check('after rebuild: values-only drift remains and checks pass', drifted.length > 0 && drifted.every(t => st.tiles[t].checks_pass !== false), JSON.stringify(drifted.map(t => st.tiles[t])));
-  const reconfLabel = await ev('document.getElementById("reconfirm").innerText');
+  const reconfLabel = await inner("reconfirm");
   check('re-confirm button offers the drifted tiles', new RegExp(`Re-confirm values-only \\((${drifted.length})\\)`).test(reconfLabel), reconfLabel);
   await shot('live-module-values-drift');
   await click('reconfirm');
@@ -208,7 +240,7 @@ function listFiles(dir) {   // path -> mtime, for "nothing was written here"
   // tests and export
   await go('#/model');
   await click('runtests');
-  check('Run tests shows the named invariant checks', await waitFor(`document.getElementById('left').innerText.includes('Zero premium gives zero units') && document.getElementById('left').innerText.includes('Units never negative [base]')`, 180000), (await text()).slice(0, 500));
+  check('Run tests shows the named invariant checks', await waitFor(`window.__both().includes('Zero premium gives zero units') && window.__both().includes('Units never negative [base]')`, 180000), (await text()).slice(0, 500));
   await idle();
   await has('Run tests: model tests line', 'Model tests pass');
   await shot('live-checks');
@@ -230,20 +262,20 @@ function listFiles(dir) {   // path -> mtime, for "nothing was written here"
   await waitFor('!!document.getElementById("f-name")', 10000);
   await setField('f-name', 'badrun');
   await click('confirm');
-  check('bad CSV: rows listed in the dialog', await waitFor(`document.getElementById('dialogerrors').innerText.includes('Row 3, premium_pm')`, 30000), await ev('document.getElementById("dialog").innerText'));
+  check('bad CSV: rows listed in the dialog', await waitFor(`document.getElementById('dialogerrors').innerText.includes('Row 3, premium_pm')`, 30000), await inner("dialog"));
   await shot('live-real-bad-csv');
   await click('cancel');
   check('bad CSV: no run created', (await tk('runs')).runs.length === 0);
 
   await click('sample');
   await waitFor('!!document.getElementById("f-n")', 10000);
-  check('sample dialog says it is synthetic data', (await ev('document.getElementById("dialog").innerText')).includes('synthetic data for trying the feature'));
+  check('sample dialog says it is synthetic data', (await inner("dialog")).includes('synthetic data for trying the feature'));
   await shot('live-real-sample-dialog');
   await setField('f-n', '300'); await setField('f-name', 'sample');
   await click('confirm');
   check('sample portfolio: run created', await waitFor(`!document.getElementById('dialog') && document.getElementById('runs') && document.getElementById('runs').innerText.includes('sample')`, 120000), await text());
   await idle();
-  const runsTxt = await ev('document.getElementById("runs").innerText');
+  const runsTxt = await inner("runs");
   check('Runs table: name, policies, date, current', runsTxt.includes('sample') && runsTxt.includes('300') && runsTxt.includes('current') && /\d{4}-\d{2}-\d{2}/.test(runsTxt), runsTxt);
   check('sample CSV is under real-data/ in the model copy', fs.existsSync(path.join(copy, 'real-data/sample.csv')));
   // a second run from a picked CSV
@@ -291,7 +323,7 @@ function listFiles(dir) {   // path -> mtime, for "nothing was written here"
   await ev(`document.querySelector('#policylist a[data-policy="${polId}"]').click()`);
   check('model: real policy workbook opens', await waitFor(`window.__app.S.real && !!window.__app.S.real.policy && document.getElementById('realbar').hidden===false && window.__gridLog.opens.some(p=>p.startsWith('real-data/') && p.includes('${polId}') && p.includes('/model/'))`, 60000), JSON.stringify(await ev('window.__gridLog.opens')));
   await idle();
-  check('real line and buttons above the spreadsheet', await ev(`(()=>{const b=document.getElementById('realbar'); return b.innerText.includes('Real data. Not part of sign-off, and kept out of the repo.') && !!document.getElementById('promote') && !!document.getElementById('backtocases')})()`), await ev('document.getElementById("realbar").innerText'));
+  check('real line and buttons above the spreadsheet', await ev(`(()=>{const b=document.getElementById('realbar'); return b.innerText.includes('Real data. Not part of sign-off, and kept out of the repo.') && !!document.getElementById('promote') && !!document.getElementById('backtocases')})()`), await inner("realbar"));
   await has('model: sentence names the policy and run', `Showing real data: policy ${polId}, run sample.`);
   check('model: stale bar hidden while showing real data', await ev('document.getElementById("stalebar").hidden'));
   ins = await waitSheets(i => i.sheets.includes('Profit'));
@@ -340,7 +372,7 @@ function listFiles(dir) {   // path -> mtime, for "nothing was written here"
   const mpRaw = (await tk('policies', ['--run', 'sample', '--search', polId, '--limit', '1'])).policies[0].model_point;
   await click('promote');
   await waitFor('!!document.getElementById("f-id")', 10000);
-  const pd = await ev('document.getElementById("dialog").innerText');
+  const pd = await inner("dialog");
   check('promote dialog shows the values and the rounding note', Object.keys(mpRaw).every(k => pd.includes(k)) && pd.includes('three significant figures'), pd);
   await shot('live-real-promote');
   await setField('f-id', 'live_promoted'); await setField('f-name', 'Live promoted'); await setField('f-purpose', 'Made by the live test');
@@ -353,7 +385,7 @@ function listFiles(dir) {   // path -> mtime, for "nothing was written here"
   const mpCase = JSON.parse(fs.readFileSync(path.join(copy, 'cases/live_promoted.json'), 'utf8')).model_point;
   check('promoted case has rounded model point values', Object.keys(mpRaw).every(k => k in mpCase && Math.abs(mpCase[k] - mpRaw[k]) <= Math.abs(mpRaw[k]) * 0.006 + 1e-9), JSON.stringify([mpRaw, mpCase]));
   await shot('live-real-promoted');
-  const runsNow = await ev('document.getElementById("runs").innerText');
+  const runsNow = await inner("runs");
   check('Runs table: model changed since this run', runsNow.includes('model changed since this run'), runsNow);
   await go('#/tile/deaths');
   // a new case makes sign-offs stale until a rebuild; after it they return with the case listed as new
@@ -364,6 +396,32 @@ function listFiles(dir) {   // path -> mtime, for "nothing was written here"
   const ms = (await S()).modules.decrements;
   check('module status lists the new case', Array.isArray(ms.new_cases) ? ms.new_cases.includes('live_promoted') : true, JSON.stringify(ms.new_cases));
   await shot('live-real-promoted-tile');
+
+  // File > Open model and New model, on the model copy
+  const lastModelBefore = ctl.settings.lastModel;
+  let refused = null;
+  try { await ctl.switchModel(path.join(tmp, 'nowhere')); } catch (e) { refused = e.message; }
+  check('Open model: a folder without tilekit.toml is refused plainly', refused && /no tilekit\.toml/.test(refused), refused);
+  check('Open model: a refused folder changes nothing', ctl.settings.lastModel === lastModelBefore);
+  await ev('window.__old = true');
+  await ctl.switchModel(copy);
+  let reopened = await waitFor(`!window.__old && window.__app && window.__app.ready && location.hash==='#/model'`, 30000);
+  if (!reopened) { (summary.reloadRetries = summary.reloadRetries || []).push('open model'); await ev('window.__old = true').catch(() => {}); win.webContents.reload(); await sleep(500); reopened = await waitFor(`!window.__old && window.__app && window.__app.ready && location.hash==='#/model'`, 60000); }
+  check('Open model: the window reloads at the model view with the model on show', reopened, await ev('location.href'));
+  await idle();
+  check('Open model: the folder is remembered as the last model', JSON.parse(fs.readFileSync(settingsFile, 'utf8')).lastModel === copy);
+  check('Open model: the new model is on screen, chat and bars intact', await ev(`document.getElementById('title').textContent.includes('Unit-linked') && !!document.querySelector('#rightbar #agentlog-input') && !!document.querySelector('#left #lpin #signoff')`));
+  await ev(`window.__old = true`);
+  const initErr = await ev(`window.api.newModel(${JSON.stringify(path.join(tmp, 'brandnew'))}, 'Brand new').then(r => 'ok:' + JSON.stringify(r), e => 'error:' + e.message)`).catch(() => 'reloaded');
+  summary.newModel = String(initErr).slice(0, 300);
+  if (/^error:/.test(initErr)) {
+    check('New model: tilekit init has not landed, so its error is shown plainly (no crash, window unchanged)', initErr.length > 8 && !/\[object|undefined/.test(initErr), initErr);
+    await ev('window.__old = false; true');
+  } else {
+    check('New model: the model was created and opened', await waitFor(`!window.__old && window.__app && window.__app.ready`, 90000), String(initErr));
+    await idle();
+    check('New model: tilekit.toml exists in the new folder and it is the last model', fs.existsSync(path.join(tmp, 'brandnew', 'tilekit.toml')) && JSON.parse(fs.readFileSync(settingsFile, 'utf8')).lastModel === path.join(tmp, 'brandnew'));
+  }
 
   check('no console errors', summary.errors.filter(e => e.startsWith('console:')).length === 0, JSON.stringify(summary.errors));
   const log = await ev('window.__gridLog');

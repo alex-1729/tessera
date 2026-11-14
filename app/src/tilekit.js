@@ -17,6 +17,7 @@ const SPEC = {
   run: { '--model-points': true, '--name': true, '--id-column': true },
   policies: { '--run': true, '--sort': true, '--desc': false, '--limit': true, '--offset': true, '--search': true, '--flag': true },
   promote: { '--run': true, '--policy': true, '--id': true, '--name': true, '--purpose': true },
+  init: { '--name': true, '--package': true },     // File > New model: `tilekit init --model DIR --name NAME`; only the window's New model path reaches it
 };
 const COMMANDS = new Set(Object.keys(SPEC));
 const INTEGERS = new Set(['--policies', '--seed', '--limit', '--offset']);

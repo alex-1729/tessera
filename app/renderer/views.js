@@ -1,8 +1,12 @@
-// The reviewer's sheet: the side bar for a tile, a module and the model. Each returns an array of nodes.
-// ctx = {S, act, busy(), selectedCase(), selectCase(id), reviewerName(), real(), pendingDrafts(), panelWidth(), api, ...}
+// The left bar for a tile, a module and the model. Each view returns {left, right, pin, blocked}:
+//   left    nodes of the left bar's scrolling part: what the thing is, its map and relations
+//   right   nodes of the review sections (assumptions, cases, checks, real model points); app.js puts them under `left`
+//   pin     the signature block and buttons, pinned at the bottom of the left bar
+//   blocked true when the thing on show cannot be signed off (shown on the left bar's strip when it is collapsed)
+// ctx = {S, act, busy(), selectedCase(), selectCase(id), reviewerName(), real(), pendingDrafts(), panelWidth(), sectionOpen(key), setSectionOpen(key, on), api, ...}
 import { h, link, plainFormula, fmtDate } from './util.js';
 import * as L from './logic.js';
-import { moduleMap, modelMap } from './maps.js';
+import { modelMap } from './maps.js';
 import * as agent from './agentlog.js';
 import { policiesSection, runsSection } from './real.js';
 
@@ -10,6 +14,19 @@ const sec = title => h('h3', { class: 'sec' }, title);
 const row = (left, right) => h('div', { class: 'row' }, h('span', {}, left), h('span', { class: 'r' }, right));
 const tileHref = n => '#/tile/' + encodeURIComponent(n);
 const none = text => h('p', { class: 'grey' }, text);
+
+// A section whose heading is a plain text toggle: the heading, then "show" or "hide" in slate. Closed by default;
+// the choice is remembered (ctx.setSectionOpen) across views and launches.
+function collapsible(ctx, key, title, nodes) {
+  let open = ctx.sectionOpen(key);
+  const body = h('div', { class: 'secbody', 'data-sec': key, hidden: !open }, nodes);
+  const word = h('span', {}, open ? 'hide' : 'show');
+  const btn = h('button', { type: 'button', class: 'sectog keep', 'data-sec': key, 'aria-expanded': String(open), onclick: () => {
+    open = !open; body.hidden = !open; word.textContent = open ? 'hide' : 'show';
+    btn.setAttribute('aria-expanded', String(open)); ctx.setSectionOpen(key, open);
+  } }, title, word);
+  return [h('h3', { class: 'sec' }, btn), body];
+}
 
 function checksTable(checks) {
   if (!checks || !checks.length) return none('No checks yet.');
@@ -32,7 +49,7 @@ const form = key => FORM.get(key) || FORM.set(key, { reviewer: null, comment: ''
 
 // o = {key, record, locked, lockedWhy, prepared, valuesOnly (needs a reason), boxes: [checkbox], blockers: [string],
 //      buttons: [button node], signLabel, run({reviewer, comment, reason})}
-// Returns the nodes to append: a spacer, the signature table and the buttons.
+// Returns the nodes for the pinned part of the right bar: the signature table and the buttons.
 function signature(ctx, o) {
   const f = form(o.key);
   const reviewerBox = o.locked ? null : h('input', { type: 'text', id: 'reviewer', autocomplete: 'off', value: f.reviewer === null ? ctx.reviewerName() : f.reviewer, oninput: e => { f.reviewer = e.target.value; refresh(); } });
@@ -68,7 +85,7 @@ function signature(ctx, o) {
   }
   (o.boxes || []).forEach(b => b.addEventListener('change', refresh));
   refresh();
-  return [h('div', { class: 'sigspacer' }), h('table', { class: 'sig' }, rows),
+  return [h('table', { class: 'sig' }, rows),
     h('div', { class: 'buttons' }, ...(o.buttons || []), sign)];
 }
 
@@ -85,71 +102,65 @@ function assumptionBoxes(key, list, locked) {
 export function tileView(ctx, name) {
   const { S } = ctx;
   const x = L.q(S, name), st = L.tileStatus(S, name);
-  const mod = L.moduleOf(S, x.module);
   const busy = ctx.busy();
   const notBuilt = st.state === 'not_built';
   const valuesOnly = L.isValuesOnly(st);
   const key = 'tile/' + name;
-  const out = [];
-  out.push(h('div', { class: 'ref' }, h('span', { id: 'tileref' }, L.tileRef(S, name)), ' ', h('span', { id: 'tilename' }, name)));
-  out.push(h('h2', { class: 'title', id: 'tiletitle' }, x.label || name));
-  out.push(h('p', { class: 'lede', id: 'sentence' }, L.tileSentence(S, name)));
+  const left = [], right = [];
+  left.push(h('div', { class: 'ref' }, h('span', { id: 'tileref' }, L.tileRef(S, name)), ' ', h('span', { id: 'tilename' }, name)));
+  left.push(h('h2', { class: 'title', id: 'tiletitle' }, x.label || name));
+  left.push(h('p', { class: 'lede', id: 'sentence' }, L.tileSentence(S, name)));
 
   if (st.state === 'stale' && st.drift === 'formula' && st.workbook_current !== false && st.signed_formula && st.signed_formula !== x.formula) {
-    out.push(h('div', { id: 'changed', class: 'changed' }, sec('Changed since sign-off'),
+    left.push(h('div', { id: 'changed', class: 'changed' }, sec('Changed since sign-off'),
       h('div', {}, h('span', { class: 'lab' }, 'Was'), h('span', { class: 'was' }, plainFormula(st.signed_formula))),
       h('div', {}, h('span', { class: 'lab' }, 'Now'), h('span', { class: 'now' }, plainFormula(x.formula)))));
   }
 
-  out.push(sec('Spec'));
-  out.push(h('p', { class: 'spec' }, x.spec));
+  left.push(sec('Spec'));
+  left.push(h('p', { class: 'spec' }, x.spec));
   const ut = [x.units, x.timing].filter(Boolean).map(v => L.upFirst(String(v).replace(/\.$/, '')) + '.').join(' ');
-  if (ut) out.push(h('p', { class: 'grey', id: 'units' }, ut));
+  if (ut) left.push(h('p', { class: 'grey', id: 'units' }, ut));
 
   if (!notBuilt) {
-    out.push(sec('Formula reviewed'));
-    out.push(valuesOnly
+    left.push(sec('Formula reviewed'));
+    left.push(valuesOnly
       ? h('p', { id: 'valuesonlytext' }, 'This tile cannot be written as an Excel formula, so there is no formula to check. Sign-off rests on its tests.')
       : h('div', { class: 'formula' }, plainFormula(x.formula)));
   }
 
+  left.push(sec('Relies on'));
+  const linkOr = a => L.q(S, a) && L.q(S, a).kind === 'tile' ? link(tileHref(a), a) : a;
+  left.push(...(x.args.length ? x.args.map(a => row(linkOr(a), L.argWord(S, a))) : [none('None.')]));
+  left.push(...collapsible(ctx, 'feeds', 'Feeds into', (x.used_by || []).length ? x.used_by.map(a => row(linkOr(a), L.argWord(S, a))) : [none('Nothing.')]));
+
   const locked = st.state === 'signed_off' && !(st.new_cases || []).length;
   const assumed = x.assumed || [];
   const ab = assumptionBoxes(key, assumed, locked);
-  out.push(sec('Assumptions to confirm'));
-  out.push(...(assumed.length ? ab.nodes : [none('None.')]));
+  right.push(sec('Assumptions to confirm'));
+  right.push(...(assumed.length ? ab.nodes : [none('None.')]));
 
-  out.push(...(notBuilt
+  right.push(...(notBuilt
     ? [sec('Cases agreed to Python'), none('Not built yet, so no case has been run.')]
     : casesSection(ctx, 'Cases agreed to Python', name)));
-
-  out.push(sec('Relies on'));
-  const linkOr = a => L.q(S, a) && L.q(S, a).kind === 'tile' ? link(tileHref(a), a) : a;
-  out.push(...(x.args.length ? x.args.map(a => row(linkOr(a), L.argWord(S, a))) : [none('None.')]));
-  out.push(sec('Feeds into'));
-  out.push(...((x.used_by || []).length ? x.used_by.map(a => row(linkOr(a), L.argWord(S, a))) : [none('Nothing.')]));
 
   // Blockers come first; the rule and difference lines are listed once even when a blocker already says them.
   const blockers = notBuilt ? ['This tile is not built yet.'] : L.tileBlockers(S, name);
   const lines = L.tileCheckLines(S, name);
   const shown = [...blockers];
   for (const l of lines) if (!shown.some(b => b.includes(l) || l.includes(b))) shown.push(l);
-  out.push(sec('Checks'));
-  out.push(...(shown.length ? shown.map(l => h('p', {}, l)) : [h('p', {}, 'All checks pass.')]));
+  right.push(sec('Checks'));
+  right.push(...(shown.length ? shown.map(l => h('p', {}, l)) : [h('p', {}, 'All checks pass.')]));
 
-  out.push(sec('Code'));
-  out.push(h('pre', { class: 'code' }, (x.source && x.source.code) || ''));
-
-  out.push(...policiesSection(ctx));
+  right.push(...policiesSection(ctx));
   agent.mount({ level: 'tile', id: name });
-  out.push(agent.section);
 
-  out.push(...signature(ctx, {
+  const pin = signature(ctx, {
     key, record: st.signed_off, locked, prepared: '', valuesOnly: valuesOnly && !locked, boxes: ab.boxes, blockers: locked ? [] : blockers,
     buttons: [h('button', { type: 'button', id: 'rebuild', disabled: busy || notBuilt, onclick: () => ctx.act(() => window.api.tk('build', ['--tile', name, '--force'])) }, 'Rebuild')],
     run: v => ctx.act(() => window.api.tk('signoff', ['--tile', name, '--reviewer', v.reviewer, '--comment', v.comment, ...(valuesOnly ? ['--values-only', v.reason] : [])])),
-  }));
-  return out;
+  });
+  return { left, right, pin, blocked: !locked && blockers.length > 0 };
 }
 
 // ---------------------------------------------------------------- module
@@ -158,26 +169,22 @@ export function moduleView(ctx, id) {
   const { S } = ctx;
   const mod = L.moduleOf(S, id), ms = S.status.modules[id];
   const busy = ctx.busy();
-  const out = [];
-  out.push(h('div', { class: 'ref' }, h('span', { id: 'moduleref' }, L.moduleRef(mod)), h('span', { class: 'sub' }, mod.layer)));
-  out.push(h('h2', { class: 'title', id: 'title' }, mod.title));
-  out.push(h('p', { class: 'lede', id: 'sentence' }, L.moduleSentence(S, id)));
-  out.push(sec('Tiles'));
-  const pending = ctx.pendingDrafts().filter(d => d.kind === 'tiles' && d.scope && d.scope.level === 'module' && d.scope.id === id).flatMap(d => d.items || []);
-  out.push(moduleMap(S, mod, ctx.panelWidth(), pending));
-  out.push(sec('Module checks'));
-  out.push(checksTable(ms.checks));
+  const left = [], right = [];
+  left.push(h('div', { class: 'ref' }, h('span', { id: 'moduleref' }, L.moduleRef(mod)), h('span', { class: 'sub' }, mod.layer)));
+  left.push(h('h2', { class: 'title', id: 'title' }, mod.title));
+  left.push(h('p', { class: 'lede', id: 'sentence' }, L.moduleSentence(S, id)));
+  right.push(sec('Module checks'));
+  right.push(checksTable(ms.checks));
   const blockers = L.moduleBlockers(S, id);
   const locked = ms.state === 'signed_off';
-  if (!locked && blockers.length) out.push(h('div', { class: 'blockers' }, blockers.map(b => h('p', {}, b))));
-  out.push(...casesSection(ctx, 'Cases', null));
-  out.push(...policiesSection(ctx));
+  if (!locked && blockers.length) right.push(h('div', { class: 'blockers' }, blockers.map(b => h('p', {}, b))));
+  right.push(...casesSection(ctx, 'Cases', null));
+  right.push(...policiesSection(ctx));
   agent.mount({ level: 'module', id });
-  out.push(agent.section);
 
   const notBuilt = L.notBuiltTiles(S, mod.tiles);
   const rebuild = L.needsRebuild(S, mod.tiles), modStale = L.workbookStale(ms), rebuildN = rebuild.length + (modStale ? 1 : 0), reconf = L.canReconfirm(S, mod.tiles);
-  out.push(...signature(ctx, {
+  const pin = signature(ctx, {
     key: 'module/' + id, record: ms.signed_off, locked, prepared: '', boxes: [], blockers: locked ? [] : blockers, signLabel: 'Sign off module',
     buttons: [
       h('button', { type: 'button', id: 'rebuild', disabled: busy || !rebuildN, onclick: () => ctx.act(async () => {
@@ -198,8 +205,8 @@ export function moduleView(ctx, id) {
       ...(notBuilt.length && window.api.agent ? [h('button', { type: 'button', id: 'buildnotbuilt', disabled: busy, onclick: () => agent.buildModule(id) }, `Build not-built tiles (${notBuilt.length})`)] : []),
     ],
     run: v => ctx.act(() => window.api.tk('signoff', ['--module', id, '--reviewer', v.reviewer, '--comment', v.comment])),
-  }));
-  return out;
+  });
+  return { left, right, pin, blocked: !locked && blockers.length > 0 };
 }
 
 // ---------------------------------------------------------------- model
@@ -210,23 +217,22 @@ export function modelView(ctx) {
   const all = S.graph.modules.flatMap(m => m.tiles);
   const rebuild = L.needsRebuild(S, all);
   const rebuildN = rebuild.length + S.graph.modules.filter(m => L.workbookStale(S.status.modules[m.id])).length + (L.workbookStale(S.status.model) ? 1 : 0);
-  const out = [];
-  out.push(h('h2', { class: 'title', id: 'title' }, S.graph.model.name));
-  out.push(h('p', { class: 'lede', id: 'sentence' }, L.modelSentence(S)));
-  out.push(sec('Modules'));
+  const left = [], right = [];
+  left.push(h('h2', { class: 'title', id: 'title' }, S.graph.model.name));
+  left.push(h('p', { class: 'lede', id: 'sentence' }, L.modelSentence(S)));
+  left.push(sec('Modules'));
   const pending = ctx.pendingDrafts().filter(d => d.kind === 'modules' && d.scope && d.scope.level === 'model').flatMap(d => d.items || []);
-  out.push(modelMap(S, ctx.panelWidth(), pending));
-  out.push(sec('Model checks'));
-  out.push(checksTable(S.status.model.checks));
+  left.push(S.graph.modules.length ? modelMap(S, ctx.panelWidth(), pending) : h('p', { class: 'grey', id: 'nomodules' }, 'No modules yet. Use the chat to scaffold the model.'));
+  right.push(sec('Model checks'));
+  right.push(checksTable(S.status.model.checks));
   const blockers = L.modelBlockers(S);
   const locked = S.status.model.state === 'signed_off';
-  if (!locked && blockers.length) out.push(h('div', { class: 'blockers' }, blockers.map(b => h('p', {}, b))));
-  out.push(...casesSection(ctx, 'Cases', null));
-  out.push(...runsSection(ctx));
-  out.push(...policiesSection(ctx));
+  if (!locked && blockers.length) right.push(h('div', { class: 'blockers' }, blockers.map(b => h('p', {}, b))));
+  right.push(...casesSection(ctx, 'Cases', null));
+  right.push(...runsSection(ctx));
+  right.push(...policiesSection(ctx));
   agent.mount({ level: 'model', id: null });
-  out.push(agent.section);
-  out.push(...signature(ctx, {
+  const pin = signature(ctx, {
     key: 'model', record: S.status.model.signed_off, locked, prepared: '', boxes: [], blockers: locked ? [] : blockers, signLabel: 'Sign off model',
     buttons: [
       h('button', { type: 'button', id: 'rebuild', disabled: busy || !rebuildN, onclick: () => ctx.act(() => window.api.tk('build')) }, `Rebuild stale (${rebuildN})`),
@@ -234,6 +240,6 @@ export function modelView(ctx) {
       h('button', { type: 'button', id: 'export', disabled: busy, onclick: () => ctx.act(async () => { await window.api.exportWorkbook(); }) }, 'Export workbook'),
     ],
     run: v => ctx.act(() => window.api.tk('signoff', ['--whole-model', '--reviewer', v.reviewer, '--comment', v.comment])),
-  }));
-  return out;
+  });
+  return { left, right, pin, blocked: !locked && blockers.length > 0 };
 }

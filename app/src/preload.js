@@ -12,13 +12,16 @@ async function call(channel, ...args) {
 const hasAgent = ipcRenderer.sendSync('agent:available') === true;
 const agentApi = hasAgent ? {
   send: (scope, text, extra) => call('agent:send', scope, String(text), extra),
-  interrupt: scope => call('agent:interrupt', scope),
-  history: scope => call('agent:history', scope),
+  interrupt: () => call('agent:interrupt'),
+  history: scope => call('agent:history', scope),   // no scope: the whole conversation of the model
   drafts: () => call('agent:drafts'),
+  requests: () => call('agent:requests'),
   acceptDraft: id => call('agent:acceptDraft', String(id)),
   discardDraft: id => call('agent:discardDraft', String(id)),
   buildModule: id => call('agent:buildModule', String(id)),
   status: () => call('agent:status'),
+  confirmSignoff: (id, values) => call('agent:confirmSignoff', String(id), values),
+  declineSignoff: id => call('agent:declineSignoff', String(id)),
   onEvent: callback => {
     const h = (_e, ev) => callback(ev);
     ipcRenderer.on('agent:event', h);
@@ -37,6 +40,16 @@ contextBridge.exposeInMainWorld('api', {
   pickCsv: () => call('pickCsv'),
   // settings (View menu): {showRibbon, showFormulaBar}
   settings: () => call('settings'),
+  setSetting: (key, value) => call('setSetting', String(key), value),
+  readModelFile: relPath => call('readModelFile', String(relPath)),
+  pickFolder: () => call('pickFolder'),
+  newModel: (dir, name) => call('newModel', String(dir), String(name)),
+  onMenu: callback => {
+    const h = (_e, a) => callback(String(a));
+    ipcRenderer.on('menu', h);
+    return () => ipcRenderer.removeListener('menu', h);
+  },
+  syncBars: bars => call('syncBars', bars),
   onSettings: callback => {
     const h = (_e, s) => callback(s);
     ipcRenderer.on('settings', h);

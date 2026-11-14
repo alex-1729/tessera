@@ -117,6 +117,11 @@ def cmd_promote(args):
     return promote(load_model(args.model), args.run, args.policy, args.id, args.name, purpose=args.purpose)
 
 
+def cmd_init(args):
+    from tilekit.init import init_model
+    return init_model(args.model, args.name, package=args.package)
+
+
 def cmd_sample_portfolio(args):
     from tilekit.samples import sample_portfolio
     return sample_portfolio(load_model(args.model), args.out, args.policies, seed=args.seed)
@@ -196,6 +201,11 @@ def promote_options(parser):
     parser.add_argument("--purpose", metavar="TEXT")
 
 
+def init_options(parser):
+    parser.add_argument("--name", metavar="NAME", required=True, help="the model's name")
+    parser.add_argument("--package", metavar="PKG", help="Python package name (default: from the name)")
+
+
 def sample_options(parser):
     parser.add_argument("--out", metavar="FILE.csv", required=True)
     parser.add_argument("--policies", metavar="N", type=int, required=True)
@@ -218,6 +228,7 @@ COMMANDS = {
     "runs": (cmd_runs, no_options, "Stored real-data runs"),
     "policies": (cmd_policies, policies_options, "List policies in a run"),
     "promote": (cmd_promote, promote_options, "Make a synthetic case from a real policy"),
+    "init": (cmd_init, init_options, "Create a new, empty model directory (--model DIR)"),
     "sample-portfolio": (cmd_sample_portfolio, sample_options,
                          "Write a SYNTHETIC portfolio CSV so the real-data feature can be tried without real data"),
 }

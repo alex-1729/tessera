@@ -187,6 +187,7 @@ Run from the repo root as `uv run --project model tilekit <command> --model mode
 | `policies --run RUN [--sort KEY] [--desc] [--limit N] [--offset N] [--search TEXT] [--flag uncovered\|nan\|undefined]` | List policies in a run. Sort keys: `id`, `index`, a model-point field, a summary quantity or a `[runs] headline` quantity; NaN and infinities sort last |
 | `promote --run RUN --policy ID --id CASE --name NAME [--purpose TEXT]` | Write `cases/<CASE>.json` from a real policy |
 | `sample-portfolio --out FILE.csv --policies N [--seed S]` | Write a SYNTHETIC portfolio CSV for trying the real-data commands |
+| `init --name "Model name" [--package PKG]` | Create a new model directory at `--model DIR` (which must not exist or be empty): `pyproject.toml` (uv project; numpy, tilekit by relative path, pytest as a dev dependency), `.python-version`, `tilekit.toml` (months 120, default case `base`, layers Inputs/Liability/Results, no modules), `src/<pkg>/__init__.py` (conventions), `params.py` (`Params` with `months_per_year`), `inputs.py` (`build_inputs` returning `month`, the one annual-to-monthly conversion, table helpers), `cases/base.json`, `tests/` (conftest and a load-and-check test), `review/.gitkeep`. The package defaults to the name in snake case and must be a valid identifier. Returns `{"created", "package", "next": "uv sync"}`. Every other command works on the fresh model (a case with no model-point fields projects one policy) |
 
 `--model DIR` names the model directory on every command, so the whole-model target of `build` and `signoff` is spelled `--whole-model`.
 
@@ -315,10 +316,18 @@ model/review/
   tiles/<tile>/workbook.json     sidecar
   tiles/<tile>/signoff.json      {reviewer, at, comment, stamp, cases, case_hashes, assumed, formula, values_only_reason?}
   tiles/<tile>/expected.json     values frozen at sign-off; read by model/tests/test_signed_off.py
-  tiles/<tile>/log.jsonl         agent conversation for this tile
+  tiles/<tile>/log.jsonl         the agent events filed under this tile (its audit trail)
+  modules/<module>/log.jsonl     the same for a module
   modules/<module>/workbook.xlsx, workbook.json, signoff.json
   model/workbook.xlsx, workbook.json, signoff.json    default case; workbook-<case>.xlsx/.json for others
   model/tests.json               cached `tilekit test` result
+  model/chat.jsonl               the model's one agent conversation: every event in order with its scope, and the
+                                 Agent SDK session id (`{"type": "session", "session_id"}`) that is resumed
+  model/log.jsonl                the agent events filed under the whole model
+  drafts/<id>.json               agent drafts (modules, tiles, params, inputs, cases, what_if) and their status
+  requests/<id>.json             sign-off requests: {id, kind, name, label, spec, formula, assumed, cases, blockers,
+                                 values_only, stamp, workbook_current, scope, at, status: pending | confirmed |
+                                 declined | expired | superseded, reviewer?}
   .cache/content.json            content digests recomputed by `status` (git-ignored by its own .gitignore)
 model/real-data/                 runs and workbooks from real policies; git-ignored
 ```
@@ -374,6 +383,10 @@ House style (the user's own; follow it exactly):
 - Error agreement: a Python NaN agrees with an Excel `#NUM!` and a Python infinity with `#DIV/0!` (pasted Python values that are NaN or infinite are written as those errors). Any other Excel error, or an error against a finite Python value, fails the check.
 - Defined names: a Python name that Excel would read as a cell reference (`A1`, `R`, `C`, `R1C1`), a boolean or a function name (`true`, `false`, `sum`, `if`, `min`, `max`, `and`, `or`, `not`, `irr`, `npv`, `index`, `match`, `round`, `int` and similar, in any case) is defined with a trailing underscore (`sum_`).
 - The "Scratch" sheet belongs to the user and must survive a rebuild.
+
+### Sign-off through the chat
+
+The agent can prepare a sign-off; only the reviewer's explicit confirmation in the app records one. When the reviewer says they are happy, the agent calls `request_signoff` (or `request_reconfirm` for bulk re-confirmation of values-only drift), which reads `status` and saves a pending request that the window shows with a Confirm button, blockers included. The window's `confirmSignoff(id, {reviewer, comment, valuesOnlyReason})` re-reads `status`, refuses if the item's stored stamp changed since the request (or its workbook went out of date) or if blockers now exist, and only then runs `tilekit signoff` (or `reconfirm`). A typed "yes" is not a confirmation. The agent's tools are given a `tilekit` runner that refuses `signoff` and `reconfirm`, and no tool can reach `confirmSignoff`.
 
 ## App
 

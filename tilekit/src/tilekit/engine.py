@@ -75,6 +75,8 @@ def build_inputs(model, model_points, params, months):
 
 
 def _policy_count(model_points):
+    if not model_points:  # a new model with no model-point fields yet projects one policy
+        return 1
     lengths = {len(np.atleast_1d(v)) for v in model_points.values()}
     if len(lengths) != 1:
         raise TilekitError("Model-point fields must all have the same length", {"lengths": sorted(lengths)})

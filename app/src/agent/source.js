@@ -160,7 +160,7 @@ function insertModuleToml(tomlText, mod) {
   if (mod.feeds && mod.feeds.length) block.push(`feeds = [${mod.feeds.map(tomlString).join(', ')}]`);
   let at;
   if (blocks.length) {
-    at = blocks[blocks.length - 1].end;
+    at = Math.min(blocks[blocks.length - 1].end, lines.length);
     while (at > 0 && !lines[at - 1].trim()) at--;
     lines.splice(at, 0, '', ...block);
   } else {

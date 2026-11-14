@@ -1,10 +1,9 @@
-// SVG maps, computed from the graph with a layered layout (layout.js).
+// The model view's map of modules, computed from the graph with a layered layout (layout.js).
 // Outline: signed off = 1px, not signed off = 2px, stale = dashed. Inputs, parameters and state are lighter boxes.
-import { q, tileStatus, mapWord, moduleMapWord } from './logic.js';
+import { q, moduleMapWord } from './logic.js';
 import { layeredLayout } from './layout.js';
 
 const NS = 'http://www.w3.org/2000/svg';
-const MONO = 6.6;
 function s(tag, attrs, ...kids) {
   const e = document.createElementNS(NS, tag);
   for (const [k, v] of Object.entries(attrs || {})) if (v !== null && v !== undefined) e.setAttribute(k, v);
@@ -70,103 +69,6 @@ function markLast(pos) {
 }
 
 function legend(text) { return el('p', 'legend', text); }
-
-// `proposed` = items of a pending tile draft for this module: [{name, args, label}]. Only tiles that do not exist yet are drawn.
-export function moduleMap(S, mod, avail = 700, proposed = []) {
-  const order = S.graph.order || mod.tiles;
-  const fresh = proposed.filter(p => !q(S, p.name));
-  const prop = new Map(fresh.map(p => [p.name, p]));
-  const argsOf = t => (prop.has(t) ? prop.get(t).args : (q(S, t) || {}).args) || [];
-  const tiles = [...mod.tiles].sort((a, b) => order.indexOf(a) - order.indexOf(b)).concat(fresh.map(p => p.name));
-  const own = new Set(tiles);
-  const info = new Map();
-  for (const t of tiles) info.set(t, { id: t, kind: 'tile', own: true, proposed: prop.has(t) });
-  const consumers = new Map();
-  for (const t of tiles) for (const a of argsOf(t)) {
-    if (!info.has(a)) info.set(a, { id: a, kind: (q(S, a) || {}).kind || 'input', own: false });
-    (consumers.get(a) || consumers.set(a, []).get(a)).push(t);
-  }
-  const depth = new Map();
-  const dep = t => {
-    if (depth.has(t)) return depth.get(t);
-    depth.set(t, 0);
-    const d = Math.max(-1, ...argsOf(t).filter(a => own.has(a)).map(dep)) + 1;
-    depth.set(t, d); return d;
-  };
-  tiles.forEach(dep);
-  const rankOf = new Map();
-  for (const t of tiles) rankOf.set(t, depth.get(t) + 1);
-  for (const [id, n] of info) if (!n.own) rankOf.set(id, Math.min(...consumers.get(id).map(t => rankOf.get(t))) - 1);
-
-  const params = [...info.values()].filter(n => n.kind === 'param');
-  const grouped = params.length >= 4;
-  const nodes = [], edges = [];
-  const w = nm => Math.max(96, Math.ceil(nm.length * MONO + 18));
-  for (const [id, n] of info) {
-    if (grouped && n.kind === 'param') continue;
-    nodes.push({ id, w: w(id), h: n.own || n.kind === 'tile' ? 40 : 36, rank: rankOf.get(id), n });
-  }
-  const groups = new Map();   // rank of consumers -> {id, names, tiles}
-  if (grouped) {
-    for (const p of params) for (const t of consumers.get(p.id)) {
-      const r = rankOf.get(t);
-      const g = groups.get(r) || groups.set(r, { id: 'params@' + r, names: [], tiles: new Set(), rank: r - 1 }).get(r);
-      if (!g.names.includes(p.id)) g.names.push(p.id);
-      g.tiles.add(t);
-    }
-    for (const g of groups.values()) {
-      const longest = Math.max(...g.names.map(x => x.length));
-      const cols = g.names.length > 6 && 2 * (longest * 6.3 + 10) + 12 <= avail * 0.7 ? 2 : 1, per = Math.ceil(g.names.length / cols);
-      nodes.push({ id: g.id, w: Math.max(104, cols * (longest * 6.3 + 10) + 12), h: 20 + per * 13 + 4, rank: g.rank, group: g, cols });
-      for (const t of g.tiles) edges.push({ from: g.id, to: t, light: true });
-    }
-  }
-  for (const t of tiles) for (const a of argsOf(t)) {
-    if (grouped && info.get(a).kind === 'param') continue;
-    edges.push({ from: a, to: t, light: !(info.get(a).kind === 'tile'), proposed: prop.has(t) });
-  }
-  const carries = [];
-  for (const n of info.values()) if (n.kind === 'state') { const from = q(S, n.id).from; if (own.has(from)) carries.push({ from, to: n.id }); }
-
-  const reserve = carries.length ? 24 + 70 + carries.length * 8 : 0;
-  const lay = layeredLayout({ nodes, edges, maxWidth: avail, reserveRight: reserve, gy: 36 });
-  markLast(lay.pos);
-  const top = carries.length ? 18 : 0;   // room above the first row for a link that returns to it
-  const W = lay.W + reserve, H = lay.H + 4 + top;
-  const svg0 = s('svg', { class: 'map', width: W, height: H, viewBox: `0 0 ${W} ${H}` }, arrowDefs());
-  const svg = s('g', { transform: `translate(0,${top})` });
-  svg0.append(svg);
-  for (const e of edges) {
-    const pts = lay.routes.get(e); if (!pts) continue;
-    pts[pts.length - 1] = [pts[pts.length - 1][0], pts[pts.length - 1][1] - 1];
-    svg.append(s('path', { d: polyline(pts), fill: 'none', stroke: e.light ? SOFT : INK, 'stroke-width': 1, 'stroke-dasharray': e.proposed ? DOTTED : null, 'marker-end': e.light ? 'url(#arrg)' : 'url(#arr)' }));
-  }
-  carries.forEach((c, i) => {
-    const a = lay.pos.get(c.from), b = lay.pos.get(c.to);
-    const pts = outsideRoute(a, b, lay.rows, lay.W + 10, i, 36);
-    svg.append(s('path', { d: polyline(pts), fill: 'none', stroke: INK, 'stroke-width': 1, 'stroke-dasharray': '5 3', 'marker-end': 'url(#arr)' }));
-    const onMargin = pts.filter(p => p[0] === lay.W + 10 + i * 8);
-    const my = (onMargin[0][1] + onMargin[onMargin.length - 1][1]) / 2;
-    svg.append(s('text', { x: lay.W + 10 + i * 8 + 5, y: my + 3, class: 'lbl' }, 'next period'));
-  });
-  for (const n of nodes) {
-    const p = { ...lay.pos.get(n.id) };
-    if (n.group) { svg.append(listBox({ ...p, cols: n.cols }, 'Parameters', n.group.names)); continue; }
-    const info1 = n.n;
-    if (info1.proposed) {
-      svg.append(box(p, { name: n.id, status: 'proposed', state: null, proposed: true }));
-    } else if (info1.kind === 'tile') {
-      const st = (tileStatus(S, n.id) || {}).state;
-      svg.append(box(p, { name: n.id, status: mapWord(st), state: st, href: '#/tile/' + encodeURIComponent(n.id) }));
-    } else {
-      svg.append(box(p, { name: n.id, status: info1.kind === 'state' ? 'carried forward' : 'input', light: true }));
-    }
-  }
-  const wrap = el('div', 'mapwrap');
-  const dotted = fresh.length || tiles.some(t => !prop.has(t) && (tileStatus(S, t) || {}).state === 'not_built');
-  wrap.append(svg0, legend('Outline: thin = signed off, thick = not signed off, dashed = stale.' + (dotted ? ' Dotted = not built or proposed.' : '') + (carries.length ? ' Dashed arrow = carried to the next period.' : '')));
-  return wrap;
-}
 
 // `proposed` = items of a pending module draft: [{id, title, layer, feeds}]. New modules are drawn dotted; new feeds too.
 export function modelMap(S, avail = 700, proposed = []) {

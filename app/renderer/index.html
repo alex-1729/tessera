@@ -17,8 +17,30 @@
 <nav id="mods" aria-label="Modules"></nav>
 <nav id="tiles" aria-label="Tiles" hidden></nav>
 <div id="main">
-  <aside id="left"><div id="working" hidden>Working…</div><div id="error" hidden></div><div id="notice" hidden></div><div id="panel"></div></aside>
-  <div id="right"><div id="realbar" hidden></div><div id="stalebar" hidden></div><div id="sheetbar" hidden></div><div id="gridwrap"><div id="gridhost"></div><div id="nogrid" hidden></div></div></div>
+  <aside id="left" class="bar" aria-label="The tile">
+    <div class="barhead"><button type="button" id="hideleft" class="linkbtn keep">Hide</button></div>
+    <div id="leftmsgs" class="msgs"><div id="msgs"><div id="working" hidden>Working…</div><div id="error" hidden></div><div id="notice" hidden></div></div></div>
+    <div id="panel" class="scroll"></div>
+    <div id="lpin"></div>
+    <button type="button" id="leftstrip" class="strip keep" aria-label="Show left bar"><span class="nm" id="leftname">Tile</span><span class="attn" id="leftattn" hidden></span></button>
+  </aside>
+  <div id="center">
+    <div id="centermsgs" class="msgs"></div>
+    <div id="cbar">
+      <div id="seg" role="tablist" aria-label="Centre pane">
+        <button type="button" class="seg keep" id="seg-spreadsheet" data-seg="spreadsheet" role="tab">Spreadsheet</button><button type="button" class="seg keep" id="seg-code" data-seg="code" role="tab">Code</button><button type="button" class="seg keep" id="seg-test" data-seg="test" role="tab">Test</button>
+      </div>
+      <div id="lines"><div id="realbar" hidden></div><div id="stalebar" hidden></div><div id="sheetbar" hidden></div></div>
+    </div>
+    <div id="stage">
+      <div id="gridwrap"><div id="gridhost"></div><div id="nogrid" hidden></div></div>
+      <div id="codewrap" hidden></div>
+    </div>
+  </div>
+  <aside id="rightbar" class="bar" aria-label="Chat">
+    <div class="barhead"><button type="button" id="hideright" class="linkbtn keep">Hide</button></div>
+    <button type="button" id="rightstrip" class="strip keep" aria-label="Show right bar"><span class="nm">Chat</span><span class="attn" id="rightattn" hidden></span></button>
+  </aside>
 </div>
 <script type="module" src="app.js"></script>
 </body>

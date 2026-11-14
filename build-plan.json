@@ -183,6 +183,41 @@
           "id": 29,
           "text": "Restyle the app as Tessera: module tabs, a tile strip, reviewer's sheet on the left, mosaic icon",
           "status": "done"
+        },
+        {
+          "id": 30,
+          "text": "Chat-driven layout: tile and review on the left, Spreadsheet/Code/Test switch in the centre, chat on the right",
+          "status": "done"
+        },
+        {
+          "id": 31,
+          "text": "One conversation per model, with sign-off confirmed by a button in the chat",
+          "status": "done"
+        },
+        {
+          "id": 32,
+          "text": "Scaffold a new model through the chat",
+          "status": "done"
+        },
+        {
+          "id": 33,
+          "text": "Launch page with a tile per model; new model from a local folder and a GitHub link; the model name in the header links back to it",
+          "status": "todo"
+        },
+        {
+          "id": 34,
+          "text": "Git in the app: status on the model tile, commit and push by button or through the chat",
+          "status": "todo"
+        },
+        {
+          "id": 35,
+          "text": "Models fetch the tooling from the tessera repo at a pinned version",
+          "status": "todo"
+        },
+        {
+          "id": 36,
+          "text": "Real-data runs stored in a local folder you choose, per model",
+          "status": "todo"
         }
       ]
     }

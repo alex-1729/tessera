@@ -5,6 +5,8 @@ import { tileView, moduleView, modelView } from './views.js';
 import * as agent from './agentlog.js';
 import * as RD from './real.js';
 import { createSpecLine } from './specline.js';
+import { paintSource } from './codeview.js';
+import { formDialog } from './dialog.js';
 
 const api = window.api;
 const S = { graph: null, status: null, cases: [], runs: [], drafts: [], real: null, notice: null, actionError: null, loadError: null, busy: false };
@@ -15,7 +17,14 @@ let routeKey = null;
 let reviewerName = null;
 let grid;
 let spec = null;
-let settings = { showRibbon: false, showFormulaBar: true };
+let settings = { showRibbon: false, showFormulaBar: true, showLeftBar: true, sections: {}, centre: {} };
+const codeMem = new Map();           // tile -> the source last seen
+const codeWas = new Map();           // tile -> the source it had before it last changed ("Was" in the Code segment)
+const LEFT_W = 340;                  // the left bar's width, for the maps (its content is 32px narrower)
+const NARROW = 1200;                 // below this window width the right bar starts collapsed unless the reviewer chose
+const bars = { left: true, right: true };
+let leftName = 'Tile', blocked = false;
+const SEGS = ['spreadsheet', 'code', 'test'];
 
 const $ = id => document.getElementById(id);
 
@@ -48,8 +57,8 @@ async function refresh() {
 function paintWorking() {
   const on = S.busy || working > 0;
   $('working').hidden = !on;
-  for (const b of document.querySelectorAll('#left button, #right button')) {
-    if (b.classList.contains('agent-stop')) continue;
+  for (const b of document.querySelectorAll('#left button, #rightbar button')) {
+    if (b.classList.contains('agent-stop') || b.classList.contains('keep')) continue;
     if (on) { if (b.dataset.was === undefined) { b.dataset.was = b.disabled ? '1' : ''; b.disabled = true; } }
     else if (b.dataset.was !== undefined) { b.disabled = !!b.dataset.was; delete b.dataset.was; }
   }
@@ -68,6 +77,80 @@ async function act(fn) {
   await refresh();
   S.busy = false;
   render();
+}
+
+// ---------------------------------------------------------------- the two bars
+
+// Collapsed, a bar is a thin strip with its name written down it, and a word when something in it needs attention.
+function paintStrips() {
+  $('leftname').textContent = leftName;
+  const la = $('leftattn'); la.hidden = !blocked; la.textContent = blocked ? 'blocked' : '';
+  const a = agent.attention();
+  const ra = $('rightattn'); ra.hidden = !a; ra.textContent = a || '';
+}
+
+function paintBars() {
+  $('left').classList.toggle('collapsed', !bars.left);
+  $('rightbar').classList.toggle('collapsed', !bars.right);
+  // "Working…" and the error line live at the top of the left bar; with it collapsed they show above the spreadsheet instead
+  const slot = bars.left ? $('leftmsgs') : $('centermsgs');
+  if ($('msgs').parentElement !== slot) slot.append($('msgs'));
+  paintStrips();
+}
+
+// The reviewer's choice (button, strip or View menu): remembered in the settings file.
+function setBar(side, on) {
+  bars[side] = on;
+  paintBars();
+  const key = side === 'left' ? 'showLeftBar' : 'showRightBar';
+  settings[key] = on;
+  api.setSetting(key, on).catch(() => {});
+}
+function applyBarSettings(s) {
+  const left = s.showLeftBar !== false;
+  const right = s.showRightBar !== undefined ? !!s.showRightBar : window.innerWidth >= NARROW;
+  if (left !== bars.left || right !== bars.right) { bars.left = left; bars.right = right; paintBars(); }
+  api.syncBars({ left, right }).catch(() => {});
+}
+
+const sectionOpen = key => !!(settings.sections && settings.sections[key]);
+function setSectionOpen(key, on) {
+  settings.sections = { ...(settings.sections || {}), [key]: on };
+  api.setSetting('sections', settings.sections).catch(() => {});
+}
+
+// ---------------------------------------------------------------- the centre pane: Spreadsheet, Code, Test
+
+const levelNow = () => { const v = parseRoute().view; return v === 'tile' || v === 'module' ? v : 'model'; };
+function centreOf(level) {
+  const c = (settings.centre || {})[level];
+  return c === 'code' || (c === 'test' && level === 'tile') ? c : 'spreadsheet';
+}
+function setCentre(seg) {
+  const level = levelNow();
+  if (!SEGS.includes(seg) || (seg === 'test' && level !== 'tile')) return;
+  settings.centre = { ...(settings.centre || {}), [level]: seg };
+  api.setSetting('centre', settings.centre).catch(() => {});
+  void paintCentre();
+}
+// The grid stays alive under the code pane: only the pane in front changes, so coming back is instant.
+async function paintCentre() {
+  const route = parseRoute(), level = levelNow(), seg = centreOf(level);
+  for (const b of document.querySelectorAll('button.seg')) b.setAttribute('aria-selected', String(b.dataset.seg === seg));
+  $('seg-test').hidden = level !== 'tile';
+  $('codewrap').hidden = seg === 'spreadsheet';
+  if (seg === 'spreadsheet' || !S.graph || !S.status) return;
+  try {
+    await paintSource($('codewrap'), { seg, level, id: route.id, S, api, changed: codeWas, busy: () => S.busy || working > 0 || agent.isBusy(), repaint: paintCentre });
+  } catch (e) { $('codewrap').replaceChildren(h('p', { class: 'grey' }, 'Could not show this: ' + e.message)); }
+}
+function trackCode() {
+  for (const [n, q] of Object.entries((S.graph && S.graph.quantities) || {})) {
+    if (q.kind !== 'tile' || !q.source) continue;
+    const prev = codeMem.get(n);
+    if (prev && prev.code !== q.source.code) codeWas.set(n, prev);
+    codeMem.set(n, { code: q.source.code, line: q.source.line });
+  }
 }
 
 // ---------------------------------------------------------------- render
@@ -116,7 +199,7 @@ function paintNav(route) {
     if (i) strip.push(arrow(uses(t, ordered[i - 1])));
     strip.push(h('a', { href: '#/tile/' + encodeURIComponent(t), class: cls, ...(cur ? { 'aria-current': 'page' } : {}) }, [h('b', {}, t), h('i', {}, L.mapWord(st))]));
   });
-  const proposed = (S.drafts || []).filter(d => d.kind === 'tiles' && d.scope && d.scope.level === 'module' && d.scope.id === curMod.id)
+  const proposed = (S.drafts || []).filter(d => d.kind === 'tiles' && (d.module === curMod.id || (d.scope && d.scope.level === 'module' && d.scope.id === curMod.id)))
     .flatMap(d => d.items || []).filter(p => !L.q(S, p.name));
   proposed.forEach(p => {
     strip.push(arrow(uses(p.name, ordered[ordered.length - 1]) || (p.args || []).includes(ordered[ordered.length - 1])));
@@ -141,7 +224,7 @@ function keepInView(nav) {
 
 async function doRender() {
   const route = parseRoute();
-  const panel = $('panel'), left = $('left');
+  const panel = $('panel'), lpin = $('lpin');
   const errLine = S.actionError || S.loadError;
   $('error').hidden = !errLine; $('error').textContent = errLine || '';
   $('notice').hidden = !S.notice; $('notice').textContent = S.notice || '';
@@ -149,6 +232,7 @@ async function doRender() {
   if (!S.graph || !S.status) {
     paintNav(route); panel.replaceChildren(h('p', {}, 'The model could not be loaded.'),
       h('button', { type: 'button', id: 'retry', onclick: () => act(async () => {}) }, 'Try again'));
+    lpin.replaceChildren();
     return;
   }
 
@@ -164,12 +248,12 @@ async function doRender() {
       await act(async () => {});
       S.notice = `Case ${v.name || v.id} created. Tiles that were signed off show it as a new case to review.`; render();
     },
-    panelWidth: () => Math.max(300, left.clientWidth - 32),
+    panelWidth: () => LEFT_W - 32,
+    sectionOpen, setSectionOpen,
     selectedCase: () => selectedCase(route),
     selectCase: id => { caseSel[route.key] = id; S.real = null; render(); grid.forceActivate(caseCandidates(id)); },
   };
   let nodes, workbook = null, state = null, buildArgs = null, candidates = [], current = true;
-  if (routeKey !== route.key) agent.unmount();
   if (route.view === 'tile' && L.q(S, route.id) && L.q(S, route.id).kind === 'tile') {
     const st = L.tileStatus(S, route.id);
     nodes = tileView(ctx, route.id); workbook = st.workbook; state = st.state; buildArgs = ['--tile', route.id]; current = st.workbook_current !== false;
@@ -187,13 +271,21 @@ async function doRender() {
     return;
   }
 
-  const top = routeKey === route.key ? left.scrollTop : 0;
+  // the left bar scrolls; the signature block is pinned below it. Scrolling keeps its place across a refresh of the same view.
+  const same = routeKey === route.key;
+  const top = same ? panel.scrollTop : 0;
   routeKey = route.key;
   const view = agent.saveView();
-  panel.replaceChildren(...nodes);
-  left.scrollTop = top;
+  panel.replaceChildren(...nodes.left, ...nodes.right);
+  lpin.replaceChildren(...nodes.pin);
+  panel.scrollTop = top;
+  trackCode();
   agent.restoreView(view);
+  leftName = route.view === 'tile' ? 'Tile' : route.view === 'module' ? 'Module' : 'Model';
+  blocked = !!nodes.blocked;
+  paintStrips();
   paintNav(route);
+  await paintCentre();
 
   const real = S.real;
   if (real) {
@@ -284,11 +376,46 @@ function caseCandidates(id) {
   return c ? [c.name, c.id].filter(Boolean) : [];
 }
 
+// ---------------------------------------------------------------- File > New model
+
+async function newModelDialog() {
+  const pick = h('p', {}, h('button', { type: 'button', id: 'pickfolder', onclick: async () => {
+    let f = null; try { f = await api.pickFolder(); } catch { /* cancelled */ }
+    const i = document.getElementById('f-folder');
+    if (f && i) { i.value = f; i.dispatchEvent(new Event('input', { bubbles: true })); }
+  } }, 'Choose folder…'));
+  const PRE = 'Scaffold this model with me. Ask me what you need to know.';
+  await formDialog({
+    title: 'New model', confirm: 'Create',
+    intro: ['Choose a folder for the model and give it a name. The model is opened in the chat, which then asks what it needs to know.'],
+    sections: [pick],
+    fields: [{ id: 'folder', label: 'Folder', value: '' }, { id: 'name', label: 'Model name', value: '' }],
+    submit: async v => {
+      try { sessionStorage.setItem('tessera.prefill', PRE); await api.newModel(v.folder, v.name); }
+      catch (e) { try { sessionStorage.removeItem('tessera.prefill'); } catch { /* none */ } return [String(e && e.message || e)]; }
+      return null;
+    } });
+}
+
 // ---------------------------------------------------------------- boot
 
 async function boot() {
   $('back').addEventListener('click', () => history.back());
   $('forward').addEventListener('click', () => history.forward());
+  $('hideleft').addEventListener('click', () => setBar('left', false));
+  $('hideright').addEventListener('click', () => setBar('right', false));
+  $('leftstrip').addEventListener('click', () => setBar('left', true));
+  $('rightstrip').addEventListener('click', () => setBar('right', true));
+  $('rightbar').insertBefore(agent.section, $('rightstrip'));
+  $('rightbar').insertBefore(agent.unavailable, $('rightstrip'));
+  agent.onLogChange(paintStrips);
+  for (const b of document.querySelectorAll('button.seg')) b.addEventListener('click', () => setCentre(b.dataset.seg));
+  // Cmd/Ctrl+1, 2, 3 choose Spreadsheet, Code, Test (the View menu has the same items)
+  window.addEventListener('keydown', e => {
+    if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey || !['1', '2', '3'].includes(e.key)) return;
+    e.preventDefault(); setCentre(SEGS[+e.key - 1]);
+  });
+  if (api.onMenu) api.onMenu(a => { if (a === 'newModel') void newModelDialog(); else if (a.startsWith('centre:')) setCentre(a.slice(7)); });
   window.addEventListener('hashchange', () => render());
   if (!location.hash) location.hash = '#/model';
   grid = createGrid($('gridhost'), { author: await reviewer(), settings: () => settings, onError: m => { S.actionError = m; render(); }, onEdit: info => spec && spec.onEdit(info) });
@@ -303,14 +430,18 @@ async function boot() {
     afterTurn: async () => { await refresh(); await render(); },
     draftsChanged: async () => { await refresh(); await render(); },
     onBusy: () => { render(); },
+    titleOf: sc => sc.level === 'model' ? 'Model' : sc.level === 'module' ? ((L.moduleOf(S, sc.id) || {}).title || sc.id) : sc.id,
+    reviewer: () => reviewer(),
   });
-  window.__app = { S, RD, render, settings: () => settings, refresh, grid, route: parseRoute, ready: false, idle: () => chain };
+  window.__app = { S, RD, render, bars, setBar, setCentre, centre: () => centreOf(levelNow()), settings: () => settings, refresh, grid, route: parseRoute, ready: false, idle: () => chain };
   try { settings = { ...settings, ...(await api.settings()) }; } catch { /* defaults */ }
   grid.applySettings(settings);
-  if (api.onSettings) api.onSettings(s => { settings = { ...settings, ...s }; grid.applySettings(settings); });
+  applyBarSettings(settings);
+  if (api.onSettings) api.onSettings(s => { settings = { ...settings, ...s }; grid.applySettings(settings); applyBarSettings(settings); });
   await refresh();
   await render();
   window.__app.ready = true;
+  try { const pre = sessionStorage.getItem('tessera.prefill'); if (pre) { sessionStorage.removeItem('tessera.prefill'); agent.prefill(pre); } } catch { /* no storage */ }
   let timer = null;
   api.onChanged(() => {
     realCache.clear(); clearTimeout(timer);

@@ -6,6 +6,8 @@ const path = require('path');
 const store = require('./store');
 const edits = require('./edits');
 const v = require('./validate');
+const scaffold = require('./scaffold');
+const signoff = require('./signoff');
 
 const TRACE_MONTHS = 12;
 const MAX_TRACE_ROWS = 120;
@@ -22,8 +24,9 @@ function defaultCase(modelDir, cases) {
 const r6 = x => (typeof x === 'number' ? Number(x.toPrecision(12)) : x);
 
 /**
- * svc: {modelDir, tilekit, confirm, runPytest, emitEvent(scope, event), saveDraftEvent(draft)}
- * turn: {scope, batchModule, asked, approved: Set, writes: []}
+ * svc: {modelDir, tilekit, confirm, runPytest, emitEvent(scope, event), saveDraftEvent(draft),
+ *       saveRequestEvent(request), inputRequestOpen()}. `tilekit` here refuses signoff and reconfirm.
+ * turn: {scope, batchModule, asked, approved: Set, writes: [], drafts: []}
  */
 function createHandlers(svc, turn) {
   const tk = svc.tilekit;
@@ -44,9 +47,49 @@ function createHandlers(svc, turn) {
     return null;
   }
 
+  // Is target ({kind, name}) the selection or beneath it? Returns null or the reason it is not.
+  function beneath(target, graph) {
+    if (target.kind === 'model') return scope.level === 'model' ? null : 'the model is above the selection; select the whole model first.';
+    if (target.kind === 'module') {
+      if (!graph.modules.some(m => m.id === target.name)) return `${target.name} is not a module in the model.`;
+      if (scope.level === 'model' || (scope.level === 'module' && scope.id === target.name)) return null;
+      return `module ${target.name} is not the selection or beneath it; select ${scope.level === 'tile' ? 'the module' : target.name} first.`;
+    }
+    const q = graph.quantities[target.name];
+    if (!q || q.kind !== 'tile') return `${target.name} is not a tile in the model.`;
+    if (scope.level === 'model') return null;
+    if (scope.level === 'module') return q.module === scope.id ? null : `${target.name} is in module ${q.module}, not in the selected module ${scope.id}.`;
+    return target.name === scope.id ? null : `${target.name} is not the selected tile (${scope.id}); ask the user to select it.`;
+  }
+
+  // Scaffolding drafts: at model level, or after the user agreed to an add_input_request.
+  function scaffoldAllowed(what) {
+    if (scope.level === 'model') return null;
+    if (svc.inputRequestOpen && svc.inputRequestOpen()) return null;
+    return `${what} are proposed at model level. At this level, ask first with add_input_request; once the user agrees, propose it.`;
+  }
+
+  function draftSaved(kind, line, items, check, extra = {}) {
+    const draft = { id: store.newDraftId(), scope, kind, summary: `Draft: ${line}.`, items, warnings: check.warnings, at: store.now(), status: 'proposed', ...extra };
+    svc.saveDraftEvent(draft);
+    turn.drafts.push(draft.id);
+    return { text: `Saved as draft ${draft.id} (${line}). The user accepts or discards it in the app; nothing is written until then.` +
+      (check.warnings.length ? '\nWarnings:\n' + check.warnings.map(p => '- ' + p).join('\n') : '') };
+  }
+
+  function invalid(check) {
+    action(`The draft was not valid (${v.count(check.problems.length, 'problem')}); nothing was saved.`);
+    return { text: 'The draft was not saved. Problems:\n' + check.problems.map(p => '- ' + p).join('\n') +
+      (check.warnings.length ? '\nWarnings:\n' + check.warnings.map(p => '- ' + p).join('\n') : ''), isError: true };
+  }
+
   return {
-    async get_selection() {
+    async get_selection({ tile, module } = {}) {
       const [graph, status, casesDoc] = await Promise.all([tk('graph'), tk('status'), tk('cases')]);
+      if (tile && module) return { text: 'Name a tile or a module, not both.', isError: true };
+      if (tile && !(graph.quantities[tile] && graph.quantities[tile].kind === 'tile')) return { text: `${tile} is not a tile in the model.`, isError: true };
+      if (module && !graph.modules.some(m => m.id === module)) return { text: `${module} is not a module in the model.`, isError: true };
+      const view = tile ? { level: 'tile', id: tile } : module ? { level: 'module', id: module } : scope;
       const cases = casesDoc.cases.map(c => ({ id: c.id, name: c.name, purpose: c.purpose, model_point: c.model_point, params: c.params, months: c.months }));
       const dc = defaultCase(svc.modelDir, cases);
       const brief = n => {
@@ -54,37 +97,39 @@ function createHandlers(svc, turn) {
         return { name: n, kind: e.kind, label: e.label, ...(e.module ? { module: e.module } : {}), ...(e.kind === 'param' ? { value: e.value } : {}), format: e.format };
       };
       let out;
-      if (scope.level === 'tile') {
-        const q = graph.quantities[scope.id];
-        if (!q) return { text: `The selected tile ${scope.id} no longer exists.`, isError: true };
-        const s = status.tiles[scope.id] || {};
+      if (view.level === 'tile') {
+        const q = graph.quantities[view.id];
+        if (!q) return { text: `The selected tile ${view.id} no longer exists.`, isError: true };
+        const s = status.tiles[view.id] || {};
         const trace = dc ? await tk('trace', ['--case', dc]) : null;
-        const names = [...q.args, scope.id];
+        const names = [...q.args, view.id];
         out = {
-          selected: { level: 'tile', name: scope.id, module: q.module },
+          item: { level: 'tile', name: view.id, module: q.module },
+          selection: view === scope ? 'this is the selection' : `read only: the user has selected ${scope.level === 'model' ? 'the whole model' : `${scope.level} ${scope.id}`}`,
           tile: { label: q.label, spec: q.spec, units: q.units, timing: q.timing, format: q.format, assumed: q.assumed, args: q.args,
             file: q.source.file, line: q.source.line, code: q.source.code, formula: q.formula, translatable: q.translatable, branches: q.branches },
           status: { state: s.state, drift: s.drift, signed_off: s.signed_off, case_results: s.case_results, rule_violations: s.rule_violations,
             uncovered_branches: s.uncovered_branches, blockers: s.blockers },
           inputs: q.args.map(brief),
           used_by: q.used_by.map(brief),
-          downstream: v.downstream(graph, scope.id),
-          hand_test: fs.existsSync(path.join(svc.modelDir, edits.testRel(scope.id))) ? edits.testRel(scope.id) : null,
+          downstream: v.downstream(graph, view.id),
+          hand_test: fs.existsSync(path.join(svc.modelDir, edits.testRel(view.id))) ? edits.testRel(view.id) : null,
           cases,
           trace: trace && {
             case: dc, months: `1-${TRACE_MONTHS}`,
             params: Object.fromEntries(q.args.filter(a => a in trace.params).map(a => [a, trace.params[a]])),
             series: Object.fromEntries(names.filter(n => trace.series[n]).map(n => [n, trace.series[n].slice(0, TRACE_MONTHS).map(r6)])),
             summary: Object.fromEntries(names.filter(n => n in trace.summary).map(n => [n, r6(trace.summary[n])])),
-            branches: trace.branches[scope.id] || null,
+            branches: trace.branches[view.id] || null,
           },
         };
-        action(`Read ${scope.id}, its neighbours and the ${dc} trace.`);
-      } else if (scope.level === 'module') {
-        const m = graph.modules.find(x => x.id === scope.id);
-        if (!m) return { text: `The selected module ${scope.id} does not exist.`, isError: true };
+        action(`Read ${view.id}, its neighbours and the ${dc} trace.`);
+      } else if (view.level === 'module') {
+        const m = graph.modules.find(x => x.id === view.id);
+        if (!m) return { text: `The selected module ${view.id} does not exist.`, isError: true };
         out = {
-          selected: { level: 'module', id: m.id, title: m.title, layer: m.layer, timing: m.timing },
+          item: { level: 'module', id: m.id, title: m.title, layer: m.layer, timing: m.timing },
+          selection: view === scope ? 'this is the selection' : `read only: the user has selected ${scope.level === 'model' ? 'the whole model' : `${scope.level} ${scope.id}`}`,
           file: m.tiles.length ? graph.quantities[m.tiles[0]].source.file : null,
           status: status.modules[m.id] || null,
           tiles: m.tiles.map(t => {
@@ -101,7 +146,8 @@ function createHandlers(svc, turn) {
         action(`Read module ${m.id} and its tiles.`);
       } else {
         out = {
-          selected: { level: 'model', name: graph.model.name, months: graph.model.months },
+          item: { level: 'model', name: graph.model.name, months: graph.model.months },
+          selection: 'this is the selection',
           layers: graph.layers,
           modules: graph.modules.map(m => ({ id: m.id, title: m.title, layer: m.layer, timing: m.timing, tiles: m.tiles, feeds: m.feeds, fed_by: m.fed_by,
             state: status.modules[m.id] && status.modules[m.id].state })),
@@ -113,6 +159,34 @@ function createHandlers(svc, turn) {
         };
         action('Read the model structure.');
       }
+      return { text: JSON.stringify(out) };
+    },
+
+    async model_overview() {
+      const [graph, status, casesDoc] = await Promise.all([tk('graph'), tk('status'), tk('cases')]);
+      const short = list => (list || []).slice(0, 3);
+      const out = {
+        model: { name: graph.model.name, state: status.model.state, drift: status.model.drift, blockers: short(status.model.blockers),
+          signed_off: status.model.signed_off },
+        counts: status.counts,
+        layers: graph.layers,
+        modules: graph.modules.map(m => {
+          const ms = status.modules[m.id] || {};
+          return {
+            id: m.id, title: m.title, layer: m.layer, state: ms.state || (m.tiles.length ? null : 'empty'), drift: ms.drift || null,
+            signed_off: ms.signed_off || null, blockers: short(ms.blockers),
+            tiles: m.tiles.map(t => {
+              const ts = status.tiles[t] || {};
+              return { name: t, label: graph.quantities[t].label, state: ts.state, drift: ts.drift || null,
+                ...(ts.state !== 'signed_off' && (ts.blockers || []).length ? { blockers: short(ts.blockers) } : {}),
+                ...(ts.signed_off ? { signed_off_by: ts.signed_off.reviewer } : {}) };
+            }),
+          };
+        }),
+        cases: casesDoc.cases.map(c => ({ id: c.id, name: c.name, purpose: c.purpose })),
+        pending_signoff_requests: store.listRequests(svc.modelDir).filter(r => r.status === 'pending').map(r => ({ id: r.id, kind: r.kind, name: r.name })),
+      };
+      action('Read the review status of the whole model.');
       return { text: JSON.stringify(out) };
     },
 
@@ -139,33 +213,99 @@ function createHandlers(svc, turn) {
       return { text: `case ${caseId}, ${trace.months} months\n${series.length ? rows.join('\n') : ''}${extra.length ? '\n' + extra.join('\n') : ''}` };
     },
 
-    async propose_structure({ summary, modules, tiles }) {
+    async propose_structure({ summary, modules, tiles, module }) {
       const w = waiting(); if (w) return w;
       const graph = await tk('graph');
-      let kind, items, check, line;
-      if (scope.level === 'model') {
-        if (tiles && tiles.length) return refuse('tiles are proposed at module level; select the module.');
-        kind = 'modules'; items = modules || [];
-        check = v.validateModuleDraft(graph, items);
-        if (!check.problems.length) line = v.moduleDraftSummary(graph, items);
-      } else if (scope.level === 'module') {
-        if (modules && modules.length) return refuse('modules are proposed at model level; select the model.');
-        kind = 'tiles'; items = (tiles || []).map(t => ({ ...t, assumed: t.assumed || [] }));
-        check = v.validateTileDraft(graph, scope.id, items);
-        if (!check.problems.length) line = v.tileDraftSummary(graph, items);
-      } else {
-        return refuse('at tile level the tile is written directly with write_tile, not proposed.');
+      if (modules && modules.length && tiles && tiles.length) return refuse('propose modules and tiles in separate drafts.');
+      if (modules && modules.length) {
+        if (scope.level !== 'model') return refuse('modules are proposed at model level; select the whole model.');
+        const check = v.validateModuleDraft(graph, modules);
+        if (check.problems.length) return invalid(check);
+        return draftSaved('modules', v.moduleDraftSummary(graph, modules), modules, check, { note: summary });
       }
-      if (check.problems.length) {
-        action(`The draft was not valid (${v.count(check.problems.length, 'problem')}); nothing was saved.`);
-        return { text: 'The draft was not saved. Problems:\n' + check.problems.map(p => '- ' + p).join('\n') +
-          (check.warnings.length ? '\nWarnings:\n' + check.warnings.map(p => '- ' + p).join('\n') : ''), isError: true };
-      }
-      const draft = { id: store.newDraftId(), scope, kind, summary: `Draft: ${line}.`, note: summary, items, warnings: check.warnings, at: store.now(), status: 'proposed' };
-      svc.saveDraftEvent(draft);
-      turn.drafts.push(draft.id);
-      return { text: `Saved as draft ${draft.id} (${line}). The user accepts or discards it in the app; nothing is written until then.` +
-        (check.warnings.length ? '\nWarnings:\n' + check.warnings.map(p => '- ' + p).join('\n') : '') };
+      if (scope.level === 'tile') return refuse('at tile level the tile is written directly with write_tile, not proposed.');
+      const target = scope.level === 'module' ? (module || scope.id) : module;
+      if (!target) return { text: 'Name the module the tiles belong to (module).', isError: true };
+      if (scope.level === 'module' && target !== scope.id) return refuse(`tiles for ${target} are proposed with that module or the whole model selected.`);
+      if (!graph.modules.some(m => m.id === target)) return { text: `${target} is not a module in the model; propose the module first.`, isError: true };
+      const items = (tiles || []).map(t => ({ ...t, assumed: t.assumed || [] }));
+      const check = v.validateTileDraft(graph, target, items);
+      if (check.problems.length) return invalid(check);
+      return draftSaved('tiles', `${v.tileDraftSummary(graph, items)}${scope.level === 'model' ? ` in ${target}` : ''}`, items, check, { note: summary, module: target });
+    },
+
+    async propose_params({ summary, params }) {
+      const w = waiting(); if (w) return w;
+      const no = scaffoldAllowed('Parameters'); if (no) return refuse(no);
+      const graph = await tk('graph');
+      const items = (params || []).map(p => ({ name: p.name, default: p.default, label: p.label, format: p.format, units: p.units }));
+      const check = scaffold.validateParams(graph, items);
+      if (check.problems.length) return invalid(check);
+      return draftSaved('params', scaffold.paramsSummary(graph, items), items, check, { note: summary });
+    },
+
+    async propose_inputs({ summary, model_point_fields, inputs, tables }) {
+      const w = waiting(); if (w) return w;
+      const no = scaffoldAllowed('Inputs'); if (no) return refuse(no);
+      const graph = await tk('graph');
+      const draft = { model_point_fields: model_point_fields || [], inputs: inputs || [], tables: tables || [] };
+      const check = scaffold.validateInputs(graph, svc.modelDir, draft);
+      if (check.problems.length) return invalid(check);
+      return draftSaved('inputs', scaffold.inputsSummary(draft), scaffold.inputsItems(draft), check, { note: summary });
+    },
+
+    async propose_cases({ summary, cases }) {
+      const w = waiting(); if (w) return w;
+      const no = scaffoldAllowed('Cases'); if (no) return refuse(no);
+      const graph = await tk('graph');
+      const items = (cases || []).map(c => ({ id: c.id, name: c.name, purpose: c.purpose, model_point: c.model_point || {}, params: c.params || {}, ...(c.months ? { months: c.months } : {}) }));
+      const check = scaffold.validateCases(graph, svc.modelDir, items);
+      if (check.problems.length) return invalid(check);
+      return draftSaved('cases', scaffold.casesSummary(svc.modelDir, items), items, check, { note: summary });
+    },
+
+    async request_signoff({ kind, name }) {
+      const w = waiting(); if (w) return w;
+      const graph = await tk('graph');
+      const target = { kind, name: kind === 'model' ? graph.model.name : name };
+      if (kind !== 'model' && !name) return { text: 'Name the tile or module to sign off.', isError: true };
+      const bad = beneath(target, graph);
+      if (bad) return refuse(bad);
+      let req;
+      try { req = await signoff.prepareSignoff(tk, svc.modelDir, scope, target); } catch (e) { return { text: e.message, isError: true }; }
+      svc.saveRequestEvent(req);
+      const what = kind === 'model' ? 'the model' : `${kind} ${req.name}`;
+      return { text: `The sign-off request for ${what} is now shown to the reviewer with a Confirm button. It is not signed off: only the reviewer's click records a sign-off, and you must not say it is signed off. ` +
+        (req.blockers.length
+          ? `It cannot be signed off yet; confirming will be refused until these are fixed:\n${req.blockers.map(b => '- ' + b).join('\n')}\nTell the reviewer what blocks it.`
+          : `Tell the reviewer to confirm with the button${req.values_only ? ', giving the reason for the values-only acknowledgement,' : ''} if they are happy.`) };
+    },
+
+    async request_reconfirm({ module } = {}) {
+      const w = waiting(); if (w) return w;
+      if (scope.level === 'tile') return refuse('re-confirmation is requested with a module or the whole model selected.');
+      if (scope.level === 'module' && module && module !== scope.id) return refuse(`module ${module} is not the selection; select it or the whole model.`);
+      const moduleId = scope.level === 'module' ? scope.id : (module || null);
+      let req;
+      try { req = await signoff.prepareReconfirm(tk, svc.modelDir, scope, moduleId); } catch (e) { return { text: e.message, isError: true }; }
+      svc.saveRequestEvent(req);
+      return { text: req.tiles.length
+        ? `A re-confirmation request for ${v.count(req.tiles.length, 'tile')} (${req.tiles.map(t => t.name).join(', ')}) is now shown to the reviewer with a Confirm button. Nothing is re-confirmed until they click it; do not say it is done.` +
+          (req.skipped.length ? `\nNot included: ${req.skipped.map(x => `${x.name} (${x.reason})`).join('; ')}.` : '')
+        : `There is nothing to re-confirm.${req.skipped.length ? ' Not eligible: ' + req.skipped.map(x => `${x.name} (${x.reason})`).join('; ') + '.' : ''} The request shown to the reviewer says so.` };
+    },
+
+    async rebuild({ kind, name } = {}) {
+      const w = waiting(); if (w) return w;
+      const graph = await tk('graph');
+      const target = kind ? { kind, name: kind === 'model' ? graph.model.name : name }
+        : scope.level === 'model' ? { kind: 'model', name: graph.model.name } : { kind: scope.level, name: scope.id };
+      if (target.kind !== 'model' && !target.name) return { text: 'Name the tile or module to rebuild.', isError: true };
+      const bad = beneath(target, graph);
+      if (bad) return refuse(bad);
+      const r = await edits.rebuildTarget(svc, target);
+      action(r.sentence);
+      return { text: r.sentence, isError: !!r.error };
     },
 
     async write_tile({ name, code, test_code }) {
@@ -207,7 +347,7 @@ function createHandlers(svc, turn) {
       turn.asked = true;
       const d = String(description).trim().replace(/\.$/, '');
       svc.emitEvent(scope, { type: 'question', text: `This needs a new ${kind || 'input'}: ${d}. Add it?`, request: { kind: kind || 'input', description: d } });
-      return { text: 'The request is shown to the user. Nothing was created. End your turn now with no further text.' };
+      return { text: 'The request is shown to the user. Nothing was created. End your turn now with no further text. If they agree, propose it next turn with propose_params, propose_inputs or propose_cases (a tile in another module needs that module selected).' };
     },
   };
 }
@@ -215,16 +355,25 @@ function createHandlers(svc, turn) {
 // ---------------------------------------------------------------- SDK wrappers
 
 const DESCRIPTIONS = {
-  get_selection: 'What is selected: its graph entry, source, review status, neighbours, the cases, and for a tile the values of its inputs and output for the default case, months 1 to 12. Call it at the start of a conversation and after changes.',
-  read_trace: 'Values of up to 12 quantities for one case over a range of months (default all months, at most 120 rows), plus parameter values, summary values and branch counts. Use it to explain numbers.',
-  propose_structure: 'Propose a draft. At model level pass `modules` (id, title, layer, purpose, feeds). At module level pass `tiles` (name, label, args, units, timing, format, spec, assumed). The draft is validated and saved for the user to accept or discard; nothing is written until they accept. Problems are returned for you to fix.',
-  write_tile: 'Tile level only. Replace the selected tile with `code` (the whole function: def line, full docstring, body) and write `test_code` (the complete hand-calculation test file tests/tiles/test_<name>.py). Checks the rules (restoring the old code on errors), rebuilds the tile workbook, runs the test, and returns the differences per case and uncovered branches. Asks the human first if sign-offs would go stale.',
+  get_selection: 'One item in detail: by default the selection; pass `tile` or `module` to read another item (read only). For a tile: its graph entry, source, review status, neighbours, the cases, and the values of its inputs and output for the default case, months 1 to 12. For a module: its tiles and specs. For the model: modules, parameters, inputs, states and cases. Call it at the start and after changes.',
+  model_overview: 'Review progress of the whole model in one call: status counts, every module with its tiles and their states and blockers, the model\'s blockers, the cases, and pending sign-off requests. Use it for "what is left to review?" and similar questions.',
+  read_trace: 'Values of up to 12 quantities (any in the model) for one case over a range of months (default all, at most 120 rows), plus parameter values, summary values and branch counts. Use it to explain numbers.',
+  propose_structure: 'Propose a structure draft. With the whole model selected: `modules` (id, title, layer, purpose, feeds), or `tiles` with `module` naming the module. With a module selected: `tiles` for that module (name, label, args, units, timing, format, spec, assumed). Validated and saved for the user to accept or discard; nothing is written until they accept. Problems are returned for you to fix.',
+  propose_params: 'Model level (or after the user agreed to an add_input_request): propose new parameters, or new defaults and metadata for existing ones, as a draft that edits params.py when the user accepts it. Each: name (snake_case), default (number), label, format, units.',
+  propose_inputs: 'Model level (or after the user agreed to an add_input_request): propose model-point fields (name, label, format, example value written into the existing cases), assumption tables (name, label, columns, rows, formats; the first column is the key) and input series (name, label, format, description in plain words, python: plain assignments computing `name` inside build_inputs from model-point fields, params.<field>, month and the module\'s table helpers; optional excel template). A draft; edits inputs.py, tilekit.toml and adds table files when accepted. Omit python for a series that is a model-point field used as it is.',
+  propose_cases: 'Model level (or after the user agreed to an add_input_request): propose named synthetic single-policy cases (id, name, purpose, model_point with every model-point field, optional params overrides and months). A draft; writes cases/<id>.json when accepted. Between them the cases should take every branch.',
+  write_tile: 'Tile level only. Replace the selected tile with `code` (the whole function: def line, full docstring, body) and write `test_code` (the complete hand-calculation test file tests/tiles/test_<name>.py). Checks the rules (restoring the old code on errors), rebuilds the tile, module and model workbooks, runs the test, and returns the differences per case and uncovered branches. Asks the human first if sign-offs would go stale.',
   what_if: 'Show the effect of a change without applying it: replace tile `name` with `code` and/or override parameter values in every case, on a copy of the model. Returns the change in the tile and in the model\'s final outputs per case, and saves a draft the user can apply (code changes only) or discard.',
   ask_user: 'Ask the user one question (an actuarial choice you must not guess). Ends your turn; the next user message is the answer. Optional short answer options.',
-  add_input_request: 'Record that the work needs something that does not exist (a parameter, input series, state or a tile in another module), shown to the user as a question. Never creates it. Ends your turn.',
+  add_input_request: 'Record that the work needs something that does not exist (a parameter, input series, table, state, case or a tile in another module), shown to the user as a question. Never creates it. Ends your turn. If the user agrees, propose it next turn with propose_params, propose_inputs or propose_cases.',
+  request_signoff: 'When the reviewer says they are happy with an item: show them a sign-off request with a Confirm button for the selected item (or, with a module or the model selected, any item beneath it). Records nothing; only their click signs off. Returns any blockers.',
+  request_reconfirm: 'Show the reviewer a request to re-confirm, in bulk, the signed-off tiles whose values changed but whose formulas did not (in the selected module, or `module`, or the whole model). Records nothing; only their click re-confirms.',
+  rebuild: 'Regenerate stale or missing workbooks: by default for the selection (a tile also rebuilds its module and the model workbook; the model rebuilds everything). Optional `kind` and `name` for an item beneath the selection. Says what was rebuilt and whether every difference is zero.',
 };
 
-function sdkTools(sdk, z, handlers, scope) {
+// Every tool is offered at every level (the tool list stays the same across the conversation, which keeps
+// the prompt cache warm); the handlers refuse what the current selection does not allow.
+function sdkTools(sdk, z, handlers) {
   const run = (name, fn) => async args => {
     try {
       const r = await fn(args || {});
@@ -234,38 +383,53 @@ function sdkTools(sdk, z, handlers, scope) {
     }
   };
   const extras = { alwaysLoad: true };
+  const format = z.enum(['amount', 'units', 'percent', 'rate', 'irr', 'number', 'small', 'integer']);
   const tileItem = z.object({
     name: z.string(), label: z.string(), args: z.array(z.string()), units: z.string(), timing: z.string(),
-    format: z.enum(['amount', 'units', 'percent', 'rate', 'irr', 'number', 'small', 'integer']), spec: z.string(),
-    assumed: z.array(z.string()).optional(),
+    format, spec: z.string(), assumed: z.array(z.string()).optional(),
   });
   const moduleItem = z.object({ id: z.string(), title: z.string(), layer: z.string(), purpose: z.string(), feeds: z.array(z.string()) });
-  const defs = [
-    sdk.tool('get_selection', DESCRIPTIONS.get_selection, {}, run('get_selection', handlers.get_selection), extras),
-    sdk.tool('read_trace', DESCRIPTIONS.read_trace, {
+  const paramItem = z.object({ name: z.string(), default: z.number(), label: z.string(), format, units: z.string() });
+  const fieldItem = z.object({ name: z.string(), label: z.string(), format: format.optional(), example: z.number() });
+  const inputItem = z.object({ name: z.string(), label: z.string(), format, description: z.string(),
+    python: z.string().optional(), excel: z.string().optional() });
+  const tableItem = z.object({ name: z.string(), label: z.string(), columns: z.array(z.string()), rows: z.array(z.array(z.number())),
+    formats: z.record(z.string(), format).optional(), file: z.string().optional() });
+  const caseItem = z.object({ id: z.string(), name: z.string(), purpose: z.string(), model_point: z.record(z.string(), z.number()),
+    params: z.record(z.string(), z.number()).optional(), months: z.number().int().optional() });
+  const kind3 = z.enum(['tile', 'module', 'model']);
+  const t = (name, shape) => sdk.tool(name, DESCRIPTIONS[name], shape, run(name, handlers[name]), extras);
+  return [
+    t('get_selection', { tile: z.string().optional().describe('another tile to read'), module: z.string().optional().describe('another module to read') }),
+    t('model_overview', {}),
+    t('read_trace', {
       case: z.string().describe('case id'), quantities: z.array(z.string()).describe('quantity names'),
       from_month: z.number().int().optional(), to_month: z.number().int().optional(),
-    }, run('read_trace', handlers.read_trace), extras),
-    sdk.tool('what_if', DESCRIPTIONS.what_if, {
+    }),
+    t('what_if', {
       name: z.string().optional().describe('tile to replace'), code: z.string().optional().describe('the whole replacement function'),
       params: z.record(z.string(), z.number()).optional().describe('parameter overrides applied to every case'),
-    }, run('what_if', handlers.what_if), extras),
-    sdk.tool('ask_user', DESCRIPTIONS.ask_user, { question: z.string(), options: z.array(z.string()).optional() }, run('ask_user', handlers.ask_user), extras),
-    sdk.tool('add_input_request', DESCRIPTIONS.add_input_request, {
+    }),
+    t('ask_user', { question: z.string(), options: z.array(z.string()).optional() }),
+    t('add_input_request', {
       description: z.string().describe('what is needed and why, in one sentence'),
-      kind: z.enum(['parameter', 'input', 'state', 'tile']).optional(),
-    }, run('add_input_request', handlers.add_input_request), extras),
-  ];
-  if (scope.level === 'tile') {
-    defs.push(sdk.tool('write_tile', DESCRIPTIONS.write_tile, { name: z.string(), code: z.string(), test_code: z.string() },
-      run('write_tile', handlers.write_tile), extras));
-  } else {
-    defs.push(sdk.tool('propose_structure', DESCRIPTIONS.propose_structure, {
+      kind: z.enum(['parameter', 'input', 'table', 'state', 'case', 'tile']).optional(),
+    }),
+    t('write_tile', { name: z.string(), code: z.string(), test_code: z.string() }),
+    t('propose_structure', {
       summary: z.string().describe('one sentence on what the draft does'),
       modules: z.array(moduleItem).optional(), tiles: z.array(tileItem).optional(),
-    }, run('propose_structure', handlers.propose_structure), extras));
-  }
-  return defs;
+      module: z.string().optional().describe('the module the tiles belong to (needed with the whole model selected)'),
+    }),
+    t('propose_params', { summary: z.string(), params: z.array(paramItem) }),
+    t('propose_inputs', { summary: z.string(), model_point_fields: z.array(fieldItem).optional(), inputs: z.array(inputItem).optional(), tables: z.array(tableItem).optional() }),
+    t('propose_cases', { summary: z.string(), cases: z.array(caseItem) }),
+    t('request_signoff', { kind: kind3, name: z.string().optional().describe('tile or module name; omit for the model') }),
+    t('request_reconfirm', { module: z.string().optional() }),
+    t('rebuild', { kind: kind3.optional(), name: z.string().optional() }),
+  ];
 }
 
-module.exports = { createHandlers, sdkTools, defaultCase };
+const TOOL_NAMES = Object.keys(DESCRIPTIONS);
+
+module.exports = { createHandlers, sdkTools, defaultCase, TOOL_NAMES };
