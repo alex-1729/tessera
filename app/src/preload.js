@@ -22,6 +22,8 @@ const agentApi = hasAgent ? {
   status: () => call('agent:status'),
   confirmSignoff: (id, values) => call('agent:confirmSignoff', String(id), values),
   declineSignoff: id => call('agent:declineSignoff', String(id)),
+  confirmPush: id => call('agent:confirmPush', String(id)),
+  declinePush: id => call('agent:declinePush', String(id)),
   onEvent: callback => {
     const h = (_e, ev) => callback(ev);
     ipcRenderer.on('agent:event', h);
@@ -43,7 +45,26 @@ contextBridge.exposeInMainWorld('api', {
   setSetting: (key, value) => call('setSetting', String(key), value),
   readModelFile: relPath => call('readModelFile', String(relPath)),
   pickFolder: () => call('pickFolder'),
-  newModel: (dir, name) => call('newModel', String(dir), String(name)),
+  launch: {
+    checkLink: text => call('launch:checkLink', String(text)),
+    list: () => call('launch:list'),
+    current: () => call('launch:current'),
+    git: id => call('launch:git', String(id)),
+    review: id => call('launch:review', String(id)),
+    open: id => call('launch:open', String(id)),
+    remove: id => call('launch:remove', String(id)),
+    openLink: id => call('launch:openLink', String(id)),
+    setSettings: (id, values) => call('launch:setSettings', String(id), values),
+    addFolder: () => call('launch:addFolder'),
+    newModel: values => call('launch:new', values),
+    commitInfo: id => call('launch:commitInfo', String(id)),
+    commit: (id, message, push) => call('launch:commit', String(id), String(message || ''), !!push),
+    onProgress: callback => {
+      const h = (_e, line) => callback(String(line));
+      ipcRenderer.on('launch:progress', h);
+      return () => ipcRenderer.removeListener('launch:progress', h);
+    },
+  },
   onMenu: callback => {
     const h = (_e, a) => callback(String(a));
     ipcRenderer.on('menu', h);

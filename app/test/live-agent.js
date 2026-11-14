@@ -16,12 +16,16 @@ fs.mkdirSync(OUT, { recursive: true });
 const REAL_MODEL = path.resolve(__dirname, '../../model');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-live-'));
 const copy = path.join(tmp, 'model');
-process.env.APP_TILEKIT_PROJECT = REAL_MODEL;
+process.env.APP_ALLOW_LOCAL_REMOTE = '1';      // a local bare repository stands in for GitHub (the real dialog takes only GitHub links)
+process.env.GIT_CONFIG_GLOBAL = '/dev/null'; process.env.GIT_CONFIG_NOSYSTEM = '1';
+Object.assign(process.env, { GIT_AUTHOR_NAME: 'Test', GIT_AUTHOR_EMAIL: 't@example.com', GIT_COMMITTER_NAME: 'Test', GIT_COMMITTER_EMAIL: 't@example.com' });
+const { execFileSync } = require('child_process');
+const git = (cwd, ...a) => execFileSync('git', a, { cwd, encoding: 'utf8' }).trim();
 
 const started = Date.now();
 const summary = { checks: [], shots: [], errors: [], turns: [], confirms: [] };
 let ctl = null, finished = false;
-const hard = setTimeout(() => { summary.errors.push('hard timeout (6 minutes)'); finish(2); }, 6 * 60 * 1000);
+const hard = setTimeout(() => { summary.errors.push('hard timeout (9 minutes)'); finish(2); }, 9 * 60 * 1000);
 
 function finish(code) {
   if (finished) return; finished = true;
@@ -323,6 +327,20 @@ function hashTree(...dirs) {
     check('after a reload the whole conversation is back, dividers included', (await lines()).length === hist.length && JSON.stringify(await dividers()) === JSON.stringify(want), JSON.stringify([await lines().then(x => x.length), await dividers()]));
   } else summary.not_verified = (summary.not_verified || []).concat('whole-conversation history after a reload: the backend has no history() without a scope yet (fallback to the selection history was used)');
 
+  // ------------------------------------------------------------ 6b. "Commit this": the chat commits locally and never pushes
+  await go('#/model');
+  await ev('if (!window.__ev) { window.__ev = []; window.api.agent.onEvent(e => window.__ev.push(e)); } true');   // the reload above dropped the listener
+  git(copy, 'init', '-b', 'main'); git(copy, 'add', '-A'); git(copy, 'commit', '-m', 'Baseline');
+  fs.writeFileSync(path.join(copy, 'notes.txt'), 'Reviewer notes from the AMC cap discussion.\n');
+  const headBefore = git(copy, 'rev-parse', 'HEAD');
+  const okCommit = await say('commit', 'Commit this.');
+  const headAfter = git(copy, 'rev-parse', 'HEAD');
+  const subject = git(copy, 'log', '-1', '--format=%s');
+  check('commit this: the model committed (one new commit that holds notes.txt, with a plain message) and the working tree is clean', okCommit && headAfter !== headBefore && git(copy, 'log', '--format=%H', headBefore + '..HEAD').split('\n').length === 1 && git(copy, 'show', '--name-only', '--format=', 'HEAD').split('\n').includes('notes.txt') && subject.length > 3 && subject.length < 200 && !/[*`#]/.test(subject) && git(copy, 'status', '--porcelain') === '', `${subject} | ${git(copy, 'status', '--porcelain')}`);
+  check('commit this: no push was offered and no chat log or real data went into the commit', await ev(`!document.querySelector('.pushcard')`) && !(await ev('window.__ev.some(e => e.type === "push_request")')) && git(copy, 'ls-files').split('\n').every(f => !/(^|\/)(log|chat)\.jsonl$/.test(f)));
+  summary.commit_message = subject;
+  await shot('live-agent-commit');
+
   // ------------------------------------------------------------ 7. File > New model on a temporary folder, then the first chat reply
   await go('#/model');
   await ev('window.__old = true');
@@ -330,7 +348,8 @@ function hashTree(...dirs) {
   check('new model: the dialog opens', await waitFor(`!!document.getElementById('f-folder') && !!document.getElementById('pickfolder')`, 5000));
   await ev(`document.getElementById('pickfolder').click()`);
   await waitFor(`document.getElementById('f-folder').value.length>3`, 5000);
-  await ev(`(()=>{const n=document.getElementById('f-name'); n.value='Fresh model'; n.dispatchEvent(new Event('input',{bubbles:true}))})()`);
+  const freshRemote = path.join(tmp, 'fresh-remote.git'); fs.mkdirSync(freshRemote); git(freshRemote, 'init', '--bare', '-b', 'main');
+  await ev(`(()=>{for (const [id, v] of [['f-name', 'Fresh model'], ['f-github', ${JSON.stringify(freshRemote)}]]) { const n=document.getElementById(id); n.value=v; n.dispatchEvent(new Event('input',{bubbles:true})) }})()`);
   await ev(`document.getElementById('confirm').click()`).catch(() => {});
   const opened = await waitFor(`!window.__old && window.__app && window.__app.ready`, 90000);
   check('new model: tilekit init created the folder and the window reopened on it', opened && fs.existsSync(path.join(freshDir, 'tilekit.toml')) && JSON.parse(fs.readFileSync(settingsFile, 'utf8')).lastModel === freshDir, opened ? 'files: ' + (fs.existsSync(freshDir) ? fs.readdirSync(freshDir).join(',') : 'none') : await ev('document.getElementById("dialog") ? document.getElementById("dialog").innerText : document.body.innerText.slice(0, 300)'));

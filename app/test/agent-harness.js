@@ -18,6 +18,7 @@ const edits = require('../src/agent/edits');
 
 const REPO = path.resolve(__dirname, '..', '..');
 const REAL_MODEL = path.join(REPO, 'model');
+const TILEKIT = path.join(REPO, 'tilekit');     // the app's own copy of the tooling
 const GRIDCRAFT = path.join(REPO, 'vendor', 'gridcraft', 'cli', 'gridcraft-cli');
 const OFFLINE = process.argv.includes('--offline');
 const onlyArg = process.argv.indexOf('--only');
@@ -35,11 +36,11 @@ function copyModel() {
   return dir;
 }
 
-// tilekit for a temporary copy: the real model project supplies the Python environment only.
+// tilekit for a temporary copy: the app's own tilekit project supplies the Python environment.
 function runnerFor(modelDir) {
   const uv = findUv();
   return function run(command, args = []) {
-    const argv = ['run', '--frozen', '--project', REAL_MODEL, 'tilekit', command, '--model', modelDir, ...args];
+    const argv = ['run', '--frozen', '--project', TILEKIT, 'tilekit', command, '--model', modelDir, ...args];
     return new Promise((resolve, reject) => {
       const child = spawn(uv, argv, { cwd: REPO, env: { ...process.env, GRIDCRAFT_CLI: GRIDCRAFT }, stdio: ['ignore', 'pipe', 'pipe'] });
       let out = '', err = '';
@@ -59,7 +60,7 @@ function runnerFor(modelDir) {
 function pytestFor(modelDir) {
   const uv = findUv();
   return rel => new Promise(resolve => {
-    const child = spawn(uv, ['run', '--frozen', '--project', REAL_MODEL, 'python', '-m', 'pytest', '-q', '-p', 'no:cacheprovider', rel],
+    const child = spawn(uv, ['run', '--frozen', '--project', TILEKIT, 'python', '-m', 'pytest', '-q', '-p', 'no:cacheprovider', rel],
       { cwd: modelDir, env: { ...process.env, PYTHONPATH: path.join(modelDir, 'src') }, stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';
     child.stdout.on('data', d => { out += d; });
@@ -301,6 +302,7 @@ async function offline() {
     check('read guard denies Grep outside', denied(await g({ tool_name: 'Grep', tool_input: { pattern: 'x', path: os.homedir() } })));
     check('read guard denies Glob with ..', denied(await g({ tool_name: 'Glob', tool_input: { pattern: '../**/*.py' } })));
   });
+  await guard('git: status, commit, push requests', () => gitChecks(check));
   return results;
 }
 
@@ -327,6 +329,67 @@ function serviceFor(dir, { confirmAnswer = true } = {}) {
 
 const lastOf = (events, type) => events.filter(x => x.type === type).pop();
 const draftIdOf = text => (String(text).match(/draft (d\d{14}-[0-9a-f]{6})/) || [])[1];
+
+async function gitChecks(check) {
+  Object.assign(process.env, { GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', GIT_AUTHOR_NAME: 'Harness', GIT_AUTHOR_EMAIL: 'h@example.com', GIT_COMMITTER_NAME: 'Harness', GIT_COMMITTER_EMAIL: 'h@example.com' });
+  const G = (cwd, ...a) => require('child_process').execFileSync('git', a, { cwd, encoding: 'utf8' }).trim();
+  const remoteLog = bare => { try { return G(bare, 'log', 'main', '--format=%s').split('\n').filter(Boolean); } catch { return []; } };
+  const dir = copyModel();
+  const e = serviceFor(dir);
+  const h = e.service.handlersFor({ level: 'model', id: 'model' });
+  // not a repository: nothing to read, commit or push, and nothing is created
+  const s0 = await h.git_status(), c0 = await h.commit({ message: 'x' }), p0 = await h.request_push();
+  check('git tools on a folder that is not a repository refuse and create nothing', s0.isError && c0.isError && p0.isError && !fs.existsSync(path.join(dir, '.git')), [s0.text, c0.text, p0.text]);
+  // a model folder inside a bigger repository is not a repository of its own: never commit the parent's files
+  const parent = path.join(TMP_ROOT, `parent-${++copies}`); fs.mkdirSync(parent); G(parent, 'init', '-b', 'main');
+  const inner = path.join(parent, 'inner'); fs.cpSync(dir, inner, { recursive: true });
+  const ei = serviceFor(inner), ri = await ei.service.handlersFor({ level: 'model', id: 'model' }).commit({ message: 'x' });
+  check('commit refuses a model folder that sits inside a bigger repository and commits nothing', ri.isError && /not a git repository of its own/.test(ri.text) && G(parent, 'status', '--porcelain') !== '' && !/./.test((() => { try { return G(parent, 'log', '-1'); } catch { return ''; } })()), ri.text);
+  // a repository with a local bare remote
+  const bare = path.join(TMP_ROOT, `remote-${copies}.git`); fs.mkdirSync(bare); G(bare, 'init', '--bare', '-b', 'main');
+  G(dir, 'init', '-b', 'main'); G(dir, 'remote', 'add', 'origin', bare); G(dir, 'add', '-A'); G(dir, 'commit', '-m', 'Start'); G(dir, 'push', '-u', 'origin', 'main');
+  const s1 = await h.git_status();
+  check('git_status reads branch, remote and "No changed files"', !s1.isError && /Branch: main/.test(s1.text) && /No changed files/.test(s1.text) && s1.text.includes(bare), s1.text);
+  fs.appendFileSync(path.join(dir, 'cases', 'base.json'), '\n'); fs.mkdirSync(path.join(dir, 'real-data'), { recursive: true }); fs.writeFileSync(path.join(dir, 'real-data', 'x.csv'), 'x');
+  const s2 = await h.git_status();
+  check('git_status lists changed files and respects .gitignore', /Changed files \(1\)/.test(s2.text) && /modified: cases\/base\.json/.test(s2.text) && !/real-data/.test(s2.text), s2.text);
+  check('commit needs a message', (await h.commit({})).isError && (await h.commit({ message: '  ' })).isError && G(dir, 'log', '--format=%s').split('\n').length === 1);
+  const c1 = await h.commit({ message: 'Touch the base case' });
+  check('commit commits locally, returns what was committed and does not push', !c1.isError && /Committed 1 file/.test(c1.text) && /cases\/base\.json/.test(c1.text) && G(dir, 'log', '-1', '--format=%s') === 'Touch the base case' && !remoteLog(bare).includes('Touch the base case') &&
+    e.events.some(x => x.type === 'action' && /^Committed 1 file/.test(x.text)), c1.text);
+  check('commit with nothing changed is refused', (await h.commit({ message: 'again' })).isError);
+  // push requests
+  const r1 = await h.request_push();
+  const ev1 = lastOf(e.events, 'push_request');
+  check('request_push emits a push_request event: branch, remote and the commits not pushed', !r1.isError && ev1 && ev1.request.branch === 'main' && ev1.request.remote === bare && ev1.request.commits.length === 1 && ev1.request.commits[0].subject === 'Touch the base case' && !!ev1.request.commits[0].hash && ev1.scope.level === 'model', ev1);
+  check('request_push saves it pending, pushes nothing and tells the model so', storeMod.loadRequest(dir, ev1.request.id).status === 'pending' && !remoteLog(bare).includes('Touch the base case') && /Nothing is pushed/.test(r1.text), r1.text);
+  await h.request_push();
+  const ev2 = lastOf(e.events, 'push_request').request;
+  check('a new push request supersedes the pending one', storeMod.loadRequest(dir, ev1.request.id).status === 'superseded' && ev2.id !== ev1.request.id);
+  const dsg = await e.service.confirmSignoff(ev2.id, {}).then(() => 'ran', er => er.message);
+  check('a push request cannot be confirmed as a sign-off', /push request/.test(dsg), dsg);
+  const d = e.service.declinePush(ev2.id);
+  check('declinePush marks it declined, says Not pushed. and pushes nothing', d.declined && storeMod.loadRequest(dir, ev2.id).status === 'declined' && e.events.some(x => x.type === 'action' && x.text === 'Not pushed.') && !remoteLog(bare).includes('Touch the base case'));
+  const again = await e.service.confirmPush(ev2.id);
+  check('a declined request cannot be confirmed', !again.pushed && /already declined/.test(again.error) && !remoteLog(bare).includes('Touch the base case'), again);
+  await h.request_push();
+  const ev3 = lastOf(e.events, 'push_request').request;
+  const cp = await e.service.confirmPush(ev3.id);
+  check('confirmPush pushes the branch: the commit is in the remote, the request is confirmed, the action line says where', cp.pushed && remoteLog(bare)[0] === 'Touch the base case' && storeMod.loadRequest(dir, ev3.id).status === 'confirmed' && e.events.some(x => x.type === 'action' && x.text === 'Pushed to origin/main.'), cp);
+  check('a request cannot be confirmed twice', !(await e.service.confirmPush(ev3.id)).pushed);
+  check('request_push with nothing to push is refused', (await h.request_push()).isError);
+  // the branch changed after the request: refused, expired, nothing pushed
+  fs.appendFileSync(path.join(dir, 'cases', 'base.json'), '\n'); await h.commit({ message: 'Second touch' });
+  await h.request_push(); const ev4 = lastOf(e.events, 'push_request').request;
+  G(dir, 'checkout', '-b', 'other');
+  const stale = await e.service.confirmPush(ev4.id);
+  check('confirmPush refuses when the branch changed since the request', !stale.pushed && /changed since/.test(stale.error) && storeMod.loadRequest(dir, ev4.id).status === 'expired' && !remoteLog(bare).includes('Second touch'), stale);
+  const requests = e.service.requests().filter(r => r.kind === 'push');
+  check('requests() lists the push requests with their status', requests.length === 4 && requests.every(r => r.branch && r.status), requests.map(r => r.status));
+  const toolSrc = ['tools.js', 'edits.js', 'scaffold.js', 'validate.js', 'source.js', 'prompt.js'].map(f => fs.readFileSync(path.join(__dirname, '..', 'src', 'agent', f), 'utf8')).join('\n');
+  check('tool code can reach no push: it names neither git push, confirmPush nor the git module', !/confirmPush|declinePush|git\.push|svc\.git\.push|require\('\.\.\/git'\)|'push', '-u'/.test(toolSrc));
+  check('the prompt tells the model to commit only when asked and that a push is the user\'s button', /Commit only when the user asked/.test(require('../src/agent/prompt').systemPrompt()) && /only their click pushes/.test(require('../src/agent/prompt').systemPrompt()));
+}
 
 async function chatChecks(check) {
   const dir = copyModel();

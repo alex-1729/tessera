@@ -202,12 +202,12 @@
         {
           "id": 33,
           "text": "Launch page with a tile per model; new model from a local folder and a GitHub link; the model name in the header links back to it",
-          "status": "todo"
+          "status": "done"
         },
         {
           "id": 34,
           "text": "Git in the app: status on the model tile, commit and push by button or through the chat",
-          "status": "todo"
+          "status": "done"
         },
         {
           "id": 35,
@@ -217,6 +217,16 @@
         {
           "id": 36,
           "text": "Real-data runs stored in a local folder you choose, per model",
+          "status": "done"
+        },
+        {
+          "id": 37,
+          "text": "Dark green for values from another module or tile, and tracing them back in the app (separate session)",
+          "status": "doing"
+        },
+        {
+          "id": 38,
+          "text": "Find and fix the window reload that sometimes hangs in the tests",
           "status": "todo"
         }
       ]

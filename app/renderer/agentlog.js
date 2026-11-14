@@ -268,6 +268,54 @@ function signoffCard(ev, status, info = {}) {
   return e;
 }
 
+// The push the agent asks for: a plain card with the commits that would go. Only the Push button pushes.
+// status: 'proposed' (live buttons), or how it ended: 'pushed', 'declined', 'expired', 'superseded', 'closed'.
+function pushCard(ev, status) {
+  const r = ev.request || {};
+  const done = h('div', { class: 'alog-done' });
+  const buttons = h('div', { class: 'alog-btns' });
+  const errors = h('div', {});
+  const settled = word => { buttons.remove(); done.textContent = word; };
+  const yes = h('button', { type: 'button', class: 'small', 'data-act': 'push', onclick: async () => {
+    yes.disabled = no.disabled = true; errors.replaceChildren(); done.textContent = 'Working…';
+    try {
+      const res = await agentApi().confirmPush(r.id);
+      if (res && res.pushed === false) {
+        done.textContent = '';
+        errors.replaceChildren(h('div', { class: 'grey' }, res.error || 'Not pushed.'));
+        if (res.request && res.request.status && res.request.status !== 'pending') settled(res.request.status === 'expired' ? 'Expired.' : 'Not pushed.');
+        else { yes.disabled = no.disabled = false; }
+        await hooks.afterTurn(); return;
+      }
+      settled((res && res.text) || 'Pushed.'); await hooks.afterTurn(); return;
+    } catch (e) { done.textContent = ''; errors.replaceChildren(h('div', { class: 'grey' }, couldNot(e.message))); }
+    yes.disabled = no.disabled = false;
+  } }, 'Push');
+  const no = h('button', { type: 'button', class: 'small', 'data-act': 'decline-push', onclick: async () => {
+    yes.disabled = no.disabled = true; errors.replaceChildren();
+    try { await agentApi().declinePush(r.id); settled('Not pushed.'); await hooks.afterTurn(); return; }
+    catch (e) { errors.replaceChildren(h('div', { class: 'grey' }, couldNot(e.message))); }
+    yes.disabled = no.disabled = false;
+  } }, 'Not now');
+  buttons.append(yes, no);
+  const commits = r.commits || [];
+  const card = h('div', { class: 'alog-card pushcard', 'data-request': r.id || '', 'data-kind': 'push' },
+    h('div', { class: 'cardtitle' }, `Push ${r.branch || ''} to GitHub`),
+    h('div', { class: 'row' }, h('span', {}, 'Remote'), h('span', { class: 'r' }, r.remote || '')),
+    h('div', { class: 'cardsec' }, `${commits.length} commit${commits.length === 1 ? '' : 's'} not on GitHub yet`),
+    ...commits.map(c => h('div', { class: 'row' }, h('span', {}, c.subject), h('span', { class: 'r mono' }, c.hash))));
+  if (status === 'proposed') card.append(buttons, done, errors); else card.append(done);
+  if (status === 'pushed' || status === 'signed') done.textContent = 'Pushed.';
+  else if (status === 'declined' || status === 'closed') done.textContent = 'Not pushed.';
+  else if (status === 'expired') done.textContent = 'Expired: the branch or remote changed after this was asked.';
+  else if (status === 'superseded') done.textContent = 'Superseded by a newer request.';
+  const e = line('Agent', '', 'alog-signoff alog-push', ev);
+  e.querySelector('.alog-txt').append(h('div', {}, ev.text || ''), card);
+  e.dataset.request = r.id || ''; e.dataset.kind = 'push'; e.dataset.name = 'push';
+  e._settle = word => { if (e.querySelector('button[data-act]')) { buttons.remove(); done.textContent = word; } };
+  return e;
+}
+
 function divider(scope) {
   return h('div', { class: 'alog-divider', 'data-scope': keyOf(scope) }, hooks.titleOf(scope));
 }
@@ -289,6 +337,7 @@ function render(ev, draftStatus) {
     }
     case 'draft': return draftLine(ev, draftStatus || 'proposed');
     case 'signoff_request': return signoffCard(ev, draftStatus || 'proposed');
+    case 'push_request': return pushCard(ev, draftStatus || 'proposed');
     case 'error': return line('', couldNot(ev.text), 'alog-error', ev);
     case 'done': return ev.text ? line('', ev.text, 'alog-action', ev) : null;
     default: return null;
@@ -327,13 +376,13 @@ async function load() {
   const sig = ev => [ev.type, ev.at, ev.text, ev.draft && ev.draft.id, ev.request && ev.request.id].join('|');
   // Only the last question can still be answered, and only if nothing was said since.
   let lastUser = -1, lastQ = -1, lastReq = -1;
-  hist.forEach((ev, i) => { if (ev.type === 'user') lastUser = i; if (ev.type === 'question') lastQ = i; if (ev.type === 'signoff_request') lastReq = i; });
+  hist.forEach((ev, i) => { if (ev.type === 'user') lastUser = i; if (ev.type === 'question') lastQ = i; if (ev.type === 'signoff_request' || ev.type === 'push_request') lastReq = i; });
   const frag = [];
   hist.forEach((ev, i) => {
     seen.add(sig(ev));
     let st;
     if (ev.type === 'draft') st = status.get(ev.draft && ev.draft.id) || 'gone';
-    else if (ev.type === 'signoff_request') {
+    else if (ev.type === 'signoff_request' || ev.type === 'push_request') {
       // the outcome comes from the request files, not from the log: a confirmed, declined, expired or superseded request has no live buttons
       const q = reqById.get(ev.request && ev.request.id);
       st = q ? (reqWord[q.status] || 'closed') : ((i === lastReq && lastReq > lastUser) ? 'proposed' : 'closed');
@@ -352,7 +401,7 @@ async function load() {
 }
 
 function onEvent(ev) {
-  if (ev.type === 'signoff_request' && ev.request) {
+  if ((ev.type === 'signoff_request' || ev.type === 'push_request') && ev.request) {
     for (const old of logEl.querySelectorAll('.alog-signoff')) {
       if (old.dataset.kind === ev.request.kind && old.dataset.name === ev.request.name && old.dataset.request !== ev.request.id && old._settle) old._settle('Superseded by a newer request.');
     }

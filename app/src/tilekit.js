@@ -25,7 +25,7 @@ const NAMES = new Set(['--run', '--name', '--id', '--id-column', '--policy', '--
 
 // Check the arguments of one command and return them in `--flag=value` form, so a value that starts with a
 // dash cannot be read as a flag. Paths for real data stay inside real-data/ (or are files the user picked).
-function validateArgs(command, args, { modelDir, pickedFiles } = {}) {
+function validateArgs(command, args, { modelDir, pickedFiles, realDataDir } = {}) {
   const spec = SPEC[command];
   if (!spec) throw new Error('Unknown command: ' + command);
   const out = [];
@@ -38,25 +38,35 @@ function validateArgs(command, args, { modelDir, pickedFiles } = {}) {
     if (v.includes('\0')) throw new Error('Invalid value for ' + flag);
     if (INTEGERS.has(flag) && !/^\d{1,9}$/.test(v)) throw new Error(`${flag} must be a whole number.`);
     if (NAMES.has(flag) && (!v || v.length > 200)) throw new Error(`${flag} needs a value.`);
-    if (command === 'sample-portfolio' && flag === '--out') v = realDataPath(modelDir, v, '.csv');
+    if (command === 'sample-portfolio' && flag === '--out') v = realDataPath(modelDir, v, '.csv', realDataDir);
     if (command === 'run' && flag === '--model-points') {
       const picked = pickedFiles && pickedFiles.has(v);
-      if (!picked) v = realDataPath(modelDir, v, '.csv');
+      if (!picked) v = realDataPath(modelDir, v, '.csv', realDataDir);
     }
     out.push(flag + '=' + v);
   }
   return out;
 }
 
-function realDataPath(modelDir, v, ext) {
-  const rel = path.isAbsolute(v) ? path.relative(modelDir, v) : v;
-  const norm = path.posix.normalize(rel.replace(/\\/g, '/'));
-  const parts = norm.split('/');
-  if (parts.length < 2 || parts[0] !== 'real-data' || parts.includes('..') || !norm.toLowerCase().endsWith(ext)) {
-    throw new Error('Real-data files must be ' + ext + ' files inside real-data/.');
+// Files for real data stay inside the model's real-data folder: `<model>/real-data`, or the folder the user chose for
+// this model. A path may be written `real-data/x.csv` (meaning that folder) or as an absolute path inside it.
+function realDataPath(modelDir, v, ext, realDataDir) {
+  const base = path.resolve(realDataDir || path.join(modelDir, 'real-data'));
+  let full;
+  if (path.isAbsolute(v)) full = path.resolve(v);
+  else {
+    const parts = path.posix.normalize(v.replace(/\\/g, '/')).split('/');
+    if (parts[0] !== 'real-data' || parts.length < 2) full = null;
+    else full = path.resolve(base, ...parts.slice(1));
   }
-  return path.join(modelDir, norm);
+  if (!full || !full.startsWith(base + path.sep) || v.split(/[\\/]/).includes('..') || !full.toLowerCase().endsWith(ext)) {
+    throw new Error('Real-data files must be ' + ext + ' files inside the real-data folder.');
+  }
+  return full;
 }
+
+// The app runs its own copy of the tooling: this folder holds the environment (`uv sync --project tilekit`).
+function defaultProject(repoRoot) { return path.join(repoRoot, 'tilekit'); }
 
 function findUv() {
   const dirs = (process.env.PATH || '').split(path.delimiter).concat([
@@ -69,27 +79,31 @@ function findUv() {
   return null;
 }
 
-function createRunner({ repoRoot, modelDir, fixtures, projectDir, pickedFiles }) {
+// realDataDir: the folder the user chose for this model's real data (a string, or a function giving it), or none.
+function createRunner({ repoRoot, modelDir, fixtures, projectDir, pickedFiles, realDataDir }) {
   if (fixtures) return createFixtureRunner(fixtures);
-  // The Python environment (projectDir) can differ from the model directory, for a test on a copy.
-  const project = projectDir || process.env.APP_TILEKIT_PROJECT || modelDir;
+  const project = projectDir || process.env.APP_TILEKIT_PROJECT || defaultProject(repoRoot);
   const env = { ...process.env };
+  delete env.TILEKIT_REAL_DATA_DIR;
   if (!env.GRIDCRAFT_CLI) {
     const cli = path.join(repoRoot, 'vendor', 'gridcraft', 'cli', 'gridcraft-cli');
     if (fs.existsSync(cli)) env.GRIDCRAFT_CLI = cli;
   }
   // `modelOverride` is for the agent only (what-if runs in a temporary copy of the model); the window's IPC never passes it.
+  const realNow = () => (typeof realDataDir === 'function' ? realDataDir() : realDataDir) || null;
   return function run(command, args = [], modelOverride) {
     let flags;
     try {
       if (!COMMANDS.has(command)) throw new Error('Unknown command: ' + command);
-      flags = validateArgs(command, args, { modelDir, pickedFiles });
+      flags = validateArgs(command, args, { modelDir, pickedFiles, realDataDir: realNow() });
     } catch (e) { return Promise.reject(e); }
     const uv = findUv();
     if (!uv) return Promise.reject(new Error('Cannot find uv on PATH or in ~/.local/bin.'));
     const argv = ['run', '--project', project, 'tilekit', command, '--model', modelOverride || modelDir, ...flags];
     return new Promise((resolve, reject) => {
-      const child = spawn(uv, argv, { cwd: repoRoot, env, stdio: ['ignore', 'pipe', 'pipe'] });
+      const runEnv = { ...env };
+      if (realNow()) runEnv.TILEKIT_REAL_DATA_DIR = realNow();
+      const child = spawn(uv, argv, { cwd: repoRoot, env: runEnv, stdio: ['ignore', 'pipe', 'pipe'] });
       let out = '', err = '';
       child.stdout.on('data', d => { out += d; });
       child.stderr.on('data', d => { err += d; });
@@ -230,4 +244,4 @@ function createFixtureRunner(dir) {
   };
 }
 
-module.exports = { createRunner, COMMANDS, findUv, validateArgs };
+module.exports = { createRunner, COMMANDS, findUv, validateArgs, defaultProject };

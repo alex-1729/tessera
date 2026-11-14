@@ -114,3 +114,12 @@ def test_the_fresh_models_own_tests_pass(tmp_path, capsys):
                                                                   "PYTHONPATH": str(target / "src")})
     assert result.returncode == 0, result.stdout + result.stderr
     assert "1 passed" in result.stdout
+
+
+def test_init_writes_a_gitignore(tmp_path, capsys):
+    main(["init", "--model", str(tmp_path / "m"), "--name", "Ignore me"])
+    capsys.readouterr()
+    lines = (tmp_path / "m" / ".gitignore").read_text().split()
+    for want in (".venv/", "__pycache__/", "real-data/", "review/.cache/", "review/**/log.jsonl",
+                 "review/model/chat.jsonl", "review/drafts/", "review/requests/"):
+        assert want in lines

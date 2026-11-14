@@ -6,7 +6,7 @@ import * as agent from './agentlog.js';
 import * as RD from './real.js';
 import { createSpecLine } from './specline.js';
 import { paintSource } from './codeview.js';
-import { formDialog } from './dialog.js';
+import { PREFILL, paintLaunch, newModelDialog, commitDialog, settingsDialog } from './launch.js';
 
 const api = window.api;
 const S = { graph: null, status: null, cases: [], runs: [], drafts: [], real: null, notice: null, actionError: null, loadError: null, busy: false };
@@ -15,6 +15,7 @@ const realCache = new Map();    // run|policy|target -> workbook path of the rea
 const caseSel = {};          // route key -> selected case id
 let routeKey = null;
 let reviewerName = null;
+let openModel = null;               // the open model: {id, dir}, or null (the launch page only)
 let grid;
 let spec = null;
 let settings = { showRibbon: false, showFormulaBar: true, showLeftBar: true, sections: {}, centre: {} };
@@ -29,8 +30,8 @@ const SEGS = ['spreadsheet', 'code', 'test'];
 const $ = id => document.getElementById(id);
 
 function parseRoute() {
-  const m = /^#\/(model|module|tile)(?:\/(.+))?$/.exec(location.hash);
-  if (!m) return { view: 'model', id: null, key: 'model' };
+  const m = /^#\/(launch|model|module|tile)(?:\/(.+))?$/.exec(location.hash);
+  if (!m) return openModel ? { view: 'model', id: null, key: 'model' } : { view: 'launch', id: null, key: 'launch' };
   const id = m[2] ? decodeURIComponent(m[2]) : null;
   return { view: m[1], id, key: m[1] + '/' + (id || '') };
 }
@@ -222,8 +223,21 @@ function keepInView(nav) {
   else if (right > nav.scrollLeft + nav.clientWidth) nav.scrollLeft = right - nav.clientWidth + 14;
 }
 
+async function renderLaunch() {
+  document.body.classList.add('launching');
+  $('launch').hidden = false;
+  routeKey = 'launch';
+  $('error').hidden = true; $('notice').hidden = true;
+  const msg = $('launchmsg');
+  await paintLaunch($('launchpage'), { notice: t => { msg.textContent = t || ''; msg.hidden = !t; } });
+}
+
 async function doRender() {
   const route = parseRoute();
+  if (route.view === 'launch' || !openModel) { if (route.view !== 'launch') { location.hash = '#/launch'; return; } return renderLaunch(); }
+  document.body.classList.remove('launching');
+  $('launch').hidden = true;
+  if (routeKey === 'launch') await refresh();   // coming back from the launch page: the model may have changed meanwhile
   const panel = $('panel'), lpin = $('lpin');
   const errLine = S.actionError || S.loadError;
   $('error').hidden = !errLine; $('error').textContent = errLine || '';
@@ -376,27 +390,6 @@ function caseCandidates(id) {
   return c ? [c.name, c.id].filter(Boolean) : [];
 }
 
-// ---------------------------------------------------------------- File > New model
-
-async function newModelDialog() {
-  const pick = h('p', {}, h('button', { type: 'button', id: 'pickfolder', onclick: async () => {
-    let f = null; try { f = await api.pickFolder(); } catch { /* cancelled */ }
-    const i = document.getElementById('f-folder');
-    if (f && i) { i.value = f; i.dispatchEvent(new Event('input', { bubbles: true })); }
-  } }, 'Choose folder…'));
-  const PRE = 'Scaffold this model with me. Ask me what you need to know.';
-  await formDialog({
-    title: 'New model', confirm: 'Create',
-    intro: ['Choose a folder for the model and give it a name. The model is opened in the chat, which then asks what it needs to know.'],
-    sections: [pick],
-    fields: [{ id: 'folder', label: 'Folder', value: '' }, { id: 'name', label: 'Model name', value: '' }],
-    submit: async v => {
-      try { sessionStorage.setItem('tessera.prefill', PRE); await api.newModel(v.folder, v.name); }
-      catch (e) { try { sessionStorage.removeItem('tessera.prefill'); } catch { /* none */ } return [String(e && e.message || e)]; }
-      return null;
-    } });
-}
-
 // ---------------------------------------------------------------- boot
 
 async function boot() {
@@ -415,9 +408,16 @@ async function boot() {
     if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey || !['1', '2', '3'].includes(e.key)) return;
     e.preventDefault(); setCentre(SEGS[+e.key - 1]);
   });
-  if (api.onMenu) api.onMenu(a => { if (a === 'newModel') void newModelDialog(); else if (a.startsWith('centre:')) setCentre(a.slice(7)); });
+  const needId = () => { if (openModel && openModel.id) return openModel.id; S.actionError = 'This model is not in your list of models.'; render(); return null; };
+  if (api.onMenu) api.onMenu(a => {
+    if (a === 'newModel') void newModelDialog();
+    else if (a === 'commit') { const id = needId(); if (id) void commitDialog(id, async () => {}); }
+    else if (a === 'modelSettings') { const id = needId(); if (id) void settingsDialog(id, async () => {}); }
+    else if (a.startsWith('centre:') && openModel) setCentre(a.slice(7));
+  });
   window.addEventListener('hashchange', () => render());
-  if (!location.hash) location.hash = '#/model';
+  try { openModel = await api.launch.current(); } catch { openModel = null; }
+  if (!location.hash || (!openModel && !location.hash.startsWith('#/launch'))) location.hash = openModel ? '#/model' : '#/launch';
   grid = createGrid($('gridhost'), { author: await reviewer(), settings: () => settings, onError: m => { S.actionError = m; render(); }, onEdit: info => spec && spec.onEdit(info) });
   spec = createSpecLine({
     bar: $('sheetbar'), grid, enabled: () => !!api.agent,
@@ -433,20 +433,20 @@ async function boot() {
     titleOf: sc => sc.level === 'model' ? 'Model' : sc.level === 'module' ? ((L.moduleOf(S, sc.id) || {}).title || sc.id) : sc.id,
     reviewer: () => reviewer(),
   });
-  window.__app = { S, RD, render, bars, setBar, setCentre, centre: () => centreOf(levelNow()), settings: () => settings, refresh, grid, route: parseRoute, ready: false, idle: () => chain };
+  window.__app = { S, RD, current: () => openModel, render, bars, setBar, setCentre, centre: () => centreOf(levelNow()), settings: () => settings, refresh, grid, route: parseRoute, ready: false, idle: () => chain };
   try { settings = { ...settings, ...(await api.settings()) }; } catch { /* defaults */ }
   grid.applySettings(settings);
   applyBarSettings(settings);
   if (api.onSettings) api.onSettings(s => { settings = { ...settings, ...s }; grid.applySettings(settings); applyBarSettings(settings); });
-  await refresh();
+  if (openModel) await refresh();
   await render();
   window.__app.ready = true;
-  try { const pre = sessionStorage.getItem('tessera.prefill'); if (pre) { sessionStorage.removeItem('tessera.prefill'); agent.prefill(pre); } } catch { /* no storage */ }
+  if (new URLSearchParams(location.search).get('scaffold') === '1') agent.prefill(PREFILL);   // a new, empty model: the chat starts with the scaffolding request
   let timer = null;
   api.onChanged(() => {
     realCache.clear(); clearTimeout(timer);
     // Our own commands write files too; an action refreshes when it ends, so do not refresh in the middle of one.
-    timer = setTimeout(async () => { if (S.busy || working > 0) return; await refresh(); render(); }, 0);
+    timer = setTimeout(async () => { if (!openModel || parseRoute().view === 'launch' || S.busy || working > 0) return; await refresh(); render(); }, 0);
   });
   void sleep;
 }

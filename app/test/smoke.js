@@ -371,22 +371,23 @@ const check = (name, ok, detail) => { summary.checks.push({ name, ok: !!ok, ...(
     await waitFor(`!document.querySelector('.alog-card button')`, 5000);
   }
 
-  // File > New model: the dialog, with the folder chosen through its button; tilekit's refusal is shown plainly.
+  // File > New model: the dialog (name, local folder with Choose…, GitHub link); a bad link is refused plainly, before anything runs.
   async function newModelSet() {
     await go('#/model'); await settle();
     ctl.win.webContents.send('menu', 'newModel');
-    check('New model: the dialog opens with a folder, a name and a Choose folder button', await waitFor(`!!document.getElementById('f-folder') && !!document.getElementById('f-name') && !!document.getElementById('pickfolder') && document.getElementById('dialog').innerText.includes('New model')`, 5000));
-    check('New model: Create is disabled until both are filled', await ev(`document.getElementById('confirm').disabled`));
+    check('New model: the dialog opens with a name, a local folder with Choose…, and a GitHub link', await waitFor(`!!document.getElementById('f-name') && !!document.getElementById('f-folder') && !!document.getElementById('pickfolder') && !!document.getElementById('f-github') && document.getElementById('dialog').innerText.includes('New model')`, 5000));
+    check('New model: Create is disabled until all three are filled', await ev(`document.getElementById('confirm').disabled`));
     await ev(`document.getElementById('pickfolder').click()`);
-    check('New model: Choose folder fills the folder', await waitFor(`document.getElementById('f-folder').value.length>3`, 5000));
-    await ev(`(()=>{const n=document.getElementById('f-name'); n.value='Fresh model'; n.dispatchEvent(new Event('input',{bubbles:true}))})()`);
+    check('New model: Choose… fills the local folder', await waitFor(`document.getElementById('f-folder').value.length>3`, 5000));
+    await ev(`(()=>{for (const [id,v] of [['f-name','Fresh model'],['f-github','https://example.com/not/github']]) { const n=document.getElementById(id); n.value=v; n.dispatchEvent(new Event('input',{bubbles:true})) }})()`);
     check('New model: Create is enabled', await ev(`!document.getElementById('confirm').disabled`));
     await ev(`document.getElementById('confirm').click()`);
-    check('New model: the error from tilekit is shown plainly in the dialog, which stays open (fixtures cannot init)', await waitFor(`document.getElementById('dialogerrors') && document.getElementById('dialogerrors').innerText.trim().length>3 && !!document.getElementById('dialog')`, 10000) && !(await ev(`document.getElementById('dialogerrors').innerText`)).match(/undefined|\[object/), await ev(`document.getElementById('dialog').innerText`));
+    check('New model: a link that is not a GitHub link is refused plainly and the dialog stays open', await waitFor(`document.getElementById('dialogerrors') && /not a GitHub link/.test(document.getElementById('dialogerrors').innerText) && !!document.getElementById('dialog')`, 10000), await ev(`document.getElementById('dialog').innerText`));
     check('New model: no chat prefill is left behind after a failure', await ev(`sessionStorage.getItem('tessera.prefill')===null && document.getElementById('agentlog-input').value===''`));
     await shot('new-model-dialog' + SFX);
     await ev(`document.getElementById('cancel').click()`);
     check('New model: Cancel closes it', await waitFor(`!document.getElementById('dialog')`, 3000));
+    check('Header: the model name and the logo are links back to the launch page', await ev(`document.getElementById('modelname').getAttribute('href')==='#/launch' && document.getElementById('home').getAttribute('href')==='#/launch'`));
   }
 
   // A model with no modules yet.

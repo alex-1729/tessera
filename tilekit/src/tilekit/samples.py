@@ -12,7 +12,7 @@ import numpy as np
 
 from tilekit.cases import load_cases
 from tilekit.errors import TilekitError
-from tilekit.runs import model_point_fields
+from tilekit.runs import model_point_fields, resolve_real_data_path
 
 EDGE_SHARE = 0.03
 
@@ -73,7 +73,7 @@ def sample_portfolio(model, out, policies, seed=0):
         values = np.where(is_edge, np.array(edges)[picks], values)
         columns[field] = values
     width = max(6, len(str(policies)))
-    path = Path(out)
+    path = resolve_real_data_path(model, out)
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="") as handle:
         writer = csv.writer(handle)

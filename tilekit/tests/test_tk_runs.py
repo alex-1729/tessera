@@ -300,3 +300,31 @@ def test_sample_portfolio(make_model, capsys, tmp_path):
     # accepted by `run` (the model's inputs only read `size`; the extra field is simply carried)
     code, doc = run(capsys, "run", "--model", model, "--model-points", out1, "--name", "sampled")
     assert code == 0 and doc["policies"] == 300
+
+
+def test_real_data_dir_env_var(model, capsys, tmp_path, monkeypatch):
+    custom = tmp_path / "elsewhere" / "rd"
+    monkeypatch.setenv("TILEKIT_REAL_DATA_DIR", str(custom))
+    doc = make_run(capsys, model, tmp_path)
+    assert (custom / "runs" / "r1" / "run.json").is_file()
+    assert not (model / "real-data").exists()
+    code, runs = run(capsys, "runs", "--model", model)
+    assert code == 0 and [r["name"] for r in runs["runs"]] == ["r1"]
+    code, st = run(capsys, "status", "--model", model)
+    assert st["runs"] == {"count": 1, "newest": "r1"}
+    # a relative `real-data/...` path goes to the chosen folder too
+    code, sample = run(capsys, "sample-portfolio", "--model", model, "--out", "real-data/s.csv", "--policies", 5)
+    assert code == 0 and (custom / "s.csv").is_file()
+    assert doc["policies"] == 4
+
+
+def test_real_data_dir_must_be_absolute(model, capsys, monkeypatch):
+    monkeypatch.setenv("TILEKIT_REAL_DATA_DIR", "relative/dir")
+    code, doc = run(capsys, "runs", "--model", model)
+    assert code == 1 and "absolute" in doc["error"]["message"]
+
+
+def test_real_data_dir_defaults_to_the_model(model, capsys, tmp_path, monkeypatch):
+    monkeypatch.delenv("TILEKIT_REAL_DATA_DIR", raising=False)
+    make_run(capsys, model, tmp_path)
+    assert (model / "real-data" / "runs" / "r1" / "run.json").is_file()

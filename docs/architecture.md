@@ -166,7 +166,7 @@ headline = ["in_force_eop"] # step quantities shown (at the last month) in `poli
 
 ## `tilekit` command line
 
-Run from the repo root as `uv run --project model tilekit <command> --model model [options]`. Every command prints exactly one JSON document to stdout and exits 0 on success. On failure it prints `{"error": {"message": "...", "detail": ...}}` and exits 1; this includes a result that cannot be serialised. Anything the model code prints goes to stderr, with tilekit's logs (`--verbose` for debug logs).
+Run from the repo root as `uv run --project tilekit tilekit <command> --model model [options]`. The tooling has its own environment (`uv sync --project tilekit`: numpy, and pytest in the `dev` group; `tilekit/uv.lock`), so it runs against any model folder; the model's package is found because tilekit puts `<model>/src` on the path (`test` also sets `PYTHONPATH=<model>/src` for pytest). Every command prints exactly one JSON document to stdout and exits 0 on success. On failure it prints `{"error": {"message": "...", "detail": ...}}` and exits 1; this includes a result that cannot be serialised. Anything the model code prints goes to stderr, with tilekit's logs (`--verbose` for debug logs).
 
 | Command | Purpose |
 |---|---|
@@ -302,6 +302,8 @@ A tile can be signed off only when its workbook is built, current and unedited, 
 
 ### Real-data runs
 
+The real-data folder is `<model>/real-data/` unless the environment variable `TILEKIT_REAL_DATA_DIR` names another one (an absolute path, created on first use; a relative one is an error). `runs.real_data_dir(model)` is the one place that decides; `run`, `runs`, `policies`, `build --run`, `promote`, the `status` runs summary and `sample-portfolio` (for a relative `--out real-data/...`) all go through it. The app sets the variable from the model's settings (below). Workbook paths in a command's output are relative to the model when they are inside it and absolute otherwise.
+
 `run` stores `real-data/runs/<RUN>/` (`run.json`, `model_points.csv`, `results.npz`, `totals.json`) and returns `{"run", "policies", "months", "seconds", "summary_totals"}`; `summary_totals` sums, over policies, each summary quantity whose `Format` is `amount` (non-finite values left out). `totals.json` also holds per-month totals of every `amount` step quantity.
 
 `policies` returns `{"run", "total", "policies": [{"id", "index", "model_point", "headline", "flags"}], "flags": {"uncovered": n, "nan": n, "undefined": n}}`. Flags: `uncovered` — the policy takes a branch no synthetic case takes; `nan` — a step series has a non-finite value (a real problem); `undefined` — a summary quantity is non-finite (for example no IRR because the cash flows never change sign). Real-data runs are never part of sign-off.
@@ -329,7 +331,7 @@ model/review/
                                  values_only, stamp, workbook_current, scope, at, status: pending | confirmed |
                                  declined | expired | superseded, reviewer?}
   .cache/content.json            content digests recomputed by `status` (git-ignored by its own .gitignore)
-model/real-data/                 runs and workbooks from real policies; git-ignored
+model/real-data/                 runs and workbooks from real policies; git-ignored (or the folder chosen in the app, see below)
 ```
 
 Sidecar `workbook.json` for a tile:
@@ -388,8 +390,22 @@ House style (the user's own; follow it exactly):
 
 The agent can prepare a sign-off; only the reviewer's explicit confirmation in the app records one. When the reviewer says they are happy, the agent calls `request_signoff` (or `request_reconfirm` for bulk re-confirmation of values-only drift), which reads `status` and saves a pending request that the window shows with a Confirm button, blockers included. The window's `confirmSignoff(id, {reviewer, comment, valuesOnlyReason})` re-reads `status`, refuses if the item's stored stamp changed since the request (or its workbook went out of date) or if blockers now exist, and only then runs `tilekit signoff` (or `reconfirm`). A typed "yes" is not a confirmation. The agent's tools are given a `tilekit` runner that refuses `signoff` and `reconfirm`, and no tool can reach `confirmSignoff`.
 
+## Models, the launch page and git
+
+The app keeps its own list of models in its settings file (Electron's userData `settings.json`, never in a repo): `models: [{id, name, dir, github, realDataDir, lastOpened}]`. `#/launch` is the first route and the one shown whenever no model is open: a tile per model (name, folder, GitHub link opened with `shell.openExternal` only when it is `https://github.com/...`, branch and git state in words, review progress from `status` in words, "last opened"), drawn at once from the list and filled in as `git` and `status` answer. Under each tile: `Commit and push…`, `Settings…`, `Remove from list` (the list only; the folder is never deleted). After the tiles: a dashed `New model…` tile and `Add existing folder…`. The first launch with an empty list adds the example model (`<repo>/model`); `--model DIR` (and a test's `modelDir`) opens that model directly and adds it to the list. In a model view the model name, the logo and "Tessera" in the top bar link back to the launch page. Opening a model re-points everything: the tilekit runner (and its real-data folder), the file watcher, the agent service (one conversation per model, in the model's own `review/model/chat.jsonl`), the settings entry and the window.
+
+**The tooling**: the app always runs `uv run --project <repo>/tilekit tilekit ...` (`APP_TILEKIT_PROJECT` overrides the project; the agent's pytest uses the same default). It never uses the model's own environment.
+
+**New model** asks for a name, a local folder and a GitHub link (`https://github.com/owner/repo`, the same with `.git`, or `git@github.com:owner/repo.git`; `APP_ALLOW_LOCAL_REMOTE=1` additionally allows a local path or `file://` URL, for tests only). Steps, each reported in words: `git ls-remote` with the user's existing git sign-in (terminal prompts are off; the app never asks for or stores a token; a sign-in or not-found failure stops with nothing created); a repository with commits is cloned and must hold `tilekit.toml` at its root (otherwise "That repository is not a Tessera model (no tilekit.toml)." and the clone is left where it is); an empty repository gets `tilekit init`, `git init -b main`, the link as `origin` and a local commit "Start <name>" (nothing is pushed), and the chat input is prefilled with the scaffolding request. The model goes in the chosen folder when it is empty, else in a subfolder named from the model name. `Add existing folder…` needs `tilekit.toml`, reads the name from it and the link from `git remote get-url origin`.
+
+**Git rules** (`app/src/git.js`; the only code that runs `git`): `execFile`, no shell, in a registered model's folder only; a folder that is not the top of a repository of its own (for example the example model inside this repository) is reported as such and is never committed or pushed. `commit` is `git add -A` (so `.gitignore` applies) and `git commit`; `push` is `git push -u origin <branch>`. Never a force-push, never a remote or config change (only a brand-new model adds `origin`). Git's own error text is shown. `tilekit init` writes a `.gitignore` (`.venv/`, `__pycache__/`, `real-data/`, `review/.cache/`, `review/**/log.jsonl`, `review/model/chat.jsonl`, `review/drafts/`, `review/requests/`); sign-offs, stamps, expected values, cases and stored workbooks belong in the model repo, chat transcripts and real data do not.
+
+**Push request** (the chat can commit, never push): the agent has `git_status` (read only), `commit(message)` (local commit of the model folder, only when the user asked) and `request_push()`, which saves a pending request (`review/requests/<id>.json`, `kind: "push"`) and emits `{type: "push_request", scope, text, request: {id, branch, remote, commits: [{hash, subject}]}}`; the window draws a card with `Push` and `Not now`. Only the window's click reaches `confirmPush(id)` (re-reads git state; refuses and expires the request if the branch or remote changed; otherwise `git push`) or `declinePush(id)`. No tool can reach either.
+
+**Per-model settings** (`Settings…` / File > Model settings…): the GitHub link (a label in the app's list; validated; it does not change `origin`) and the real-data folder (`Choose…`, `Use the default`). The runner passes the folder as `TILEKIT_REAL_DATA_DIR`; a path written `real-data/...` in the window means that folder; the workbook read/write allowance is `<model>/review` plus that folder (absolute paths are accepted only inside it).
+
 ## App
 
-Electron, plain JavaScript. The main process owns the model repo path, runs `tilekit` commands, serves GridCraft's web build and the stored workbooks over a local HTTP server, and exposes a small IPC API to the window. The window has three views (model, module, tile). Each view is a plain details/map panel on the left half and the workbook in GridCraft on the right half.
+Electron, plain JavaScript. The main process owns the model repo path, runs `tilekit` commands, serves GridCraft's web build and the stored workbooks over a local HTTP server, and exposes a small IPC API to the window. The window has the launch page (`#/launch`) and three model views (model, module, tile). Each view is a plain details/map panel on the left half and the workbook in GridCraft on the right half.
 
 Look: plain and dense, like a classic desktop tool. System font, thin rules, square corners, statuses written as words. No coloured pills, rounded cards, icons, status dots, gradients, shadows or chat bubbles.

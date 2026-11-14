@@ -49,8 +49,10 @@ export function signoffDialog(opts) {
   });
 }
 
-// Plain form modal. opts: {title, intro:[string|Node], fields:[{id,label,value,multiline}], confirm, sections:[Node],
-// submit(values) -> Promise<null | string[]>}. A returned list of lines is shown in the dialog, which stays open.
+// Plain form modal. opts: {title, intro:[string|Node], fields:[{id,label,value,multiline,placeholder,optional,button:{id,text,onclick(input)}}],
+// confirm, sections:[Node], submit(values, say) -> Promise<null | string[] | {result: string[]}>}.
+// A returned list of lines is shown in the dialog, which stays open; `{result}` shows the lines as the outcome and the
+// dialog then offers only Close. `say(line)` adds a line of progress while the submit runs.
 export function formDialog(opts) {
   return new Promise(resolve => {
     const overlay = h('div', { id: 'overlay' });
@@ -60,37 +62,45 @@ export function formDialog(opts) {
     document.addEventListener('keydown', onKey);
     const inputs = {};
     const fields = (opts.fields || []).map(f => {
-      const el = f.multiline ? h('textarea', { id: 'f-' + f.id, value: f.value || '' }) : h('input', { type: 'text', id: 'f-' + f.id, value: f.value || '', autocomplete: 'off' });
+      const el = f.multiline ? h('textarea', { id: 'f-' + f.id, value: f.value || '', placeholder: f.placeholder }) : h('input', { type: 'text', id: 'f-' + f.id, value: f.value || '', autocomplete: 'off', placeholder: f.placeholder });
       inputs[f.id] = el;
-      return h('div', { class: 'field' }, h('label', {}, f.label, h('br'), el));
+      const btn = f.button ? h('button', { type: 'button', id: f.button.id, onclick: () => f.button.onclick(el) }, f.button.text) : null;
+      return h('div', { class: 'field' }, h('label', {}, f.label, h('br'), btn ? h('span', { class: 'inlinerow' }, el, btn) : el));
     });
     const errors = h('div', { id: 'dialogerrors' });
+    const progress = h('div', { id: 'dialogprogress', class: 'grey' });
+    const say = line => { progress.append(h('p', {}, line)); };
     const status = h('span', { id: 'dialogworking', class: 'grey' });
     const cancel = h('button', { type: 'button', id: 'cancel', onclick: () => close(null) }, 'Cancel');
     const go = h('button', { type: 'button', id: 'confirm', onclick: async () => {
       const values = {};
       for (const f of opts.fields || []) values[f.id] = inputs[f.id].value.trim();
       working = true; go.disabled = true; cancel.disabled = true; status.textContent = 'Working… ';
-      errors.replaceChildren();
+      errors.replaceChildren(); progress.replaceChildren();
       let lines = null;
-      try { lines = await opts.submit(values); } catch (e) { lines = [String(e && e.message || e)]; }
+      try { lines = await opts.submit(values, say); } catch (e) { lines = [String(e && e.message || e)]; }
       working = false; status.textContent = '';
-      if (lines && lines.length) {
+      if (lines && !Array.isArray(lines) && lines.result) {
+        errors.replaceChildren(...lines.result.map(l => h('p', { class: 'okline' }, l)));
+        cancel.disabled = false; cancel.textContent = 'Close'; go.remove();
+        for (const i of Object.values(inputs)) i.disabled = true;
+      } else if (lines && lines.length) {
         errors.replaceChildren(...lines.map(l => h('p', { class: 'warn' }, l)));
         go.disabled = false; cancel.disabled = false;
       } else close(values);
     } }, opts.confirm || 'OK');
-    const check = () => { go.disabled = !(opts.fields || []).every(f => f.optional || inputs[f.id].value.trim()); };
+    const check = () => { go.disabled = !(opts.fields || []).every(f => f.optional || inputs[f.id].value.trim()) || (opts.canSubmit ? !opts.canSubmit() : false); };
     Object.values(inputs).forEach(i => i.addEventListener('input', check));
     check();
     overlay.append(h('div', { id: 'dialog', role: 'dialog', 'aria-modal': 'true' },
       h('div', { class: 'dtitle' }, opts.title),
       ...(opts.intro || []).map(t => h('p', {}, t)),
       ...(opts.sections || []),
-      ...fields, errors,
+      ...fields, progress, errors,
       h('div', { class: 'buttons' }, status, cancel, go)));
     document.body.append(overlay);
-    const first = Object.values(inputs)[0];
+    if (opts.onReady) opts.onReady(check);
+    const first = Object.values(inputs).find(i => !i.disabled);
     if (first) first.focus();
   });
 }

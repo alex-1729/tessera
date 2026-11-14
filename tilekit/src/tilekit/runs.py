@@ -1,6 +1,6 @@
 """Real-data runs: a portfolio projected in one call, inspected policy by policy, never part of sign-off.
 
-Everything lives under `<model>/real-data/` (git-ignored): `runs/<RUN>/run.json`, `model_points.csv`,
+Everything lives under `<model>/real-data/` (git-ignored), or under the folder named by TILEKIT_REAL_DATA_DIR: `runs/<RUN>/run.json`, `model_points.csv`,
 `results.npz`, `totals.json`, `signatures.{json,npz}` and `policies/<ID>/...` workbooks.
 These workbooks reuse the review builders' layout code but are written to their own paths and
 never touch `review/` or any stamp that `status` reads.
@@ -10,6 +10,7 @@ import csv
 import dataclasses
 import json
 import math
+import os
 import re
 import shutil
 import time
@@ -37,7 +38,27 @@ MAX_BAD = 20
 
 
 def real_data_dir(model):
-    return model.root / "real-data"
+    """Where real-data runs and workbooks live: the absolute folder in TILEKIT_REAL_DATA_DIR when the app (or the
+    user) sets it, created on first use; otherwise `<model>/real-data`."""
+    custom = os.environ.get("TILEKIT_REAL_DATA_DIR")
+    if not custom:
+        return model.root / "real-data"
+    path = Path(custom)
+    if not path.is_absolute():
+        raise TilekitError(f"TILEKIT_REAL_DATA_DIR must be an absolute path (got '{custom}')")
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass  # a missing drive shows up as "no runs" when reading and as a plain error when writing
+    return path
+
+
+def resolve_real_data_path(model, path):
+    """A path under `real-data/` named relative to the model goes to the real-data folder when one is set."""
+    p = Path(path)
+    if os.environ.get("TILEKIT_REAL_DATA_DIR") and not p.is_absolute() and p.parts[:1] == ("real-data",):
+        return real_data_dir(model).joinpath(*p.parts[1:])
+    return p
 
 
 def runs_dir(model):
@@ -151,6 +172,7 @@ def read_portfolio(model, path, id_column="policy_id"):
 def run_portfolio(model, model_points_file, name, id_column="policy_id"):
     """The `run` command."""
     folder = run_dir(model, name, must_exist=False)
+    model_points_file = resolve_real_data_path(model, model_points_file)
     ids, values, header, rows = read_portfolio(model, model_points_file, id_column)
     fields = list(values)
     months = model.config.months

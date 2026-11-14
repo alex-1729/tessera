@@ -13,7 +13,6 @@ fs.mkdirSync(OUT, { recursive: true });
 const REAL_MODEL = path.resolve(__dirname, '../../model');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'tilekit-live-'));
 const copy = path.join(tmp, 'model');
-process.env.APP_TILEKIT_PROJECT = REAL_MODEL;
 
 const summary = { checks: [], shots: [], errors: [] };
 let ctl = null, finished = false;
@@ -411,17 +410,8 @@ function listFiles(dir) {   // path -> mtime, for "nothing was written here"
   await idle();
   check('Open model: the folder is remembered as the last model', JSON.parse(fs.readFileSync(settingsFile, 'utf8')).lastModel === copy);
   check('Open model: the new model is on screen, chat and bars intact', await ev(`document.getElementById('title').textContent.includes('Unit-linked') && !!document.querySelector('#rightbar #agentlog-input') && !!document.querySelector('#left #lpin #signoff')`));
-  await ev(`window.__old = true`);
-  const initErr = await ev(`window.api.newModel(${JSON.stringify(path.join(tmp, 'brandnew'))}, 'Brand new').then(r => 'ok:' + JSON.stringify(r), e => 'error:' + e.message)`).catch(() => 'reloaded');
-  summary.newModel = String(initErr).slice(0, 300);
-  if (/^error:/.test(initErr)) {
-    check('New model: tilekit init has not landed, so its error is shown plainly (no crash, window unchanged)', initErr.length > 8 && !/\[object|undefined/.test(initErr), initErr);
-    await ev('window.__old = false; true');
-  } else {
-    check('New model: the model was created and opened', await waitFor(`!window.__old && window.__app && window.__app.ready`, 90000), String(initErr));
-    await idle();
-    check('New model: tilekit.toml exists in the new folder and it is the last model', fs.existsSync(path.join(tmp, 'brandnew', 'tilekit.toml')) && JSON.parse(fs.readFileSync(settingsFile, 'utf8')).lastModel === path.join(tmp, 'brandnew'));
-  }
+  check('Open model: the model is in the list of models (opening registers it)', !!ctl.models.byDir(copy) && JSON.parse(fs.readFileSync(settingsFile, 'utf8')).models.some(m => m.dir === copy));
+  check('the old New model path (folder and name only) is gone from the window API', await ev(`typeof window.api.newModel === 'undefined' && typeof window.api.launch.newModel === 'function'`));
 
   check('no console errors', summary.errors.filter(e => e.startsWith('console:')).length === 0, JSON.stringify(summary.errors));
   const log = await ev('window.__gridLog');

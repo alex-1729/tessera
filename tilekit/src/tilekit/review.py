@@ -15,6 +15,7 @@ import hashlib
 import json
 import logging
 import math
+import os
 import shutil
 import subprocess
 import sys
@@ -670,7 +671,10 @@ def run_model_tests(model, file=None):
         report = Path(tmp) / "junit.xml"
         result = subprocess.run(
             [sys.executable, "-m", "pytest", str(target), "-q", "-p", "no:cacheprovider", f"--junitxml={report}"],
-            cwd=model.root, capture_output=True, text=True)
+            cwd=model.root, capture_output=True, text=True,
+            # the model's own package is found through its src folder, as `load_model` finds it for every other command
+            env={**os.environ, "PYTHONPATH": os.pathsep.join(
+                [str(model.root / "src"), *([os.environ["PYTHONPATH"]] if os.environ.get("PYTHONPATH") else [])])})
         if not report.is_file():
             raise TilekitError("The model's tests did not produce a report",
                                {"exit_code": result.returncode, "output": (result.stdout + result.stderr)[-4000:]})

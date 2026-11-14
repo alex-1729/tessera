@@ -1,11 +1,14 @@
 'use strict';
-const { app, BrowserWindow, Menu, dialog, ipcMain, nativeImage } = require('electron');
+const { app, BrowserWindow, Menu, dialog, ipcMain, nativeImage, shell } = require('electron');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { execFile } = require('child_process');
 const { startServer } = require('./server');
-const { createRunner, COMMANDS } = require('./tilekit');
+const { createRunner, COMMANDS, defaultProject } = require('./tilekit');
+const git = require('./git');
+const { createModels, readName, isModelDir } = require('./models');
+const { registerLaunch } = require('./launch');
 const { createAgentService, DEFAULT_MODEL, STRONG_MODEL } = require('./agent');
 
 // The app is called Tessera. Keep the settings folder where it already is: its name came from the old app name.
@@ -14,7 +17,6 @@ app.setName('Tessera');
 
 const APP_DIR = path.resolve(__dirname, '..');
 const REPO_ROOT = path.resolve(APP_DIR, '..');
-const ALLOWED_DIRS = new Set(['review', 'real-data']);
 const WATCH = ['src', 'cases', 'review'];
 
 function argValue(name) {
@@ -25,18 +27,28 @@ function argValue(name) {
 function resolveConfig() {
   const fixtures = process.env.APP_FIXTURES ? path.resolve(process.cwd(), process.env.APP_FIXTURES) : null;
   const modelArg = argValue('--model');
-  const modelDir = modelArg ? path.resolve(process.cwd(), modelArg) : fixtures || path.resolve(APP_DIR, '../model');
+  // No model named: the launch page is shown and no model is open.
+  const modelDir = modelArg ? path.resolve(process.cwd(), modelArg) : fixtures || null;
   return { fixtures, modelDir, repoRoot: REPO_ROOT };
 }
 
-// Workbook paths are relative to the model dir and limited to review/ and real-data/.
-function safeWorkbookPath(modelDir, rel) {
-  if (typeof rel !== 'string' || !rel || rel.includes('\0') || path.isAbsolute(rel)) throw new Error('Invalid workbook path.');
+// Workbook paths: relative to the model dir inside review/, or inside the model's real-data folder (`real-data/...`
+// or an absolute path under the folder the user chose). Nothing else.
+function safeWorkbookPath(modelDir, rel, realDataDir) {
+  if (typeof rel !== 'string' || !rel || rel.includes('\0') || !/\.xlsx$/i.test(rel)) throw new Error('Invalid workbook path.');
+  const modelRoot = path.resolve(modelDir);
+  const realRoot = path.resolve(realDataDir || path.join(modelDir, 'real-data'));
+  const inside = (full, root) => full.startsWith(root + path.sep);
+  if (path.isAbsolute(rel)) {
+    const full = path.resolve(rel);
+    if (rel.split(/[\\/]/).includes('..') || !inside(full, realRoot)) throw new Error('Workbook path not allowed: ' + rel);
+    return { full, norm: full };
+  }
   const norm = path.posix.normalize(rel.replace(/\\/g, '/'));
   const parts = norm.split('/');
-  if (parts.includes('..') || !ALLOWED_DIRS.has(parts[0]) || !/\.xlsx$/i.test(norm)) throw new Error('Workbook path not allowed: ' + rel);
-  const full = path.resolve(modelDir, norm);
-  if (!full.startsWith(path.resolve(modelDir) + path.sep)) throw new Error('Workbook path not allowed: ' + rel);
+  if (parts.includes('..') || !['review', 'real-data'].includes(parts[0])) throw new Error('Workbook path not allowed: ' + rel);
+  const full = parts[0] === 'real-data' ? path.resolve(realRoot, ...parts.slice(1)) : path.resolve(modelRoot, norm);
+  if (!inside(full, parts[0] === 'real-data' ? realRoot : modelRoot)) throw new Error('Workbook path not allowed: ' + rel);
   return { full, norm };
 }
 
@@ -71,6 +83,9 @@ function buildMenu(settings, onSetting, withAgent, actions = {}) {
     { label: 'File', submenu: [
       { label: 'Open model…', accelerator: 'CmdOrCtrl+O', click: () => actions.openModel && actions.openModel() },
       { label: 'New model…', accelerator: 'CmdOrCtrl+N', click: () => actions.newModel && actions.newModel() },
+      { type: 'separator' },
+      { id: 'commitPush', label: 'Commit and push…', click: () => actions.commit && actions.commit() },
+      { id: 'modelSettings', label: 'Model settings…', click: () => actions.modelSettings && actions.modelSettings() },
       ...(isMac ? [] : [{ type: 'separator' }, { role: 'quit' }]),
       ...(isMac ? [{ type: 'separator' }, { role: 'close' }] : [])] },
     { label: 'Edit', submenu: [
@@ -99,11 +114,22 @@ async function start(options = {}) {
   const sFile = settingsFile(options);
   const settings = loadSettings(sFile);
   const cfg = { ...resolveConfig(), ...options };
-  // The model opened last is reopened, unless this launch names one (--model, a test's modelDir) or runs on fixtures.
-  if (!options.modelDir && !cfg.fixtures && !argValue('--model') && settings.lastModel && fs.existsSync(path.join(settings.lastModel, 'tilekit.toml'))) cfg.modelDir = settings.lastModel;
+  const models = createModels(settings, () => saveSettings(sFile, settings));
+  // The list of models. The first launch with an empty list adds the example model (and the model opened last, if
+  // there is one); a launch that names a model (--model, a test's modelDir) opens it and adds it to the list.
+  if (!cfg.modelDir && !models.list().length) {
+    const example = path.join(REPO_ROOT, 'model');
+    if (isModelDir(example)) models.add(example);
+    if (settings.lastModel && isModelDir(settings.lastModel)) models.add(settings.lastModel);
+  }
+  if (cfg.modelDir && !cfg.fixtures && isModelDir(cfg.modelDir)) models.add(cfg.modelDir);
+  const entryNow = () => (cfg.modelDir ? models.byDir(cfg.modelDir) : null);
+  const realDataNow = () => { const m = entryNow(); return m && m.realDataDir ? m.realDataDir : null; };
   const pickedFiles = new Set();     // CSV files the user chose in the native dialog
-  let runner = createRunner({ ...cfg, pickedFiles });
-  const run = (...a) => runner(...a);
+  const mkRunner = dir => createRunner({ ...cfg, modelDir: dir, pickedFiles, realDataDir: () => { const m = dir && models.byDir(dir); return m && m.realDataDir ? m.realDataDir : null; } });
+  let runner = cfg.modelDir ? mkRunner(cfg.modelDir) : null;
+  const run = (...a) => (runner ? runner(...a) : Promise.reject(new Error('No model is open.')));
+  const needDir = () => { if (!cfg.modelDir) throw new Error('No model is open.'); return cfg.modelDir; };
   const recentWrites = new Map(); // normalised path -> time of our own write
   let win = null, port = 0;
 
@@ -148,16 +174,16 @@ async function start(options = {}) {
     if (!Array.isArray(args) || args.length > 40 || !args.every(x => typeof x === 'string' && x.length < 20000)) throw new Error('Invalid arguments.');
     return run(command, args);
   }));
-  ipcMain.handle('readWorkbook', wrap(rel => fs.promises.readFile(safeWorkbookPath(cfg.modelDir, rel).full)));
+  ipcMain.handle('readWorkbook', wrap(rel => fs.promises.readFile(safeWorkbookPath(needDir(), rel, realDataNow()).full)));
   ipcMain.handle('writeWorkbook', wrap(async (rel, bytes) => {
-    const { full, norm } = safeWorkbookPath(cfg.modelDir, rel);
+    const { full, norm } = safeWorkbookPath(needDir(), rel, realDataNow());
     if (!(bytes instanceof Uint8Array)) throw new Error('Workbook bytes expected.');
     await fs.promises.mkdir(path.dirname(full), { recursive: true });
     recentWrites.set(norm, Date.now());
     await fs.promises.writeFile(full, bytes);
     recentWrites.set(norm, Date.now());
   }));
-  ipcMain.handle('reviewer', wrap(() => gitUserName(cfg.modelDir)));
+  ipcMain.handle('reviewer', wrap(() => gitUserName(cfg.modelDir || os.homedir())));
   // Source files for the Code and Test segments: text files under src/, tests/, cases/ and tilekit.toml only.
   ipcMain.handle('readModelFile', wrap(async rel => {
     if (typeof rel !== 'string' || !rel || rel.length > 300 || rel.includes('\0') || path.isAbsolute(rel)) throw new Error('Invalid file path.');
@@ -165,9 +191,9 @@ async function start(options = {}) {
     const parts = norm.split('/');
     const inside = norm === 'tilekit.toml' || (['src', 'tests', 'cases'].includes(parts[0]) && parts.length > 1);
     if (parts.includes('..') || !inside || !/\.(py|toml|json|txt|md)$/i.test(norm)) throw new Error('File not allowed: ' + rel);
-    const full = path.resolve(cfg.modelDir, norm);
+    const full = path.resolve(needDir(), norm);
     const real = await fs.promises.realpath(full);
-    if (!real.startsWith(await fs.promises.realpath(cfg.modelDir) + path.sep)) throw new Error('File not allowed: ' + rel);
+    if (!real.startsWith(await fs.promises.realpath(needDir()) + path.sep)) throw new Error('File not allowed: ' + rel);
     const st = await fs.promises.stat(real);
     if (!st.isFile() || st.size > 400 * 1024) throw new Error('File too large to show: ' + rel);
     return fs.promises.readFile(real, 'utf8');
@@ -176,14 +202,6 @@ async function start(options = {}) {
     if (typeof cfg.pickFolder === 'function') return cfg.pickFolder();
     const r = await dialog.showOpenDialog(win, { title: 'Choose a folder', properties: ['openDirectory', 'createDirectory'] });
     return r.canceled || !r.filePaths.length ? null : r.filePaths[0];
-  }));
-  ipcMain.handle('newModel', wrap(async (dir, name) => {
-    if (typeof dir !== 'string' || !path.isAbsolute(dir) || dir.length > 500 || dir.includes('\0')) throw new Error('Choose a folder for the model.');
-    if (typeof name !== 'string' || !name.trim() || name.length > 120) throw new Error('Give the model a name.');
-    await fs.promises.mkdir(dir, { recursive: true });
-    const r = await run('init', ['--name', name.trim()], dir);
-    await switchModel(dir);
-    return r;
   }));
   ipcMain.handle('pickCsv', wrap(async () => {
     let file = null;
@@ -243,7 +261,7 @@ async function start(options = {}) {
   let agent = null;
   const makeAgent = () => createAgentService({
     modelDir: cfg.modelDir, repoRoot: cfg.repoRoot, tilekit: agentTk,
-    pythonProject: cfg.projectDir || process.env.APP_TILEKIT_PROJECT || cfg.modelDir,
+    pythonProject: cfg.projectDir || process.env.APP_TILEKIT_PROJECT || defaultProject(REPO_ROOT),
     modelName: process.env.AGENT_MODEL || settings.agentModel || DEFAULT_MODEL,
     emit: ev => { if (win && !win.isDestroyed()) win.webContents.send('agent:event', ev); },
     confirm: async req => {
@@ -257,7 +275,7 @@ async function start(options = {}) {
   });
   // The window's agent API exists only while there is an agent (not in fixture mode, unless a test supplies a stub).
   const emitAgent = ev => { if (win && !win.isDestroyed()) win.webContents.send('agent:event', ev); };
-  const createAgent = () => options.agentStub ? options.agentStub({ emit: emitAgent }) : (!cfg.fixtures || options.agentOptions ? makeAgent() : null);
+  const createAgent = () => !cfg.modelDir ? null : options.agentStub ? options.agentStub({ emit: emitAgent }) : (!cfg.fixtures || options.agentOptions ? makeAgent() : null);
   agent = createAgent();
   const needAgent = () => { if (!agent) throw new Error('The agent is not available.'); return agent; };
   ipcMain.on('agent:available', e => { e.returnValue = !!agent; });
@@ -287,6 +305,19 @@ async function start(options = {}) {
     if (typeof a.confirmSignoff !== 'function') throw new Error('Signing off from the chat is not available yet.');
     return a.confirmSignoff(String(id), args);
   }));
+  // A push asked for in the chat happens only through this button; no tool can reach it.
+  ipcMain.handle('agent:confirmPush', wrap(id => {
+    const a = needAgent();
+    if (!SLUG.test(String(id))) throw new Error('Invalid request id.');
+    if (typeof a.confirmPush !== 'function') throw new Error('Pushing from the chat is not available.');
+    return a.confirmPush(String(id));
+  }));
+  ipcMain.handle('agent:declinePush', wrap(id => {
+    const a = needAgent();
+    if (!SLUG.test(String(id))) throw new Error('Invalid request id.');
+    if (typeof a.declinePush !== 'function') throw new Error('Pushing from the chat is not available.');
+    return a.declinePush(String(id));
+  }));
   ipcMain.handle('agent:declineSignoff', wrap(id => {
     const a = needAgent();
     if (!SLUG.test(String(id))) throw new Error('Invalid request id.');
@@ -306,17 +337,21 @@ async function start(options = {}) {
 
   // ---- File > Open model / New model: switch to another folder with its own runner, watcher and agent
   const sendMenu = a => { if (win && !win.isDestroyed()) win.webContents.send('menu', a); };
-  async function switchModel(dir) {
+  async function switchModel(dir, { scaffold = false } = {}) {
     const full = path.resolve(String(dir));
     if (!fs.existsSync(path.join(full, 'tilekit.toml'))) throw new Error('That folder has no tilekit.toml, so it is not a model.');
     if (agent && !options.agentStub) for (const b of agent.status().busy) { try { agent.interrupt(b.scope); } catch { /* ignore */ } }
     cfg.modelDir = full; cfg.fixtures = null;
-    runner = createRunner({ ...cfg, pickedFiles });
+    // everything that belongs to a model is re-pointed here: the runner (and its real-data folder), the file
+    // watcher, the agent (one conversation per model), the settings entry and, below, the window
+    const entry = models.add(full); models.touch(entry.id);
+    runner = mkRunner(full);
     graphCache = null; recentWrites.clear();
     agent = createAgent();
     armWatchers();
+    syncModelMenu();
     settings.lastModel = full; saveSettings(sFile, settings);
-    if (win && !win.isDestroyed()) await win.loadURL(`http://127.0.0.1:${port}/app/index.html?model=${Date.now()}#/model`);
+    if (win && !win.isDestroyed()) await win.loadURL(`http://127.0.0.1:${port}/app/index.html?model=${Date.now()}${scaffold ? '&scaffold=1' : ''}#/model`);
     return full;
   }
   const openModelDialog = async () => {
@@ -330,7 +365,21 @@ async function start(options = {}) {
     try { return await switchModel(dir); }
     catch (e) { if (typeof cfg.pickFolder !== 'function') await dialog.showMessageBox(win, { type: 'error', message: 'Could not open that folder', detail: String(e.message || e), buttons: ['OK'] }); else throw e; return null; }
   };
-  Menu.setApplicationMenu(buildMenu(settings, onSettingChosen, !!agent, { openModel: () => { void openModelDialog(); }, newModel: () => sendMenu('newModel'), centre: seg => sendMenu('centre:' + seg) }));
+  Menu.setApplicationMenu(buildMenu(settings, onSettingChosen, !cfg.fixtures || !!options.agentStub || !!options.agentOptions,
+    { openModel: () => { void openModelDialog(); }, newModel: () => sendMenu('newModel'), commit: () => sendMenu('commit'), modelSettings: () => sendMenu('modelSettings'), centre: seg => sendMenu('centre:' + seg) }));
+  // Commit and Model settings act on the open model, which must be in the app's list.
+  function syncModelMenu() {
+    const menu = Menu.getApplicationMenu();
+    if (!menu) return;
+    const on = !!entryNow();
+    for (const id of ['commitPush', 'modelSettings']) { const it = menu.getMenuItemById(id); if (it) it.enabled = on; }
+  }
+  syncModelMenu();
+  registerLaunch({ ipcMain, dialog, shell, wrap, models, cfg, getWin: () => win, switchModel, mkRunner, pickFolder: async () => {
+    if (typeof cfg.pickFolder === 'function') return cfg.pickFolder();
+    const r = await dialog.showOpenDialog(win, { title: 'Choose the model folder', properties: ['openDirectory'] });
+    return r.canceled || !r.filePaths.length ? null : r.filePaths[0];
+  } });
   try { if (app.dock) app.dock.setIcon(nativeImage.createFromPath(path.join(APP_DIR, 'assets/icon.png'))); } catch { /* the Dock icon is cosmetic */ }
 
   win = new BrowserWindow({
@@ -364,6 +413,7 @@ async function start(options = {}) {
   function armWatchers() {
     watchers.forEach(w => { try { w.close(); } catch { /* ignore */ } });
     watchers = []; watching.clear();
+    if (!cfg.modelDir) return;
     WATCH.forEach(watchDir);
     // review/, cases/ or src/ may be created after the app starts: the model dir itself tells us.
     try { watchers.push(fs.watch(cfg.modelDir, (_ev, f) => {
@@ -377,8 +427,8 @@ async function start(options = {}) {
   win.on('closed', shutdown);
   app.on('window-all-closed', () => { shutdown(); app.quit(); });
 
-  await win.loadURL(`http://127.0.0.1:${port}/app/index.html`);
-  return { win, port, server, cfg, shutdown, run, settings, setSetting, switchModel, openModelDialog, get settingsFile() { return sFile; }, get agent() { return agent; } };
+  await win.loadURL(`http://127.0.0.1:${port}/app/index.html${cfg.modelDir ? '' : '#/launch'}`);
+  return { win, port, server, cfg, shutdown, run, settings, setSetting, switchModel, models, openModelDialog, get settingsFile() { return sFile; }, get agent() { return agent; } };
 }
 
 module.exports = { start, safeWorkbookPath };

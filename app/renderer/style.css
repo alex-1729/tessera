@@ -36,8 +36,10 @@ input[type=checkbox]:disabled { border-color: #8a9099; }
 /* ---- top bar and the two rows of tabs */
 #topbar { display: flex; align-items: center; gap: 12px; padding: 8px 14px; background: var(--navy); color: var(--sand); flex: none; }
 #topbar svg { flex: none; }
+#home { display: flex; align-items: center; gap: 12px; color: var(--sand); text-decoration: none; }
 #brand { font: 400 17px var(--serif); }
-#modelname { color: #b9c0cf; font-size: 12px; }
+#modelname { color: #b9c0cf; font-size: 12px; text-decoration: none; }
+#modelname:hover { text-decoration: underline; color: #fff; }
 #topbar .sp { flex: 1; }
 #topbar button { color: var(--sand); border-color: #55638a; padding: 2px 10px; font-size: 12px; }
 #topbar button:active:not(:disabled) { background: var(--navy2); }
@@ -235,3 +237,32 @@ section.agentlog[hidden] { display: none; }
 
 .draftlist { margin-top: 4px; }
 .draftitem { font: 12px/1.45 var(--mono); overflow-wrap: anywhere; padding: 1px 0; }
+
+/* ---- the launch page: a tile per model */
+body.launching #mods, body.launching #tiles, body.launching #main, body.launching #modelname, body.launching #topbar button { display: none; }
+#launch { flex: 1; min-height: 0; overflow-y: auto; padding: 18px 24px 28px; }
+#launchhead h1 { font: 400 24px var(--serif); margin: 0 0 2px; }
+#launchmsg { padding: 6px 0; margin-bottom: 8px; border-bottom: 1px solid var(--navy); font-weight: 600; overflow-wrap: anywhere; }
+#models { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 22px 20px; margin-top: 16px; align-items: start; }
+.mtile { display: block; width: 100%; text-align: left; background: var(--white); border: 1px solid var(--navy); padding: 12px 14px 10px; cursor: default; }
+.mtile:hover { background: #fbf8f2; }
+.mtile:focus-visible { outline: 2px solid var(--navy); outline-offset: 1px; }
+.mname { font: 400 19px/1.2 var(--serif); margin: 0 0 3px; overflow-wrap: anywhere; }
+.mdir { font: 11px var(--mono); color: var(--slate); overflow-wrap: anywhere; margin: 0 0 6px; }
+.mlink { display: block; font-size: 12px; margin: 0 0 6px; overflow-wrap: anywhere; }
+.mgit, .mreview, .mopened { font-size: 12px; margin: 2px 0; overflow-wrap: anywhere; }
+.mbtns { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 6px; }
+.newtile { min-height: 120px; background: transparent; border: 1px dashed var(--navy); font: 400 17px var(--serif); text-align: center; padding: 0; }
+.newtile:hover { background: var(--white); }
+#dialog .lab { font: 600 11px var(--sans); text-transform: uppercase; letter-spacing: .05em; color: var(--slate); margin: 6px 0 2px; }
+#dialog .inlinerow { display: flex; gap: 8px; }
+#dialog .inlinerow input { flex: 1; min-width: 0; }
+#dialog .okline { margin: 2px 0; font-weight: 600; }
+#dialogprogress p { margin: 1px 0; }
+#dialog .small { font-size: 11px; }
+#dialog #usedefault { display: block; margin-top: 4px; }
+#changedfiles { max-height: 190px; overflow-y: auto; border: 1px solid var(--rule); background: var(--white); padding: 4px 8px; margin: 2px 0 6px; }
+.cfile { display: flex; gap: 12px; font: 12px/1.5 var(--mono); }
+.cstate { flex: none; width: 70px; color: var(--slate); }
+.cpath { min-width: 0; overflow-wrap: anywhere; }
+.pushck { margin: 8px 0 2px; }

@@ -1,0 +1,8 @@
+.venv/
+__pycache__/
+real-data/
+review/.cache/
+review/**/log.jsonl
+review/model/chat.jsonl
+review/drafts/
+review/requests/

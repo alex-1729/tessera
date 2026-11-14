@@ -184,7 +184,7 @@ function createHandlers(svc, turn) {
           };
         }),
         cases: casesDoc.cases.map(c => ({ id: c.id, name: c.name, purpose: c.purpose })),
-        pending_signoff_requests: store.listRequests(svc.modelDir).filter(r => r.status === 'pending').map(r => ({ id: r.id, kind: r.kind, name: r.name })),
+        pending_signoff_requests: store.listRequests(svc.modelDir).filter(r => r.status === 'pending' && r.kind !== 'push').map(r => ({ id: r.id, kind: r.kind, name: r.name })),
       };
       action('Read the review status of the whole model.');
       return { text: JSON.stringify(out) };
@@ -342,6 +342,42 @@ function createHandlers(svc, turn) {
       return { text: 'The question is shown to the user. End your turn now with no further text; their next message is the answer.' };
     },
 
+    // Git. The tools can read the state and commit the model's own folder; there is no tool that pushes. A push is
+    // asked for with request_push and happens only when the user clicks Push on the card.
+    async git_status() {
+      let st;
+      try { st = await svc.git.status(svc.modelDir); } catch (e) { return { text: `git failed: ${e.message}`, isError: true }; }
+      if (!st.isRepo) return { text: 'The model folder is not a git repository of its own, so there is nothing to commit.', isError: true };
+      const shown = st.changed.slice(0, 80);
+      action('Read the git status of the model.');
+      return { text: [`Branch: ${st.branch || '(none)'}${st.upstream ? ` (tracking ${st.upstream})` : ''}`,
+        `Remote origin: ${st.remote || 'none'}`, `Commits not pushed: ${st.ahead}${st.behind ? `; behind origin by ${st.behind}` : ''}`,
+        st.changed.length ? `Changed files (${st.changed.length}):\n` + shown.map(c => `${c.state}: ${c.path}`).join('\n') + (st.changed.length > shown.length ? `\n... and ${st.changed.length - shown.length} more` : '') : 'No changed files.'].join('\n') };
+    },
+
+    async commit({ message } = {}) {
+      const w = waiting(); if (w) return w;
+      if (typeof message !== 'string' || !message.trim()) return { text: 'A commit message is required: one short factual sentence on what changed.', isError: true };
+      if (message.length > 500) return { text: 'The commit message is too long; keep it to a few lines.', isError: true };
+      let c;
+      try { c = await svc.git.commit(svc.modelDir, message); } catch (e) { return refuse(e.message); }
+      const sentence = `Committed ${c.files} file${c.files === 1 ? '' : 's'} (${c.hash}): ${c.subject}.`;
+      action(sentence);
+      return { text: `${sentence}\nFiles:\n${c.filesList.slice(0, 80).join('\n')}\nNothing was pushed. A push is the user's button: use request_push only if they asked to push.` };
+    },
+
+    async request_push() {
+      const w = waiting(); if (w) return w;
+      let st, commits;
+      try { st = await svc.git.status(svc.modelDir); commits = st.isRepo ? await svc.git.unpushed(svc.modelDir) : []; } catch (e) { return { text: `git failed: ${e.message}`, isError: true }; }
+      if (!st.isRepo) return { text: 'The model folder is not a git repository of its own.', isError: true };
+      if (!st.remote) return { text: 'This model has no remote called origin, so there is nothing to push to.', isError: true };
+      if (!st.branch) return { text: 'No branch is checked out.', isError: true };
+      if (!commits.length) return { text: 'Nothing to push: every commit is already on origin.', isError: true };
+      const req = svc.savePushRequestEvent({ id: store.newRequestId(), kind: 'push', name: 'push', branch: st.branch, remote: st.remote, commits, scope, at: store.now(), status: 'pending' });
+      return { text: `A push request for ${req.branch} (${commits.length} commit${commits.length === 1 ? '' : 's'}) is now shown to the user with Push and Not now buttons. Nothing is pushed: only their click pushes, and you must not say it was pushed.` };
+    },
+
     async add_input_request({ description, kind }) {
       const w = waiting(); if (w) return w;
       turn.asked = true;
@@ -355,6 +391,9 @@ function createHandlers(svc, turn) {
 // ---------------------------------------------------------------- SDK wrappers
 
 const DESCRIPTIONS = {
+  git_status: 'Read only: the model folder\'s git branch, remote, commits not pushed and changed files.',
+  commit: 'Commit the open model\'s changed files locally (git add -A, then commit; .gitignore is respected and files outside the model are never touched). Only when the user asked for a commit in this message or as part of the task they set. `message` is a short factual sentence on what changed. Never pushes.',
+  request_push: 'Show the user a push request (branch, remote and the commits not yet pushed) with Push and Not now buttons. Only when the user asked to push or to commit-and-push. Pushes nothing: only their click does.',
   get_selection: 'One item in detail: by default the selection; pass `tile` or `module` to read another item (read only). For a tile: its graph entry, source, review status, neighbours, the cases, and the values of its inputs and output for the default case, months 1 to 12. For a module: its tiles and specs. For the model: modules, parameters, inputs, states and cases. Call it at the start and after changes.',
   model_overview: 'Review progress of the whole model in one call: status counts, every module with its tiles and their states and blockers, the model\'s blockers, the cases, and pending sign-off requests. Use it for "what is left to review?" and similar questions.',
   read_trace: 'Values of up to 12 quantities (any in the model) for one case over a range of months (default all, at most 120 rows), plus parameter values, summary values and branch counts. Use it to explain numbers.',
@@ -427,6 +466,9 @@ function sdkTools(sdk, z, handlers) {
     t('request_signoff', { kind: kind3, name: z.string().optional().describe('tile or module name; omit for the model') }),
     t('request_reconfirm', { module: z.string().optional() }),
     t('rebuild', { kind: kind3.optional(), name: z.string().optional() }),
+    t('git_status', {}),
+    t('commit', { message: z.string().describe('a short factual commit message') }),
+    t('request_push', {}),
   ];
 }
 

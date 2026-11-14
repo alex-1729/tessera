@@ -248,6 +248,17 @@ def _base_case():
     }
 
 
+GITIGNORE = """.venv/
+__pycache__/
+real-data/
+review/.cache/
+review/**/log.jsonl
+review/model/chat.jsonl
+review/drafts/
+review/requests/
+"""
+
+
 def init_model(directory, name, package=None):
     """Create a new model directory; returns {"created", "package", "next"}."""
     if not name or not str(name).strip():
@@ -276,6 +287,7 @@ def init_model(directory, name, package=None):
         "tests/conftest.py": CONFTEST_SOURCE,
         "tests/test_model.py": TEST_MODEL_SOURCE,
         "review/.gitkeep": "",
+        ".gitignore": GITIGNORE,
     }
     for relative, text in files.items():
         path = target / relative

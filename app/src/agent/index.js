@@ -11,7 +11,8 @@ const scaffold = require('./scaffold');
 const signoff = require('./signoff');
 const { systemPrompt, turnPreamble } = require('./prompt');
 const { createHandlers, sdkTools } = require('./tools');
-const { findUv } = require('../tilekit');
+const { findUv, defaultProject } = require('../tilekit');
+const gitMod = require('../git');
 
 const DEFAULT_MODEL = 'claude-sonnet-5-5';
 const STRONG_MODEL = 'claude-opus-5-5';
@@ -110,7 +111,12 @@ const SCAFFOLD_KINDS = new Set(['params', 'inputs', 'cases']);
 const FORBIDDEN_FOR_TOOLS = new Set(['signoff', 'reconfirm']);
 
 // The parts of a sign-off request the window shows (no stamps or scope).
+function publicPush(r) {
+  return { id: r.id, kind: 'push', name: 'push', branch: r.branch, remote: r.remote, commits: r.commits, status: r.status };
+}
+
 function publicRequest(r) {
+  if (r.kind === 'push') return publicPush(r);
   const out = { id: r.id, kind: r.kind, name: r.name, label: r.label, spec: r.spec, formula: r.formula, assumed: r.assumed,
     cases: r.cases, blockers: r.blockers, values_only: r.values_only, status: r.status };
   if (r.checks) out.checks = r.checks;
@@ -126,7 +132,7 @@ function createAgentService(options) {
   if (!modelDir || !tilekit) throw new Error('createAgentService needs modelDir and tilekit.');
   const modelName = options.modelName || DEFAULT_MODEL;
   const runPytest = options.runPytest === undefined
-    ? defaultPytest({ modelDir, project: options.pythonProject || modelDir }) : options.runPytest;
+    ? defaultPytest({ modelDir, project: options.pythonProject || defaultProject(repoRoot || path.resolve(__dirname, '..', '..', '..')) }) : options.runPytest;
   let active = null; // {controller, scope, started}
   const notes = []; // what happened outside the chat since the model's last turn (confirmations, drafts accepted)
   const totals = { turns: 0, cost_usd: 0, last: null };
@@ -158,6 +164,17 @@ function createAgentService(options) {
 
   const svc = {
     modelDir, repoRoot, tilekit: toolTilekit, confirm, runPytest, emitEvent, inputRequestOpen,
+    // what the tools may do with git: read and commit. Pushing is not here; see confirmPush.
+    git: { status: d => (options.git || gitMod).status(d), unpushed: d => (options.git || gitMod).unpushed(d), commit: (d, m) => (options.git || gitMod).commit(d, m) },
+    savePushRequestEvent(req) {
+      for (const old of store.listRequests(modelDir)) {
+        if (old.status === 'pending' && old.kind === 'push') { old.status = 'superseded'; old.superseded_by = req.id; store.saveRequest(modelDir, old); }
+      }
+      store.saveRequest(modelDir, req);
+      const n = req.commits.length;
+      emitEvent(req.scope, { type: 'push_request', text: `Push ${n} commit${n === 1 ? '' : 's'} on ${req.branch} to GitHub? Click Push to do it.`, request: publicPush(req) });
+      return req;
+    },
     saveDraftEvent(draft) {
       store.saveDraft(modelDir, draft);
       emitEvent(draft.scope, { type: 'draft', text: draft.summary, draft: { id: draft.id, kind: draft.kind, items: draft.items, warnings: draft.warnings || [], result: draft.result, ...(draft.module ? { module: draft.module } : {}) } });
@@ -390,6 +407,7 @@ function createAgentService(options) {
     // The reviewer's click on a sign-off request. Never reachable from the model's tools.
     async confirmSignoff(id, { reviewer, comment, valuesOnlyReason } = {}) {
       const req = store.loadRequest(modelDir, id);
+      if (req.kind === 'push') throw new Error('That is a push request, not a sign-off request.');
       const scope = req.scope || { level: 'model', id: 'model' };
       const refuse = (error, expire) => {
         if (expire) { req.status = 'expired'; req.reason = error; store.saveRequest(modelDir, req); }
@@ -417,6 +435,7 @@ function createAgentService(options) {
 
     declineSignoff(id) {
       const req = store.loadRequest(modelDir, id);
+      if (req.kind === 'push') throw new Error('That is a push request, not a sign-off request.');
       if (req.status !== 'pending') throw new Error(`This sign-off request is already ${req.status}.`);
       const scope = req.scope || { level: 'model', id: 'model' };
       req.status = 'declined';
@@ -426,6 +445,50 @@ function createAgentService(options) {
       doneEvent(scope, true);
       notes.push(`The reviewer declined the sign-off request for ${req.kind === 'reconfirm' ? 're-confirmation' : req.name}; nothing was signed.`);
       return { declined: true, request: publicRequest(req) };
+    },
+
+    // The user's click on a push request. Never reachable from the model's tools. Pushes the current branch to
+    // origin (never forced), but only if the request is still what the user was shown.
+    async confirmPush(id) {
+      const req = store.loadRequest(modelDir, id);
+      if (req.kind !== 'push') throw new Error('That is not a push request.');
+      const scope = req.scope || { level: 'model', id: 'model' };
+      const refuse = (error, expire) => {
+        if (expire) { req.status = 'expired'; req.reason = error; store.saveRequest(modelDir, req); }
+        emitEvent(scope, { type: 'error', text: error });
+        doneEvent(scope, false);
+        notes.push(`The user clicked Push but it was refused: ${error}`);
+        return { pushed: false, error, request: publicPush(req) };
+      };
+      if (req.status !== 'pending') return refuse(`This push request is already ${req.status}.`, false);
+      if (active) return refuse('Wait for the agent to finish before pushing.', false);
+      let st;
+      try { st = await (options.git || gitMod).status(modelDir); } catch (e) { return refuse(`Not pushed: ${e.message}`, false); }
+      if (!st.isRepo || st.branch !== req.branch || st.remote !== req.remote) return refuse('Not pushed: the branch or remote changed since this was asked.', true);
+      let r;
+      try { r = await (options.git || gitMod).push(modelDir); } catch (e) { return refuse(`Not pushed: ${e.message}`, false); }
+      req.status = 'confirmed';
+      req.confirmed_at = store.now();
+      store.saveRequest(modelDir, req);
+      const text = `Pushed to ${r.remote}.`;
+      emitEvent(scope, { type: 'action', text });
+      doneEvent(scope, true);
+      notes.push(`The user clicked Push: ${text}`);
+      return { pushed: true, text, request: publicPush(req) };
+    },
+
+    declinePush(id) {
+      const req = store.loadRequest(modelDir, id);
+      if (req.kind !== 'push') throw new Error('That is not a push request.');
+      if (req.status !== 'pending') throw new Error(`This push request is already ${req.status}.`);
+      const scope = req.scope || { level: 'model', id: 'model' };
+      req.status = 'declined';
+      req.declined_at = store.now();
+      store.saveRequest(modelDir, req);
+      emitEvent(scope, { type: 'action', text: 'Not pushed.' });
+      doneEvent(scope, true);
+      notes.push('The user declined the push request; nothing was pushed.');
+      return { declined: true, request: publicPush(req) };
     },
 
     async buildModule(moduleId) {
@@ -475,4 +538,4 @@ function createAgentService(options) {
   };
 }
 
-module.exports = { createAgentService, readGuard, publicRequest, DEFAULT_MODEL, STRONG_MODEL, NOT_SIGNED_IN };
+module.exports = { createAgentService, defaultPytest, readGuard, publicRequest, publicPush, DEFAULT_MODEL, STRONG_MODEL, NOT_SIGNED_IN };
