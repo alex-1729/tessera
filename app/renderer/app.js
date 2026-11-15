@@ -3,6 +3,9 @@ import * as L from './logic.js';
 import { createGrid } from './grid.js';
 import { tileView, moduleView, modelView } from './views.js';
 import * as agent from './agentlog.js';
+import { initResize } from './resize.js';
+import { draftView } from './draftview.js';
+initResize();
 import * as RD from './real.js';
 import { createSpecLine } from './specline.js';
 import { createTrace } from './trace.js';
@@ -50,9 +53,16 @@ async function refresh() {
     const [graph, status, cases, q] = await Promise.all([api.tk('graph'), api.tk('status'), api.tk('cases'), api.tk('queue').catch(() => null)]);
     const runs = status.runs && status.runs.count > 0 ? await api.tk('runs') : { runs: [] };
     S.drafts = api.agent ? ((await api.agent.drafts().catch(() => [])) || []).filter(d => d.status === 'proposed') : [];
+    // The tooling reports review status only for modules that have tiles. A module that is still empty (just
+    // scaffolded) gets a plain entry here so the views can draw it; it has nothing to build or sign off yet.
+    for (const m of graph.modules) {
+      if (!status.modules[m.id]) status.modules[m.id] = { state: 'empty', empty: true, drift: null, workbook_current: true, workbook: null,
+        tiles_total: 0, tiles_signed_off: 0, stale: 0, unbuilt: 0, checks: [], new_cases: [], signed_off: null, blockers: ['This module has no tiles yet.'] };
+    }
     S.graph = graph; S.status = status; S.queue = q; S.cases = Array.isArray(cases) ? cases : (cases.cases || []);
     S.runs = runs.runs || [];
     S.loadError = null;
+    void paintGit();
     if (S.real && !S.runs.some(r => r.name === S.real.run)) S.real = null;
     await RD.loadPolicies(S, api);
   } catch (e) { S.loadError = e.message; }   // keep the last good state on screen
@@ -127,12 +137,25 @@ function setSectionOpen(key, on) {
 // ---------------------------------------------------------------- the centre pane: Spreadsheet, Code, Test
 
 const levelNow = () => { const v = parseRoute().view; return v === 'tile' || v === 'module' ? v : 'model'; };
+// A draft waiting for approval takes the centre (the Draft tab) when it arrives; choosing another tab puts it aside.
+let draftOpen = false;
+const draftsSeen = new Set();
+function noteDrafts() {
+  const fresh = (S.drafts || []).filter(d => d.kind !== 'what_if' && !draftsSeen.has(d.id));
+  for (const d of fresh) draftsSeen.add(d.id);
+  if (fresh.length) draftOpen = true;
+  if (!approvable().length) draftOpen = false;
+}
+const approvable = () => (S.drafts || []).filter(d => d.kind !== 'what_if');
 function centreOf(level) {
+  if (draftOpen && approvable().length) return 'draft';
   const c = (settings.centre || {})[level];
   return c === 'code' || (c === 'test' && level === 'tile') ? c : 'spreadsheet';
 }
 function setCentre(seg) {
   const level = levelNow();
+  if (seg === 'draft') { draftOpen = approvable().length > 0; void paintCentre(); return; }
+  draftOpen = false;
   if (!SEGS.includes(seg) || (seg === 'test' && level !== 'tile')) return;
   settings.centre = { ...(settings.centre || {}), [level]: seg };
   api.setSetting('centre', settings.centre).catch(() => {});
@@ -140,22 +163,58 @@ function setCentre(seg) {
 }
 // The grid stays alive under the code pane: only the pane in front changes, so coming back is instant.
 async function paintCentre() {
+  noteDrafts();
   const route = parseRoute(), level = levelNow(), seg = centreOf(level);
+  const n = approvable().length;
+  $('seg-draft').hidden = !n; $('seg-draft').textContent = n > 1 ? `Draft to approve (${n})` : 'Draft to approve';
   for (const b of document.querySelectorAll('button.seg')) b.setAttribute('aria-selected', String(b.dataset.seg === seg));
   $('seg-test').hidden = level !== 'tile';
   $('codewrap').hidden = seg === 'spreadsheet';
+  if (seg === 'draft') {
+    // a draft that could not be applied says why (the model's files are put back as they were)
+    const done = async fn => {
+      const r = await fn;
+      if (r && r.accepted === false) throw new Error((r.actions || []).join(' ') || 'The draft was not applied.');
+      await refresh(); await render();
+    };
+    $('codewrap').replaceChildren(draftView(approvable(), {
+      accept: id => done(api.agent.acceptDraft(id)), discard: id => done(api.agent.discardDraft(id)) }));
+    $('codewrap').scrollTop = 0;
+    return;
+  }
   if (seg === 'spreadsheet' || !S.graph || !S.status) return;
   try {
-    await paintSource($('codewrap'), { seg, level, id: route.id, S, api, changed: codeWas, busy: () => S.busy || working > 0 || agent.isBusy(), repaint: paintCentre });
+    await paintSource($('codewrap'), { seg, level, id: route.id, S, api, changed: codeWas, busy: () => S.busy || working > 0 || agent.isBusy(), repaint: paintCentre,
+      build: api.agent ? name => { void agent.send(`Build the tile ${name}.`); } : null,
+      askTests: api.agent ? (name, kinds, extra) => { void agent.send(`Propose more tests for the tile ${name} with propose_tests.${kinds.length ? ` Kinds wanted: ${kinds.join('; ')}.` : ''}${extra ? ` Also: ${extra}` : ''}`); } : null });
   } catch (e) { $('codewrap').replaceChildren(h('p', { class: 'grey' }, 'Could not show this: ' + e.message)); }
 }
 function trackCode() {
   for (const [n, q] of Object.entries((S.graph && S.graph.quantities) || {})) {
     if (q.kind !== 'tile' || !q.source) continue;
     const prev = codeMem.get(n);
-    if (prev && prev.code !== q.source.code) codeWas.set(n, prev);
+    // the comparison is against what the reviewer last acknowledged: several edits in a row add up, and an edit
+    // that puts the code back as it was leaves nothing to show
+    if (prev && prev.code !== q.source.code && !codeWas.has(n)) codeWas.set(n, prev);
+    if (codeWas.has(n) && codeWas.get(n).code === q.source.code) codeWas.delete(n);
     codeMem.set(n, { code: q.source.code, line: q.source.line });
   }
+}
+
+// ---------------------------------------------------------------- uncommitted work
+// One line in the top bar whenever the open model has work that is not committed or not pushed. It only reads git;
+// the button opens the same Commit and push dialog as the launch page, and nothing is committed without it.
+async function paintGit() {
+  const el = $('gitline');
+  if (!openModel || !openModel.id) { el.hidden = true; return; }
+  let info = null;
+  try { info = await api.launch.commitInfo(openModel.id); } catch { info = null; }
+  if (!info || !info.isRepo) { el.hidden = true; return; }
+  const n = (info.changed || []).length, ahead = info.ahead || 0;
+  const bits = [n ? `${n} file${n === 1 ? '' : 's'} not committed` : '', ahead && info.remote ? `${ahead} commit${ahead === 1 ? '' : 's'} not pushed` : ''].filter(Boolean);
+  el.hidden = !bits.length;
+  el.textContent = bits.length ? `${bits.join(', ')}  ·  ${n ? 'Commit…' : 'Push…'}` : '';
+  el.classList.toggle('quiet', !n);
 }
 
 // ---------------------------------------------------------------- render
@@ -413,6 +472,7 @@ async function boot() {
   $('rightbar').insertBefore(agent.unavailable, $('rightstrip'));
   agent.onLogChange(paintStrips);
   for (const b of document.querySelectorAll('button.seg')) b.addEventListener('click', () => setCentre(b.dataset.seg));
+  $('gitline').addEventListener('click', () => { if (openModel && openModel.id) void commitDialog(openModel.id, async () => { await paintGit(); }); });
   // Cmd/Ctrl+1, 2, 3 choose Spreadsheet, Code, Test (the View menu has the same items)
   window.addEventListener('keydown', e => {
     if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey || !['1', '2', '3'].includes(e.key)) return;

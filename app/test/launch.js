@@ -241,6 +241,28 @@ function copyExample(dst) {
   check('back on A: only A\'s conversation is shown', lA.some(l => /Question in model A/.test(l)) && !lA.some(l => /seeded model/.test(l)), JSON.stringify(lA));
   check('the seeded model\'s conversation is in its own folder and stays out of git', fs.existsSync(path.join(C, 'review/model/chat.jsonl')) && git(C, 'status', '--porcelain').split('\n').every(l => !/chat\.jsonl|log\.jsonl/.test(l)));
 
+  // ------------------------------------------------------------ conversations (the real service, on model A's files)
+  {
+    const chatFile = path.join(A, 'review/model/chat.jsonl'), chatsDir = path.join(A, 'review/model/chats');
+    const first = fs.readFileSync(chatFile, 'utf8');
+    const l1 = ctl.agent.conversations();
+    check('conversations: the one on show is listed with its first line and message count', l1.length === 1 && l1[0].current && l1[0].title === 'Question in model A?' && l1[0].messages === 1, JSON.stringify(l1));
+    const l2 = ctl.agent.newConversation();
+    const kept = fs.existsSync(chatsDir) ? fs.readdirSync(chatsDir).filter(n => n.endsWith('.jsonl')) : [];
+    check('conversations: a new one moves the old file aside unchanged, and the folder ignores itself in git', !fs.existsSync(chatFile) && kept.length === 1 && fs.readFileSync(path.join(chatsDir, kept[0]), 'utf8') === first
+      && l2.length === 1 && !l2[0].current && fs.readFileSync(path.join(chatsDir, '.gitignore'), 'utf8') === '*\n' && !/chats/.test(git(A, 'status', '--porcelain')), JSON.stringify(l2));
+    check('conversations: a new one with nothing said makes no second copy', ctl.agent.newConversation().length === 1);
+    await ctl.agent.handlersFor({ level: 'model', id: 'model' }).ask_user({ question: 'Second conversation?' });
+    const oldId = l2[0].id;
+    const l3 = ctl.agent.openConversation(oldId);
+    check('conversations: opening the earlier one swaps the two', fs.readFileSync(chatFile, 'utf8') === first && l3.length === 2 && l3[0].current && l3[0].title === 'Question in model A?' && l3[1].title === 'Second conversation?', JSON.stringify(l3));
+    const l4 = ctl.agent.deleteConversation(l3[1].id);
+    check('conversations: deleting an earlier one removes only its file', l4.length === 1 && l4[0].current && fs.readFileSync(chatFile, 'utf8') === first && fs.readdirSync(chatsDir).filter(n => n.endsWith('.jsonl')).length === 0);
+    let refused = ''; try { ctl.agent.deleteConversation('../chat'); } catch (e) { refused = e.message; }
+    check('conversations: an id that is not a conversation is refused', /Unknown conversation/.test(refused), refused);
+    check('conversations: the audit trail of the model is untouched', fs.readFileSync(path.join(A, 'review/model/log.jsonl'), 'utf8').includes('Question in model A?'));
+  }
+
   // ------------------------------------------------------------ 6. real-data folder per model
   const RD = path.join(tmp, 'real-data-A');
   ctl.win.webContents.send('menu', 'modelSettings');

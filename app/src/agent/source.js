@@ -16,6 +16,29 @@ function normaliseCode(code) {
   return lines.map(l => l.replace(/\s+$/, '')).join('\n');
 }
 
+// The description paragraph of a tile's docstring (between the label and the first key line), or '' if there is none.
+function tileDescription(code) {
+  const m = /("""|''')([\s\S]*?)\1/.exec(code);
+  if (!m) return '';
+  const lines = m[2].split('\n').map(l => l.trim());
+  const rest = lines.slice(1);
+  const key = rest.findIndex(l => /^(Units|Timing|Format|Assumed|Status)\s*:/.test(l));
+  return (key < 0 ? rest : rest.slice(0, key)).join(' ').replace(/\s+/g, ' ').trim();
+}
+
+// House standard (app/standards/writing-tiles.md): the description is one or two plain sentences and never restates
+// the formula. Returns the problems, for the tile-writing tool to send back.
+function descriptionProblems(code) {
+  const d = tileDescription(code);
+  if (!d) return [];
+  const problems = [];
+  const sentences = d.split(/(?<=[.!?])\s+(?=[A-Z(])/).filter(s => s.trim());
+  if (sentences.length > 2) problems.push(`The description in the docstring has ${sentences.length} sentences; the house standard is one, or two when the tile has branches or a boundary. Say what the quantity is and stop.`);
+  const symbols = [/\*\*|\^/, /\b\w+\s*\([^)]*\)\s*[-+*/]/, /[=<>]=?\s*[\w(]/, /\b(np|tk)\.\w+/, /\(\s*1\s*[-+]\s*\w+/, /\b\w+_\w+\s*[-+*/]\s*\w+_\w+/];
+  if (symbols.some(re => re.test(d))) problems.push('The description in the docstring restates the formula. Describe the quantity in words only; the return line and the spreadsheet show the formula, and a convention belongs in an Assumed: line.');
+  return problems;
+}
+
 // Problems with a replacement for tile `name`: it must be exactly one top-level `def name(...)`.
 function tileCodeProblems(name, code) {
   const problems = [];
@@ -39,6 +62,7 @@ function tileCodeProblems(name, code) {
     problems.push('Remove the `Status: not built` line from the docstring now that the tile is implemented.');
   }
   if (!/"""|'''/.test(code)) problems.push('The function needs its docstring (label, spec, Units, Timing, Format, Assumed lines).');
+  problems.push(...descriptionProblems(code));
   return problems;
 }
 
@@ -170,6 +194,6 @@ function insertModuleToml(tomlText, mod) {
 }
 
 module.exports = {
-  FORMATS, SNAKE, normaliseCode, tileCodeProblems, spliceFunction, skeleton, appendFunctions,
+  FORMATS, SNAKE, normaliseCode, tileCodeProblems, tileDescription, descriptionProblems, spliceFunction, skeleton, appendFunctions,
   ensureNumpyImport, tomlModules, tomlPackage, insertModuleToml, wrap,
 };

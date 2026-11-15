@@ -1,6 +1,6 @@
 'use strict';
 // Draft validation and graph helpers (pure functions of the `tilekit graph` / `status` documents).
-const { FORMATS, SNAKE } = require('./source');
+const { FORMATS, SNAKE, descriptionProblems } = require('./source');
 
 const WORDS = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'];
 const count = (n, one, many = one + 's') => `${n < WORDS.length ? WORDS[n] : n} ${n === 1 ? one : many}`;
@@ -64,11 +64,28 @@ function hasCycle(deps) {
   return Object.keys(deps).some(visit);
 }
 
-function validateTileDraft(graph, moduleId, items) {
+// `states` are the carried-forward states the draft's tiles need: [{name, from, initial, label, format}]. A state
+// takes next month's value from its `from` tile, which must be a tile in the draft or in the model already.
+function validateTileDraft(graph, moduleId, items, states = []) {
   const problems = [];
   const warnings = [];
   const q = graph.quantities;
   const names = new Set();
+  const stateNames = new Set();
+  for (const st of states || []) {
+    const n = st.name;
+    if (!SNAKE.test(n || '')) { problems.push(`'${n}' is not a snake_case name for a state.`); continue; }
+    if (stateNames.has(n)) problems.push(`State ${n} appears twice in the draft.`);
+    stateNames.add(n);
+    if (q[n]) problems.push(`${n} already exists as a ${q[n].kind}; names are unique across the model.`);
+    if ((items || []).some(it => it.name === n)) problems.push(`${n} is proposed both as a tile and as a state.`);
+    if (!st.label || !String(st.label).trim()) problems.push(`State ${n} needs a plain-English label.`);
+    if (!FORMATS.includes(st.format)) problems.push(`State ${n} has format '${st.format}'; use one of ${FORMATS.join(', ')}.`);
+    if (typeof st.initial !== 'number' || !Number.isFinite(st.initial)) problems.push(`State ${n} needs a number for its value in month 1 (initial).`);
+    const from = st.from;
+    const fromTile = (items || []).some(it => it.name === from) || (q[from] && q[from].kind === 'tile');
+    if (!fromTile) problems.push(`State ${n} takes its value from '${from}', which is not a tile in the model or in this draft. Propose that tile in the same draft.`);
+  }
   if (!Array.isArray(items) || !items.length) problems.push('The draft has no tiles.');
   for (const it of items || []) {
     const n = it.name;
@@ -83,6 +100,7 @@ function validateTileDraft(graph, moduleId, items) {
     }
     if (!it.label || !String(it.label).trim()) problems.push(`${n} needs a plain-English label.`);
     if (!it.spec || !String(it.spec).trim()) problems.push(`${n} needs a one-line spec.`);
+    else for (const pr of descriptionProblems(`"""x.\n\n${it.spec}\n\nUnits: x\n"""`)) problems.push(`${n}: ${pr.replace('The description in the docstring', 'the spec')}`);
     if (!FORMATS.includes(it.format)) problems.push(`${n} has format '${it.format}'; use one of ${FORMATS.join(', ')}.`);
     if (it.format === 'rate' && !/_(pa|pm)$/.test(n)) warnings.push(`${n} is a rate; its name should end _pa or _pm.`);
     if (/end of month/i.test(it.timing || '') && !/_eop$/.test(n)) warnings.push(`${n} is an end-of-month quantity; its name should end _eop.`);
@@ -94,8 +112,9 @@ function validateTileDraft(graph, moduleId, items) {
   for (const it of items || []) {
     for (const a of it.args || []) {
       if (a === it.name) problems.push(`${it.name} cannot read itself; carry it forward with a state instead.`);
-      else if (!q[a] && !names.has(a)) {
+      else if (!q[a] && !names.has(a) && !stateNames.has(a)) {
         problems.push(`Argument '${a}' of ${it.name} is not a quantity in the model and is not proposed in this draft. ` +
+          `If it is last month's value of a tile (a carried-forward state such as ${/_bop$/.test(a) ? a : 'units_bop'}), add it to this same draft in \`states\`: {name, from: the tile it takes next month's value from, initial: its value in month 1, label, format}, and call propose_structure again. ` +
           'If it is a new parameter, input or tile in another module, ask the user to add it (add_input_request); do not invent it.');
       }
     }

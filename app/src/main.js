@@ -10,6 +10,8 @@ const git = require('./git');
 const { createModels, readName, isModelDir } = require('./models');
 const { registerLaunch } = require('./launch');
 const { createAgentService, DEFAULT_MODEL, STRONG_MODEL } = require('./agent');
+const { createTerminal, newToken } = require('./terminal');
+const { listSessions, deleteSession, SESSION_ID } = require('./sessions');
 
 // The app is called Tessera. Keep the settings folder where it already is: its name came from the old app name.
 app.setPath('userData', app.getPath('userData'));
@@ -296,6 +298,13 @@ async function start(options = {}) {
   // No scope: the whole conversation of the model. A scope: that selection's own history (older backends).
   ipcMain.handle('agent:history', wrap(async scope => (scope === undefined || scope === null) ? needAgent().history() : needAgent().history(await checkScope(scope))));
   ipcMain.handle('agent:drafts', wrap(() => needAgent().drafts()));
+  // Conversations. An agent without them (an older backend) has one conversation and nothing to list.
+  const chatId = id => { id = String(id); if (id !== 'current' && !/^c\d{14}-[0-9a-f]{6}$/.test(id)) throw new Error('Unknown conversation.'); return id; };
+  const hasChats = () => typeof needAgent().conversations === 'function';
+  ipcMain.handle('agent:conversations', wrap(() => (hasChats() ? needAgent().conversations() : null)));
+  ipcMain.handle('agent:newConversation', wrap(() => needAgent().newConversation()));
+  ipcMain.handle('agent:openConversation', wrap(id => needAgent().openConversation(chatId(id))));
+  ipcMain.handle('agent:deleteConversation', wrap(id => needAgent().deleteConversation(chatId(id))));
   ipcMain.handle('agent:requests', wrap(() => { const a = needAgent(); return typeof a.requests === 'function' ? a.requests() : []; }));
   ipcMain.handle('agent:acceptDraft', wrap(id => { if (!SLUG.test(String(id))) throw new Error('Invalid draft id.'); return needAgent().acceptDraft(String(id)); }));
   ipcMain.handle('agent:discardDraft', wrap(id => { if (!SLUG.test(String(id))) throw new Error('Invalid draft id.'); return needAgent().discardDraft(String(id)); }));
@@ -336,9 +345,79 @@ async function start(options = {}) {
     if (!agent || options.agentStub) return;
     for (const b of agent.status().busy) { try { agent.interrupt(b.scope); } catch { /* ignore */ } }
     agent = makeAgent();
+    if (term && term.running) { term.stop(); sendWin('term:exit', { code: 0, restart: true }); }
   };
 
-  const started = await startServer({ gridcraftDir: path.join(REPO_ROOT, 'vendor/gridcraft/web'), rendererDir: path.join(APP_DIR, 'renderer') });
+  // ---- Claude Code in the chat pane. The app's own chat stays for tests and as a fallback (settings.chatMode = "builtin").
+  const termOn = () => !!agent && !options.agentStub && typeof agent.cliTools === 'function'
+    && (options.terminal === true || (!process.env.APP_NO_AUTOSTART && settings.chatMode !== 'builtin'));
+  const bridgeToken = newToken();
+  let term = null;
+  let shownSession = null;   // the Claude Code conversation in the pane, once known (its hooks say which)
+  let nextResume;            // what the next start of the pane resumes: undefined = the latest, false = a new one, an id = that one
+  const sendWin = (ch, payload) => { if (win && !win.isDestroyed()) win.webContents.send(ch, payload); };
+  // The bridge script that Claude Code runs posts here: the tool list, each tool call, and the two hooks.
+  const bridge = (req, res) => {
+    const u = new URL(req.url, 'http://127.0.0.1');
+    if (!u.pathname.startsWith('/agent/')) return false;
+    const answer = (code, body) => { const d = Buffer.from(JSON.stringify(body)); res.writeHead(code, { 'content-type': 'application/json', 'content-length': d.length }); res.end(d); };
+    if (req.method !== 'POST' || req.headers['x-tessera-token'] !== bridgeToken) { answer(403, { error: 'Forbidden' }); return true; }
+    const chunks = []; let size = 0;
+    req.on('data', c => { size += c.length; if (size > 4e6) req.destroy(); else chunks.push(c); });
+    req.on('end', async () => {
+      try {
+        const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : {};
+        const a = needAgent();
+        if (u.pathname === '/agent/tools') return answer(200, { tools: await a.cliTools() });
+        if (u.pathname === '/agent/call') return answer(200, await a.cliCall(String(body.name), body.args && typeof body.args === 'object' ? body.args : {}));
+        if (/^\/agent\/hook\//.test(u.pathname) && typeof body.session_id === 'string' && SESSION_ID.test(body.session_id)) shownSession = body.session_id;
+        if (u.pathname === '/agent/hook/prompt') return answer(200, { text: a.cliPrompt() });
+        if (u.pathname === '/agent/hook/stop') return answer(200, { ok: a.cliStop() });
+        answer(404, { error: 'Not found' });
+      } catch (e) { answer(500, { error: String(e && e.message || e) }); }
+    });
+    return true;
+  };
+  ipcMain.on('term:available', e => { e.returnValue = termOn(); });
+  ipcMain.handle('term:start', wrap(size => {
+    if (!termOn()) throw new Error('The terminal is not available.');
+    const cols = Math.max(20, Math.min(400, Number(size && size.cols) || 80)), rows = Math.max(5, Math.min(200, Number(size && size.rows) || 24));
+    const resume = nextResume; nextResume = undefined;
+    if (!term.running) { const latest = listSessions(needDir())[0]; shownSession = typeof resume === 'string' ? resume : resume === false ? null : (latest ? latest.id : null); }
+    const r = term.start({ modelDir: needDir(), model: process.env.AGENT_MODEL || settings.agentModel || DEFAULT_MODEL, systemPrompt: agent.cliSystemPrompt(), cols, rows, resume });
+    // a window that reloaded has an empty screen: a resize makes Claude Code draw itself again
+    if (r.already) { term.resize(cols - 1, rows); setTimeout(() => term && term.resize(cols, rows), 60); }
+    return r;
+  }));
+  ipcMain.on('term:input', (_e, data) => { if (term && typeof data === 'string' && data.length <= 100000) term.input(data); });
+  ipcMain.on('term:resize', (_e, size) => { if (term && size) term.resize(Number(size.cols) | 0, Number(size.rows) | 0); });
+  ipcMain.handle('term:select', wrap(async scope => { const a = needAgent(); return typeof a.setSelection === 'function' ? a.setSelection(await checkScope(scope)) : null; }));
+  ipcMain.handle('term:restart', wrap(() => { if (term) term.stop(); return true; }));
+  // Claude Code's saved conversations for this model: list them, open one (the pane starts again on it), delete one
+  // (its transcript file is removed for good; deleting the one in the pane starts a new conversation).
+  const sessionList = () => listSessions(needDir()).map(c => ({ ...c, current: c.id === shownSession }));
+  const restartPane = resume => { nextResume = resume; term.stop(); sendWin('term:exit', { code: 0, restart: true }); };
+  const idleOnly = () => { if (agent && agent.status().busy.length) throw new Error('Wait for Claude Code to finish, or stop it with Esc, first.'); };
+  ipcMain.handle('term:sessions', wrap(() => sessionList()));
+  ipcMain.handle('term:openSession', wrap(id => {
+    id = String(id); if (!SESSION_ID.test(id)) throw new Error('Unknown conversation.');
+    idleOnly();
+    if (!listSessions(needDir()).some(c => c.id === id)) throw new Error('That conversation is no longer there.');
+    restartPane(id); shownSession = id;
+    return sessionList();
+  }));
+  ipcMain.handle('term:deleteSession', wrap(id => {
+    id = String(id); if (!SESSION_ID.test(id)) throw new Error('Unknown conversation.');
+    const shown = id === shownSession;
+    if (shown) { idleOnly(); term.stop(); }
+    deleteSession(needDir(), id);
+    if (shown) { shownSession = null; restartPane(false); }
+    return sessionList();
+  }));
+
+  const started = await startServer({ gridcraftDir: path.join(REPO_ROOT, 'vendor/gridcraft/web'), rendererDir: path.join(APP_DIR, 'renderer'),
+    roots: { '/xterm/': path.join(APP_DIR, 'node_modules', '@xterm') }, handler: bridge });
+  term = createTerminal({ appDir: APP_DIR, port: started.port, token: bridgeToken, send: sendWin });
   const server = started.server;
   port = started.port;
   await app.whenReady();
@@ -349,6 +428,8 @@ async function start(options = {}) {
     const full = path.resolve(String(dir));
     if (!fs.existsSync(path.join(full, 'tilekit.toml'))) throw new Error('That folder has no tilekit.toml, so it is not a model.');
     if (agent && !options.agentStub) for (const b of agent.status().busy) { try { agent.interrupt(b.scope); } catch { /* ignore */ } }
+    if (term) term.stop();
+    shownSession = null; nextResume = undefined;
     cfg.modelDir = full; cfg.fixtures = null;
     // everything that belongs to a model is re-pointed here: the runner (and its real-data folder), the file
     // watcher, the agent (one conversation per model), the settings entry and, below, the window
@@ -431,12 +512,12 @@ async function start(options = {}) {
   }
   armWatchers();
 
-  const shutdown = () => { watchers.forEach(w => { try { w.close(); } catch { /* ignore */ } }); clearTimeout(timer); try { server.close(); } catch { /* ignore */ } };
+  const shutdown = () => { if (term) term.stop(); watchers.forEach(w => { try { w.close(); } catch { /* ignore */ } }); clearTimeout(timer); try { server.close(); } catch { /* ignore */ } };
   win.on('closed', shutdown);
   app.on('window-all-closed', () => { shutdown(); app.quit(); });
 
   await win.loadURL(`http://127.0.0.1:${port}/app/index.html${cfg.modelDir ? '' : '#/launch'}`);
-  return { win, port, server, cfg, shutdown, run, settings, setSetting, switchModel, models, openModelDialog, get settingsFile() { return sFile; }, get agent() { return agent; } };
+  return { win, port, server, cfg, shutdown, run, settings, setSetting, switchModel, models, openModelDialog, bridgeToken, get settingsFile() { return sFile; }, get agent() { return agent; } };
 }
 
 module.exports = { start, safeWorkbookPath };

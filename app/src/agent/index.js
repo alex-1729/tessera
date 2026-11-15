@@ -9,6 +9,7 @@ const store = require('./store');
 const edits = require('./edits');
 const scaffold = require('./scaffold');
 const signoff = require('./signoff');
+const testsMod = require('./tests');
 const { systemPrompt, turnPreamble } = require('./prompt');
 const { createHandlers, sdkTools } = require('./tools');
 const { findUv, defaultProject } = require('../tilekit');
@@ -134,6 +135,8 @@ function createAgentService(options) {
   const runPytest = options.runPytest === undefined
     ? defaultPytest({ modelDir, project: options.pythonProject || defaultProject(repoRoot || path.resolve(__dirname, '..', '..', '..')) }) : options.runPytest;
   let active = null; // {controller, scope, started}
+  let selection = null;   // what the window has selected now (terminal mode: the scope of the next message)
+  let cliTurn = null;     // the running terminal turn's state, shared by its tool calls
   const notes = []; // what happened outside the chat since the model's last turn (confirmations, drafts accepted)
   const totals = { turns: 0, cost_usd: 0, last: null };
   let signedIn = null;
@@ -164,6 +167,8 @@ function createAgentService(options) {
 
   const svc = {
     modelDir, repoRoot, tilekit: toolTilekit, confirm, runPytest, emitEvent, inputRequestOpen,
+    // tell the window to open an item (not part of the conversation's record)
+    showInApp(route) { try { emit({ type: 'navigate', route, at: store.now() }); } catch { /* listener errors are theirs */ } },
     // what the tools may do with git: read and commit. Pushing is not here; see confirmPush.
     git: { status: d => (options.git || gitMod).status(d), unpushed: d => (options.git || gitMod).unpushed(d), commit: (d, m) => (options.git || gitMod).commit(d, m) },
     savePushRequestEvent(req) {
@@ -225,7 +230,7 @@ function createAgentService(options) {
           options: {
             cwd: modelDir,
             model: modelName,
-            systemPrompt: systemPrompt(),
+            systemPrompt: systemPrompt({ modelDir }),
             tools: ['Read', 'Glob', 'Grep'],
             mcpServers: { tiles: server },
             allowedTools: ['Read', 'Glob', 'Grep', 'mcp__tiles__*'],
@@ -353,6 +358,63 @@ function createAgentService(options) {
       return store.readLog(modelDir, store.checkScope(scopeIn)).filter(e => e.type !== 'session');
     },
 
+    // ---- Claude Code in the terminal pane (src/agent/cli-bridge.js speaks to these over the local server).
+    // The conversation is Claude Code's own; the tools, their scoping to the selection, drafts and sign-off requests
+    // are exactly the ones above. A turn runs from the prompt hook to the stop hook.
+    setSelection(scopeIn) { selection = store.checkScope(scopeIn); return selection; },
+    async cliTools() {
+      const { z } = await loadSdk();
+      const fake = { tool: (name, description, shape) => ({ name, description, inputSchema: z.toJSONSchema(z.object(shape)) }) };
+      return sdkTools(fake, z, {}).filter(t => t.name !== 'ask_user');
+    },
+    // The user sent a message in the terminal: a turn starts on the current selection. Returns the bracketed lines
+    // that tell the model what is selected and what happened in the app since its last message.
+    cliPrompt() {
+      const scope = selection || { level: 'model', id: 'model' };
+      cliTurn = { scope, batchModule: null, asked: false, approved: new Set(), writes: [], drafts: [] };
+      active = { controller: { abort() {} }, scope, started: Date.now(), cli: true };
+      try { emit({ type: 'turn_start', scope, at: store.now() }); } catch { /* listener errors are theirs */ }
+      return turnPreamble(scope, { notes: notes.splice(0) });
+    },
+    cliStop() {
+      if (!active || !active.cli) return false;
+      const scope = active.scope, ms = Date.now() - active.started;
+      active = null; cliTurn = null;
+      try { emit({ type: 'done', scope, text: '', ms, cost_usd: 0, num_turns: 0, usage: null, ok: true, at: store.now() }); } catch { /* theirs */ }
+      return true;
+    },
+    async cliCall(name, args) {
+      if (!cliTurn) this.cliPrompt();
+      const { z } = await loadSdk();
+      const handlers = createHandlers(svc, cliTurn);
+      let found = null;
+      sdkTools({ tool: (n, _d, _s, fn) => { if (n === name) found = fn; return null; } }, z, handlers);
+      if (!found || name === 'ask_user') return { content: [{ type: 'text', text: `There is no tool ${name}.` }], isError: true };
+      return found(args || {});
+    },
+    cliSystemPrompt() { return systemPrompt({ cli: true, modelDir }); },
+
+    // Conversations: the one on show and the earlier ones. None of these touch the review record (sign-offs, stamps,
+    // drafts, requests and the per-item audit trails stay as they are), and none can run while a turn is running.
+    conversations() {
+      return store.listChats(modelDir);
+    },
+    newConversation() {
+      if (active) throw new Error('Wait for the agent to finish, or stop it, before starting a new conversation.');
+      store.archiveChat(modelDir);
+      return store.listChats(modelDir);
+    },
+    openConversation(id) {
+      if (active) throw new Error('Wait for the agent to finish, or stop it, before opening another conversation.');
+      store.restoreChat(modelDir, String(id));
+      return store.listChats(modelDir);
+    },
+    deleteConversation(id) {
+      if (active) throw new Error('Wait for the agent to finish, or stop it, before deleting a conversation.');
+      store.deleteChat(modelDir, String(id));
+      return store.listChats(modelDir);
+    },
+
     drafts() {
       return store.listDrafts(modelDir);
     },
@@ -375,6 +437,8 @@ function createAgentService(options) {
           const rb = await edits.rebuildTarget(svc, { kind: 'model' });
           if (rb.built.length || rb.failures.length) r.actions.push(rb.sentence);
         }
+      } else if (draft.kind === 'tests') {
+        r = await testsMod.acceptTestsDraft(svc, draft);
       } else if (draft.kind === 'what_if') {
         const it = draft.items[0];
         if (!it.code) throw new Error('This what-if changes parameters; it is for information only and cannot be applied from here.');

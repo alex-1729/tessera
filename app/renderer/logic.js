@@ -88,6 +88,7 @@ export function tileSentence(S, name) {
 
 export function moduleSentence(S, id) {
   const m = S.status.modules[id];
+  if (m.empty) return 'No tiles yet.';
   if (m.state === 'signed_off') {
     const so = m.signed_off;
     return so ? `Signed off by ${so.reviewer} on ${fmtDate(so.at)}.` : 'Signed off.';
@@ -116,6 +117,7 @@ export const checkWord = c => c.stale ? 'not run since last change' : (c.pass ? 
 
 export function moduleMapWord(S, mod) {
   const m = S.status.modules[mod.id];
+  if (m.empty) return 'no tiles yet';
   if (m.state === 'signed_off') return 'signed off';
   if (m.state === 'stale') return 'stale';
   return `${m.tiles_signed_off} of ${m.tiles_total} tiles`;
@@ -169,7 +171,7 @@ export function moduleBlockers(S, id) {
 export function modelBlockers(S) {
   const v = verdict(S.status.model);
   if (v.known) return v.ok ? [] : (v.blockers.length ? v.blockers : ['Cannot be signed off.']);
-  return S.graph.modules.filter(m => S.status.modules[m.id].state !== 'signed_off')
+  return S.graph.modules.filter(m => !S.status.modules[m.id].empty && S.status.modules[m.id].state !== 'signed_off')
     .map(m => `Module ${m.title} is ${S.status.modules[m.id].state === 'stale' ? 'stale' : 'not signed off'}.`);
 }
 

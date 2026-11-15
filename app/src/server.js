@@ -26,9 +26,13 @@ function resolveInside(root, rel) {
   return file;
 }
 
-function startServer({ gridcraftDir, rendererDir }) {
+// `roots` adds more read-only folders ({'/prefix/': dir}); `handler(req, res)` gets each request first and returns true
+// when it has answered it (the terminal's bridge uses this for its POSTs).
+function startServer({ gridcraftDir, rendererDir, roots: more = {}, handler = null }) {
   const roots = { '/gridcraft/': path.resolve(gridcraftDir), '/app/': path.resolve(rendererDir) };
+  for (const [k, v] of Object.entries(more)) roots[k] = path.resolve(v);
   const server = http.createServer((req, res) => {
+    if (handler && handler(req, res)) return;
     if (req.method !== 'GET' && req.method !== 'HEAD') { res.statusCode = 405; return res.end(); }
     const u = new URL(req.url, 'http://127.0.0.1');
     const prefix = Object.keys(roots).find(p => u.pathname.startsWith(p));
