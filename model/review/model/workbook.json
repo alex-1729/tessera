@@ -1,14 +1,15 @@
 {
   "kind": "model",
   "name": "Unit-linked pricing",
-  "built_at": "2026-11-14T21:09:17+00:00",
+  "built_at": "2026-11-15T03:56:53+00:00",
   "stamp": {
     "code": "173ace42346b1352ea53afd6e5a2158b7c78c2aebd91656ea82e2120b6d7713c",
     "spec": "5e3972b6ac571c489e330f86116c8dd45a3daf883d7d32394b926ac2b0484dd3",
     "upstream": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "cases": "a42493b46f4e2e1d7ec9309bfd93f977df0cf13535b4eaf45c63ac35f8dc13dc",
     "params": "812034f1892d7390615060102f5c916d6d69193909bff8f65e2131436243fc32",
-    "translator": "85ca37244a9a88223a28309b6eb53ed0af322f2884af42ac6efc6eabe05d2f36"
+    "translator": "85ca37244a9a88223a28309b6eb53ed0af322f2884af42ac6efc6eabe05d2f36",
+    "layout": "3eba926eed01be4ba94187d8dc967dd2b34a47fb0aa19af038f02254b718cd79"
   },
   "workbook": "workbook.xlsx",
   "tolerance": 1e-09,
@@ -485,9 +486,9 @@
       "checks_pass": true
     }
   },
-  "content_digest": "1be93e3b7c54cf4e73c1b4a2be8f2491393b6f56e61dc1ac852afc713f2711be",
+  "content_digest": "3cbaf24167a9c1ebfc7dad8ce64538f429df35a817264ee281f97151ee6a3c87",
   "content_stat": {
-    "mtime_ns": 1794690557873169532,
-    "size": 175141
+    "mtime_ns": 1794715013219649655,
+    "size": 173500
   }
 }

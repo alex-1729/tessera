@@ -340,7 +340,7 @@ def test_stamps(make_model):
     before = {n: tile_stamp(model, n) for n in model.graph.order}
     module_before = module_stamp(model, "second")
     whole_before = model_stamp(model)
-    assert set(before["doubled"]) == {"code", "spec", "upstream", "cases", "params", "translator"}
+    assert set(before["doubled"]) == {"code", "spec", "upstream", "cases", "params", "translator", "layout"}
     assert all(len(v) == 64 for v in before["doubled"].values())
 
     package = next((root / "src").iterdir())

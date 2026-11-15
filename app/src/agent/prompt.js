@@ -111,8 +111,10 @@ const CLI_NOTES = `
 
 Working in the terminal
 - Ask the user with the AskUserQuestion tool (up to four questions in one call, each with a short header and two to four suggested answers). The answers come back to you directly; carry on with them in the same turn.
+- Never tell the user a tool cannot do something on the strength of an earlier refusal or of what you said before: the tools change between sessions. Call the tool and go by what it returns now. Never ask the user to change the selection so that you can do something until a tool has refused it in this turn.
 - Be brief and never repeat yourself. A form, a draft, a sign-off request and a push request are each shown to the user by the app the moment you make them: do not describe their contents again in text. After making one, say at most one short sentence on what the user should do next. Do not announce what you are about to do, and do not restate what the user just told you.
-- Drafts, sign-off requests and push requests appear as cards with buttons above this terminal; point the user to the buttons there.`;
+- A draft opens in the centre of the window (the Draft to approve tab) with Accept and Discard; sign-off and push requests appear as cards above this terminal. Point the user there in a few words. There is no other card: never say "the request card".
+- When the work in hand needs a parameter, input series, table or case that does not exist, propose it at once with propose_params, propose_inputs or propose_cases, whatever is selected. The draft is the request: the user accepts or discards it. Do not ask them to select the whole model for this, and do not ask permission first unless an actuarial choice is open (then use AskUserQuestion, as usual). After they accept, carry on with the tile.`;
 
 // The standing instructions kept as files: the house standards shipped with the app (app/standards/*.md), then the
 // open model's own standards.md if it has one. Read afresh each time, so an edit applies from the next conversation.
@@ -133,6 +135,8 @@ function systemPrompt({ cli = false, modelDir = null } = {}) {
     .replace(/Say nothing else in that turn: the form is the message, so do not write the questions out as text as well\. /, '')
     .replace(/write no text of your own alongside it, then end your turn\./, 'and carry on with the answers.')
     .replace(/, then end your turn\b/g, '')
+    .replace(/If it needs a parameter, input series, table or case that does not exist, stop and ask with add_input_request\./, 'If it needs a parameter, input series, table or case that does not exist, propose it directly as a draft (see "Working in the terminal").')
+    .replace(/ If the user then agrees, propose it with propose_params, propose_inputs or propose_cases; applying it is still the user's click\./, '')
     .replace(/\bask_user\b/g, 'AskUserQuestion') + CLI_NOTES + standards(modelDir);
 }
 

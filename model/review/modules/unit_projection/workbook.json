@@ -1,14 +1,15 @@
 {
   "kind": "module",
   "name": "unit_projection",
-  "built_at": "2026-11-14T21:09:14+00:00",
+  "built_at": "2026-11-15T03:56:50+00:00",
   "stamp": {
     "code": "e2f6433373e54a34299b03d1bfe418d345cfebdeb18ef91076c5e22c4884d0e6",
     "spec": "cdfb70e1374fe25a90a60f952e5ab04be4127c3bba1e325ad65fd132a9de0bac",
     "upstream": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "cases": "a42493b46f4e2e1d7ec9309bfd93f977df0cf13535b4eaf45c63ac35f8dc13dc",
     "params": "05fab2750280bae719ccdeae45603fce740d04232cbcda23e56fa79d7c849932",
-    "translator": "85ca37244a9a88223a28309b6eb53ed0af322f2884af42ac6efc6eabe05d2f36"
+    "translator": "85ca37244a9a88223a28309b6eb53ed0af322f2884af42ac6efc6eabe05d2f36",
+    "layout": "3eba926eed01be4ba94187d8dc967dd2b34a47fb0aa19af038f02254b718cd79"
   },
   "workbook": "workbook.xlsx",
   "tolerance": 1e-09,
@@ -227,7 +228,7 @@
   ],
   "content_digest": "d3170a18159ec9dbd041ae7f504d91dd0beb460ac725ca4b632772628013994c",
   "content_stat": {
-    "mtime_ns": 1794690554795059491,
+    "mtime_ns": 1794715010348136840,
     "size": 104570
   }
 }

@@ -2,14 +2,15 @@
   "kind": "tile",
   "name": "acquisition_expense",
   "module": "cashflows",
-  "built_at": "2026-11-15T03:22:54+00:00",
+  "built_at": "2026-11-15T03:56:48+00:00",
   "stamp": {
     "code": "84b55ef95f7846565844d41073a8fb2f551083c7cca0277741379acd1daec8d2",
     "spec": "24e171ae51eedcce415112724a00682ae721883056d90b732f116a6371757df2",
     "upstream": "2cab1b6e8865e274d97185b69ba9b1f15da737a649e4f7d1b6198e8020c349dd",
     "cases": "a42493b46f4e2e1d7ec9309bfd93f977df0cf13535b4eaf45c63ac35f8dc13dc",
     "params": "05fab2750280bae719ccdeae45603fce740d04232cbcda23e56fa79d7c849932",
-    "translator": "85ca37244a9a88223a28309b6eb53ed0af322f2884af42ac6efc6eabe05d2f36"
+    "translator": "85ca37244a9a88223a28309b6eb53ed0af322f2884af42ac6efc6eabe05d2f36",
+    "layout": "3eba926eed01be4ba94187d8dc967dd2b34a47fb0aa19af038f02254b718cd79"
   },
   "workbook": "workbook.xlsx",
   "formula": "=-{acquisition_cost_paid}*{in_force_bop}",
@@ -95,7 +96,7 @@
   },
   "content_digest": "ab40eff1993354d859f4ba1fe0cd8eadd6fa82a5d8a6446b4fb70664b6fb855d",
   "content_stat": {
-    "mtime_ns": 1794712974273544566,
+    "mtime_ns": 1794715008964629627,
     "size": 45757
   }
 }

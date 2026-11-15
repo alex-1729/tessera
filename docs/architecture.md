@@ -147,7 +147,7 @@ headline = ["in_force_eop"] # step quantities shown (at the last month) in `poli
 
 - `Params` is a frozen dataclass. Each field carries `metadata={"label": ..., "format": ..., "units": ...}`.
 - `build_inputs(model_points, params, months) -> dict[str, np.ndarray]`: the I/O and assumptions layers. `model_points` is a dict of 1-D arrays of length `n_pol` (one key per model-point field). Each returned series has shape `(months, 1, n_pol)`. This is the only place that reads tables or does lookups, and it runs once, before the loop.
-- `excel` on an input is an Excel template that replicates the series live on the model workbook's "Inputs" sheet: `{name}` is another input's cell in the same month, `{table:T.col}` the absolute range of a table column, and a bare identifier a parameter. Templates may read each other but not in a cycle. Inputs without `excel` are pasted values.
+- `excel` on an input is an Excel template that replicates the series live on the model workbook's "Inputs" sheet: `{name}` is another input's cell in the same month (the defined name of a per-policy constant, see "Workbooks and the house style"), `{table:T.col}` the absolute range of a table column, and a bare identifier a parameter. Templates may read each other but not in a cycle. Inputs without `excel` are pasted values.
 - A table's CSV lines starting `#` are comments; values must be numbers; the key column must not repeat. `formats` sets per-column formats on the Assumptions sheet.
 - A **case** is `model/cases/<id>.json`: `{"id", "name", "purpose", "model_point": {field: value}, "params": {overrides}, "months": optional}`. The id must equal the file name. `NaN`, `Infinity` and `-Infinity` are refused in case files and parameter overrides. Cases are synthetic single policies on the deterministic scenario, used at tile, module and model level. `default_case` names the case of `review/model/workbook.xlsx` (the first case by id when absent).
 
@@ -228,7 +228,7 @@ Run from the repo root as `uv run --project tilekit tilekit <command> --model mo
 }
 ```
 
-In `formula`, `{name}` marks a row quantity (replaced by a cell reference when a sheet is laid out) and a bare name is a parameter (a defined name in the workbook). `kind` is one of `tile`, `input`, `param`, `state`. `status` is `"not_built"` or null. `edges` lists argument edges only.
+In `formula`, `{name}` marks a row quantity (replaced by a cell reference when a sheet is laid out, or by the defined name of a per-policy constant, which is one named cell) and a bare name is a parameter (a defined name in the workbook). `formula` is the same whatever the layout. `kind` is one of `tile`, `input`, `param`, `state`. `status` is `"not_built"` or null. `edges` lists argument edges only.
 
 ### `cases` and `check` output
 
@@ -261,7 +261,7 @@ Non-finite values are `null`. `branches` counts the months in which each branch 
 | `signed_off` | Sign-off current |
 | `stale` | The stored workbook or the sign-off no longer matches the current stamp, or the workbook was changed outside a build |
 
-`drift` is `null` unless the state is `stale`: `"formula"` when the tile's code, spec or the translator changed, when the current formula differs from the `formula` stored in its `signoff.json` (whatever the version constants say), or when a check fails on a sign-off kept only for new cases; otherwise `"values"` (only upstream tiles, cases, parameters or inputs changed, or the workbook needs a rebuild). A module or the model has `formula` drift when any of its tiles does.
+`drift` is `null` unless the state is `stale`: `"formula"` when the tile's code, spec or the translator (with the formula layout version) changed, when the current formula differs from the `formula` stored in its `signoff.json` (whatever the version constants say), or when a check fails on a sign-off kept only for new cases; otherwise `"values"` (only upstream tiles, cases, parameters, inputs or the workbook layout changed, or the workbook needs a rebuild). A module or the model has `formula` drift when any of its tiles does.
 
 A sign-off whose stamp differs only in `cases`, with every case it covered unchanged (cases were only added), stays `signed_off` (the new ids are in `new_cases`) only while the stored workbook is current and every case's difference check passes; otherwise it is `stale`. This applies to tiles, modules and the model; a values-only tile never gets it.
 
@@ -361,7 +361,7 @@ Sidecar `workbook.json` for a tile:
 
 ```json
 {"kind": "tile", "name": "units_amc", "module": "unit_projection", "built_at": "ISO time", "workbook": "workbook.xlsx",
- "stamp": {"code": "…", "spec": "…", "upstream": "…", "cases": "…", "params": "…", "translator": "…"},
+ "stamp": {"code": "…", "spec": "…", "upstream": "…", "cases": "…", "params": "…", "translator": "…", "layout": "…"},
  "formula": "=MIN({units_after_alloc}*amc_pm,amc_cap_units)", "translatable": true, "untranslatable_reason": null,
  "branch_labels": ["min: first", "min: second"], "tolerance": 1e-9, "relative_tolerance": 1e-12,
  "max_abs_difference": 0.0, "checks_pass": true,
@@ -379,15 +379,16 @@ Module and model sidecars have `"kind": "module"` / `"model"`, `"tiles": {tile: 
 
 `expected.json` is `{"tile", "stamp", "case_hashes", "cases": {case: {"months", "values": [...]}}}`; non-finite values are the strings `"nan"`, `"inf"`, `"-inf"`. A current value matches when both are finite and within 1e-9, or both are the same non-finite kind.
 
-A **stamp** is `{code, spec, upstream, cases, params, translator}`, each a hex SHA-256:
+A **stamp** is `{code, spec, upstream, cases, params, translator, layout}`, each a hex SHA-256:
 - `code`: the tile's function AST (decorators included, docstring and formatting excluded) and the AST of its module file's top-level statements other than function definitions and the module docstring.
 - `spec`: the tile's docstring.
 - `upstream`: the `code` and `spec` of every tile upstream (through arguments, and through a state to its source tile).
 - `cases`: every case file's name and bytes.
 - `params`: parameter defaults and metadata; input, state and table config (including `excel` templates and every table value); `months`; the AST of every `.py` file in the model package except the tile module files and `reference.py`; the bytes of every file under `model/assumptions/` and of every declared table file. A model workbook's stamp also includes its case id here.
-- `translator`: the translator and workbook layout version strings.
+- `translator`: the translator version and the formula layout version (`stamps.FORMULA_LAYOUT_VERSION`, bumped only for a layout change that changes what a formula means; it has stayed `tilekit-workbook 4`).
+- `layout`: the workbook layout version (`stamps.LAYOUT_VERSION`, now `tilekit-workbook 5`), bumped for any other change to how workbooks are laid out.
 
-Module stamps combine their tiles' `code` (with the module's config) and `spec`; the model stamp combines every tile's with the model name and module config. `code`/`spec`/`translator` changing is formula drift; the rest is values drift.
+Module stamps combine their tiles' `code` (with the module's config) and `spec`; the model stamp combines every tile's with the model name and module config. `code`/`spec`/`translator` changing is formula drift; the rest, `layout` included, is values drift. A stamp written before `layout` existed has no such key, so it differs from a current one in `layout`: its workbook is out of date, a sign-off on it is stale with values drift and (its formula being unchanged) `reconfirm` re-signs a tile once it is rebuilt; a module or model sign-off is given again. `expected.json` is not held to `layout` (it records Python values).
 
 ## Workbooks and the house style
 
@@ -395,7 +396,7 @@ Workbooks are produced by scripting `vendor/gridcraft/cli/gridcraft-cli run --sc
 
 House style (the user's own; follow it exactly):
 - Font Open Sans 10 pt. Gridlines off. Row 1 and column A blank and equal in size (20 px). Content starts at B2.
-- B2 bold title; B3 the case name. Then a parameters block: label in B, value in C, defined name written in D in maroon (128,0,0).
+- B2 bold title; B3 the case name. Then a parameters block: label in B, value in C, defined name written in D in maroon (128,0,0). Directly under the parameters, in the same block and style, come the sheet's **per-policy constants** (below).
 - Then a block with time across the columns: a bold "Month" header row with a thin bottom border, months 1..N from column C.
 - Column B holds plain-English labels (from the tile docstring / config), never code names. The code name is written in maroon in the column after the last month.
 - Colour says where a value comes from; there is no key on the sheets:
@@ -405,10 +406,11 @@ House style (the user's own; follow it exactly):
   - **Maroon** (128,0,0): defined names. **Grey** (128,128,128): the Python and Difference comparison rows.
 - Green values in tile and module workbooks are pasted from Python, never formulas: a tile or module workbook never links to another workbook file. Only the model workbook has live links, and only between its own sheets. Tracing a green value back to its source is done in the app (`app/renderer/trace.js`), not by linking files.
 - Parameters are defined names and are used by name in formulas. Row quantities are also defined as named ranges, but formulas refer to them by ordinary cell reference.
+- **Per-policy constants.** An input series that is a model-point field passed through unchanged (one number per policy, the same in every month, such as a sum assured or a guarantee term) is one named input cell, not a row repeating the value: bold blue value in C, label in B, code name in maroon in D, defined as a name, and formulas refer to it by that name (`MAX(sum_assured-C8,0)`, never `$C$5` or a month cell). The rule (`workbook.policy_constants`) is decided once for the whole model, so a quantity is a cell in every workbook (tile, module and model, every case sheet) or a row in every one: the input has no `excel` template, no summary tile reads it (a summary formula takes a series as a whole row range), and in every case the case's `model_point` has a field of the same name and the Python series equals that value in every month. Tile and module sheets carry the constants their tiles read (sheet-scoped names); in the model workbook they are on the Inputs sheet (workbook scope) and the module sheets use the name with no link row. The tile's translated `formula` keeps its `{name}` placeholder; only the layout fills it with the name. On a real policy's workbook a constant whose series is not one value throughout stays a row (never part of sign-off). The `Hand checks` sheet keeps every argument as a row, constants included, since each check has its own value.
 - One formula per row, copied across. Classic functions: `INDEX`/`MATCH` (never `VLOOKUP`/`XLOOKUP`), `SUMPRODUCT`, `IF`, `MIN`, `MAX`, `SUM`, `NPV`, `IRR`. No `LET`, `LAMBDA` or spilling arrays.
 - Below the block, in grey (128,128,128): "Python <label>" (pasted values) and "Difference" (formula minus Python), difference to 4 dp.
 - Number formats by `Format` as listed under Tiles. Column B is wide enough for every label and for the B2/B3 title lines.
-- A tile workbook has one sheet per case (named after the case) plus "Scratch". A module workbook has the module's tiles as one linked block per case sheet. The model workbook has, for one case, an "Inputs" sheet first (every parameter as a defined name, pasted inputs, then inputs with an `excel` template as live formula rows checked against Python), an "Assumptions" sheet when the model has tables (each table: bold label, header row with a thin bottom border, values in bold blue, the table name in maroon), then one sheet per module in dependency order (left to right) with cross-sheet references (dark green link rows), then "Scratch".
+- A tile workbook has one sheet per case (named after the case) plus "Scratch". A module workbook has the module's tiles as one linked block per case sheet. The model workbook has, for one case, an "Inputs" sheet first (every parameter and per-policy constant as a defined name, pasted inputs, then inputs with an `excel` template as live formula rows checked against Python), an "Assumptions" sheet when the model has tables (each table: bold label, header row with a thin bottom border, values in bold blue, the table name in maroon), then one sheet per module in dependency order (left to right) with cross-sheet references (dark green link rows), then "Scratch".
 - A values-only tile's row holds its pasted Python values (bold blue, like an input); its grey Python and Difference rows are then zero by construction and are not a check.
 - Error agreement: a Python NaN agrees with an Excel `#NUM!` and a Python infinity with `#DIV/0!` (pasted Python values that are NaN or infinite are written as those errors). Any other Excel error, or an error against a finite Python value, fails the check.
 - Defined names: a Python name that Excel would read as a cell reference (`A1`, `R`, `C`, `R1C1`), a boolean or a function name (`true`, `false`, `sum`, `if`, `min`, `max`, `and`, `or`, `not`, `irr`, `npv`, `index`, `match`, `round`, `int` and similar, in any case) is defined with a trailing underscore (`sum_`).
@@ -458,12 +460,21 @@ Look: plain and dense, like a classic desktop tool. System font, thin rules, squ
 
 A tile's hand-calculation test (`tests/tiles/test_<tile>.py`) is also run by the tile's Excel formula. `tilekit/handchecks.py` reads the test file with `ast` and takes every assertion of the plain form `assert tile(numbers...) == pytest.approx(number, rel=0, abs=...)` or `== number` (numbers, module-level constants and simple arithmetic on them; keywords allowed) as one hand check `{test, index, args, expected, tolerance}`. Assertions in any other form (inside a loop, comparing two calls, an inequality) put their test in `not_in_sheet`: Python still runs them, Excel does not. Summary tiles and tiles with no Excel formula have every test in `not_in_sheet`.
 
-- **The sheet.** The stored tile workbook gets a `Hand checks` sheet after the case sheets: one column per check (row 4 names the test, row 5 numbers the checks), a blue input row for every argument of the tile (parameters too, since a check may vary them), the tile's own formula evaluated on each column, the figure worked by hand, and their difference. One-off workbooks for a real policy do not carry it.
+- **The sheet.** The stored tile workbook gets a `Hand checks` sheet after the case sheets: one column per check (row 4 names the test, row 5 numbers the checks), a blue input row for every argument of the tile (parameters and per-policy constants too, since a check may vary them), the tile's own formula evaluated on each column, the figure worked by hand, and their difference. One-off workbooks for a real policy do not carry it.
 - **The sidecar.** `workbook.json` gains `hand_checks: {digest, sheet, checks: [{test, index, args, expected, tolerance, excel, difference, pass}], not_in_sheet, max_abs_difference, checks_pass}`. A check passes when `|excel - expected| <= max(its tolerance, the tile's tolerance) + 1e-12 * |expected|`.
 - **Not part of a stamp.** Adding or changing a test never makes a sign-off stale and never changes `drift`. The sidecar's digest is compared with the test file as it is now: when they differ the tile's `workbook_current` is false, `build` rebuilds it, and until then the tile has the blocker "The tile's workbook was built before its test last changed; rebuild it first." A sidecar from before hand checks existed counts as current only while the tile has no test to show.
 - **Blocks a new sign-off.** A check that does not agree adds the blocker "The spreadsheet formula does not agree with the hand calculation in <tests>." The cases' own difference check (`checks_pass`) is separate and unchanged.
 - **Status.** Each tile in `status` has `hand_checks` (null when the tile has no stored workbook built for its current test): `{sheet, checks_pass, max_abs_difference, not_in_sheet, checks}`.
 - **In the app.** The Test view shows, for each test, the inputs, the hand figure and the Excel formula's figure for every check on the sheet, and says which tests Excel does not see. The house standards ask for checks in the plain form so they reach the sheet.
+
+## The spreadsheet engine's patches
+
+GridCraft's web build (`vendor/gridcraft/web`, not in git) is built from source at v0.19.1 by `scripts/build-gridcraft-web.sh`, which applies the patches in `vendor-patches/` in order, each skipped when already applied:
+
+- `gridcraft-v0.19.1-open-sans.patch` embeds Open Sans (regular, bold, italic, bold italic), so cells set to Open Sans draw in it with real bold.
+- `gridcraft-v0.19.1-name-highlight.patch`: while a formula is being edited, a defined name that refers to a single cell or range is coloured in the formula text and its range outlined on its own sheet, as cell references are. Names resolve as in Excel: one scoped to the sheet the edit started on first, then workbook scope. Names that are constants or formulas stay plain. The change is confined to the reference finder in `crates/ui-egui/src/editor.rs` (`formula_refs_named`) and its two display callers; F4 and point mode still see cell references only.
+
+The unpatched release build is kept at `vendor/gridcraft/web-prebuilt`; `scripts/fetch-gridcraft.sh` restores it and wipes the patched one.
 
 ## Tooling version and pinning
 

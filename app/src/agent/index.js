@@ -20,6 +20,15 @@ const STRONG_MODEL = 'claude-opus-5-5';
 const MAX_TURNS = 40;
 const NOT_SIGNED_IN = 'The agent is not signed in. Sign in to Claude Code on this Mac, or set ANTHROPIC_API_KEY.';
 const BUILTIN = new Set(['Read', 'Glob', 'Grep']);
+// Tools the terminal does not get: Claude Code asks with its own question form, and a missing parameter, input or
+// case is proposed directly as a draft (the app's own chat shows a request card for it instead).
+const CLI_HIDDEN = new Set(['ask_user', 'add_input_request']);
+// The tools' own words name the app chat's request step; in the terminal the draft is the request.
+const cliWords = text => String(text)
+  .replace(/Model level \(or after the user agreed to an add_input_request\): /g, '')
+  .replace(/ask the user to add it \(add_input_request\)/g, 'propose it as a draft (propose_params, propose_inputs or propose_cases)')
+  .replace(/ask first with add_input_request; once the user agrees, propose it/g, 'propose it as a draft')
+  .replace(/\badd_input_request\b/g, 'a draft');
 
 let sdkPromise = null;
 function loadSdk() {
@@ -136,6 +145,7 @@ function createAgentService(options) {
     ? defaultPytest({ modelDir, project: options.pythonProject || defaultProject(repoRoot || path.resolve(__dirname, '..', '..', '..')) }) : options.runPytest;
   let active = null; // {controller, scope, started}
   let selection = null;   // what the window has selected now (terminal mode: the scope of the next message)
+  let cliGreeted = false; // the first terminal message after the app starts carries a note that tools may have changed
   let cliTurn = null;     // the running terminal turn's state, shared by its tool calls
   const notes = []; // what happened outside the chat since the model's last turn (confirmations, drafts accepted)
   const totals = { turns: 0, cost_usd: 0, last: null };
@@ -364,15 +374,21 @@ function createAgentService(options) {
     setSelection(scopeIn) { selection = store.checkScope(scopeIn); return selection; },
     async cliTools() {
       const { z } = await loadSdk();
-      const fake = { tool: (name, description, shape) => ({ name, description, inputSchema: z.toJSONSchema(z.object(shape)) }) };
-      return sdkTools(fake, z, {}).filter(t => t.name !== 'ask_user');
+      const fake = { tool: (name, description, shape) => ({ name, description: cliWords(description), inputSchema: z.toJSONSchema(z.object(shape)) }) };
+      return sdkTools(fake, z, {}).filter(t => !CLI_HIDDEN.has(t.name));
     },
     // The user sent a message in the terminal: a turn starts on the current selection. Returns the bracketed lines
     // that tell the model what is selected and what happened in the app since its last message.
     cliPrompt() {
       const scope = selection || { level: 'model', id: 'model' };
-      cliTurn = { scope, batchModule: null, asked: false, approved: new Set(), writes: [], drafts: [] };
+      cliTurn = { scope, cli: true, batchModule: null, asked: false, approved: new Set(), writes: [], drafts: [] };
       active = { controller: { abort() {} }, scope, started: Date.now(), cli: true };
+      // A conversation carried over from before the app started may hold conclusions about tools that have since
+      // changed ("I can only do that at model level"). Say so once, on the first message after each start.
+      if (!cliGreeted) {
+        cliGreeted = true;
+        notes.unshift('The app has been restarted and its tools and rules may have changed. Anything said earlier in this conversation about what a tool allows or refuses may be out of date: do not repeat an earlier refusal from memory, call the tool again and go by what it says now.');
+      }
       try { emit({ type: 'turn_start', scope, at: store.now() }); } catch { /* listener errors are theirs */ }
       return turnPreamble(scope, { notes: notes.splice(0) });
     },
@@ -389,8 +405,10 @@ function createAgentService(options) {
       const handlers = createHandlers(svc, cliTurn);
       let found = null;
       sdkTools({ tool: (n, _d, _s, fn) => { if (n === name) found = fn; return null; } }, z, handlers);
-      if (!found || name === 'ask_user') return { content: [{ type: 'text', text: `There is no tool ${name}.` }], isError: true };
-      return found(args || {});
+      if (!found || CLI_HIDDEN.has(name)) return { content: [{ type: 'text', text: `There is no tool ${name}.` }], isError: true };
+      const r = await found(args || {});
+      for (const c of (r && r.content) || []) if (c && typeof c.text === 'string') c.text = cliWords(c.text);
+      return r;
     },
     cliSystemPrompt() { return systemPrompt({ cli: true, modelDir }); },
 

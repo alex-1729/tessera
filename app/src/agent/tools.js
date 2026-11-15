@@ -66,6 +66,9 @@ function createHandlers(svc, turn) {
   // Scaffolding drafts: at model level, or after the user agreed to an add_input_request.
   function scaffoldAllowed(what) {
     if (scope.level === 'model') return null;
+    // In the terminal there is no request card: the draft itself, shown in the centre for the user to accept or
+    // discard, is the request, so it may be proposed from whatever is selected.
+    if (turn.cli) return null;
     if (svc.inputRequestOpen && svc.inputRequestOpen()) return null;
     return `${what} are proposed at model level. At this level, ask first with add_input_request; once the user agrees, propose it.`;
   }

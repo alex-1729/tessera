@@ -2,14 +2,15 @@
   "kind": "tile",
   "name": "lapses",
   "module": "decrements",
-  "built_at": "2026-11-15T03:22:53+00:00",
+  "built_at": "2026-11-15T03:56:48+00:00",
   "stamp": {
     "code": "0145bc1295914d59ec219049b2cae2f7c088d44d80154461b85fb916f7adbf56",
     "spec": "f9e602b9df7a028f2740af21b157aa0ea9e35ef48b634e0687eaacf16d1d3ddc",
     "upstream": "5d0939d0efb1a703a13408626df4f40349f0b3267c0bb1e1a733b5d91edd3409",
     "cases": "a42493b46f4e2e1d7ec9309bfd93f977df0cf13535b4eaf45c63ac35f8dc13dc",
     "params": "05fab2750280bae719ccdeae45603fce740d04232cbcda23e56fa79d7c849932",
-    "translator": "85ca37244a9a88223a28309b6eb53ed0af322f2884af42ac6efc6eabe05d2f36"
+    "translator": "85ca37244a9a88223a28309b6eb53ed0af322f2884af42ac6efc6eabe05d2f36",
+    "layout": "3eba926eed01be4ba94187d8dc967dd2b34a47fb0aa19af038f02254b718cd79"
   },
   "workbook": "workbook.xlsx",
   "formula": "=({in_force_bop}-{deaths})*{lapse_rate_pm}",
@@ -111,7 +112,7 @@
   },
   "content_digest": "4bbd55204b728ab3ec55ae166bac995b06cedd03e782229047b0ca32214c232f",
   "content_stat": {
-    "mtime_ns": 1794712973603322602,
+    "mtime_ns": 1794715008301741586,
     "size": 64275
   }
 }

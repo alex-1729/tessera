@@ -94,7 +94,7 @@ def test_unbuilt_built_signed(make_model, gridcraft_cli, capsys):
     assert t["state"] == "signed_off" and t["signed_off"]["reviewer"] == "Pat" and t["signed_formula"] == "={x}+{x}"
     so = json.loads((root / "review/tiles/doubled/signoff.json").read_text())
     assert so["cases"] == IDS and set(so["case_hashes"]) == set(IDS) and so["comment"] == "ok"
-    assert set(so["stamp"]) == {"code", "spec", "upstream", "cases", "params", "translator"}
+    assert set(so["stamp"]) == {"code", "spec", "upstream", "cases", "params", "translator", "layout"}
 
 
 def test_expected_json_and_regression(built, capsys):

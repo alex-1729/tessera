@@ -1,6 +1,7 @@
 #!/bin/sh
-# Builds GridCraft's web build from source with Open Sans embedded (vendor-patches/), and installs
-# it into vendor/gridcraft/web. The unpatched download from fetch-gridcraft.sh is kept once as
+# Builds GridCraft's web build from source with two patches (vendor-patches/): Open Sans embedded,
+# and defined names coloured and outlined in formulas like cell references; installs it into
+# vendor/gridcraft/web. The unpatched download from fetch-gridcraft.sh is kept once as
 # vendor/gridcraft/web-prebuilt; to go back to it: rm -rf vendor/gridcraft/web &&
 # mv vendor/gridcraft/web-prebuilt vendor/gridcraft/web.
 #
@@ -11,7 +12,7 @@ set -eu
 TAG="v0.19.1"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SRC="$ROOT/vendor/gridcraft-src"
-PATCH="$ROOT/vendor-patches/gridcraft-$TAG-open-sans.patch"
+PATCHES="$ROOT/vendor-patches/gridcraft-$TAG-open-sans.patch $ROOT/vendor-patches/gridcraft-$TAG-name-highlight.patch"
 FONTS="$ROOT/vendor-patches/fonts/open-sans"
 DEST="$ROOT/vendor/gridcraft"
 PATH="$HOME/.cargo/bin:$PATH"
@@ -24,12 +25,14 @@ if [ ! -d "$SRC/.git" ]; then
   git clone --depth 1 --branch "$TAG" https://github.com/storytold/gridcraft.git "$SRC"
 fi
 
-# 2. The patch (skipped when already applied) and the fonts it embeds.
-if git -C "$SRC" apply --reverse --check "$PATCH" 2>/dev/null; then
-  echo "patch already applied"
-else
-  git -C "$SRC" apply "$PATCH"
-fi
+# 2. The patches, in order (each skipped when already applied), and the fonts the first embeds.
+for PATCH in $PATCHES; do
+  if git -C "$SRC" apply --reverse --check "$PATCH" 2>/dev/null; then
+    echo "already applied: $(basename "$PATCH")"
+  else
+    git -C "$SRC" apply "$PATCH"
+  fi
+done
 mkdir -p "$SRC/crates/ui-egui/fonts-open-sans"
 cp "$FONTS"/OpenSans-Regular.ttf "$FONTS"/OpenSans-Bold.ttf "$FONTS"/OpenSans-Italic.ttf \
    "$FONTS"/OpenSans-BoldItalic.ttf "$FONTS"/OFL.txt "$SRC/crates/ui-egui/fonts-open-sans/"
@@ -51,10 +54,11 @@ cp "$FONTS/OFL.txt" "$STAGE/OFL.txt"
 cat > "$STAGE/PATCHED.md" <<EOF
 # Patched GridCraft web build
 
-Built from storytold/gridcraft tag $TAG, patched to embed Open Sans (Regular, Bold, Italic,
-Bold Italic; SIL OFL 1.1, see OFL.txt) so cells set to "Open Sans" draw in it with real bold and
-italic. Everything else is upstream $TAG. Rebuild with scripts/build-gridcraft-web.sh (patch in
-vendor-patches/). The unpatched release build is kept in ../web-prebuilt.
+Built from storytold/gridcraft tag $TAG with two patches: one embeds Open Sans (Regular, Bold,
+Italic, Bold Italic; SIL OFL 1.1, see OFL.txt) so cells set to "Open Sans" draw in it with real
+bold and italic; the other colours defined names that refer to a cell or range in the formula
+being edited and outlines their ranges on the grid, as cell references are. Everything else is
+upstream $TAG. Rebuild with scripts/build-gridcraft-web.sh (patches in vendor-patches/). The unpatched release build is kept in ../web-prebuilt.
 EOF
 
 # 5. Install, keeping the unpatched release build once.

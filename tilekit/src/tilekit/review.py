@@ -6,7 +6,8 @@ Files (all inside `<model>/review/`):
 A sign-off is current when its stamp equals the current stamp. A stamp that differs only in `cases`
 while every previously covered case file is unchanged (a case was added) still counts as signed off;
 the new case ids are listed in `new_cases`. Any other difference is staleness, and `drift` says which kind:
-`formula` (code, spec or translator moved) or `values` (only upstream, cases or params moved).
+`formula` (code, spec or translator moved) or `values` (only upstream, cases, params or the workbook layout
+moved).
 """
 
 import ast
@@ -36,7 +37,8 @@ from tilekit.workbook import default_case_id, model_paths, module_paths, review_
 
 log = logging.getLogger("tilekit")
 
-FORMULA_KEYS = ("code", "spec", "translator")
+FORMULA_KEYS = ("code", "spec", "translator")  # `layout` is not one: a layout change alone is values drift
+EXPECTED_KEYS = tuple(k for k in STAMP_KEYS if k != "layout")  # the keys an expected.json record is held to
 DEFAULT_RECONFIRM_COMMENT = "Values-only re-confirmation"
 
 
@@ -724,7 +726,8 @@ def check_expected(model, name, tolerance=1e-9):
     if expected is None:
         return {"status": "stale", "mismatches": []}
     current = tile_stamp(model, name)
-    diff = {k for k in STAMP_KEYS if (expected.get("stamp") or {}).get(k) != current.get(k)}
+    # the workbook layout has no bearing on Python values, so a layout change alone leaves the record current
+    diff = {k for k in EXPECTED_KEYS if (expected.get("stamp") or {}).get(k) != current.get(k)}
     if diff:
         recorded = expected.get("case_hashes") or {}
         hash_now = case_hashes(model)
