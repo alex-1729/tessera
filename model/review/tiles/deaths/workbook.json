@@ -2,14 +2,15 @@
   "kind": "tile",
   "name": "deaths",
   "module": "decrements",
-  "built_at": "2026-11-15T03:22:53+00:00",
+  "built_at": "2026-11-15T03:56:48+00:00",
   "stamp": {
     "code": "00f6a36cde4e1c080467e6549e9fd9b9be994a51be0209c575e525df4937c2b8",
     "spec": "5641c679ec9cb391eb54143cdfbdc807afd644f1643336f1ac7fca249197d551",
     "upstream": "dfe999fd7b4399df5e91be2e347e2f31330e1d1c1dd0a2b3a392b94b775d7a96",
     "cases": "a42493b46f4e2e1d7ec9309bfd93f977df0cf13535b4eaf45c63ac35f8dc13dc",
     "params": "05fab2750280bae719ccdeae45603fce740d04232cbcda23e56fa79d7c849932",
-    "translator": "85ca37244a9a88223a28309b6eb53ed0af322f2884af42ac6efc6eabe05d2f36"
+    "translator": "85ca37244a9a88223a28309b6eb53ed0af322f2884af42ac6efc6eabe05d2f36",
+    "layout": "3eba926eed01be4ba94187d8dc967dd2b34a47fb0aa19af038f02254b718cd79"
   },
   "workbook": "workbook.xlsx",
   "formula": "={in_force_bop}*{mort_rate_pm}",
@@ -108,7 +109,7 @@
   },
   "content_digest": "8b2bbdadc1913d7e687d5551240e7e3349ee63456c5a657281f458b907066b43",
   "content_stat": {
-    "mtime_ns": 1794712973513193971,
+    "mtime_ns": 1794715008214795825,
     "size": 54430
   }
 }

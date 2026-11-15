@@ -16,10 +16,14 @@ A stamp is `{code, spec, upstream, cases, params, translator}`, each a hex diges
   source of every `.py` file in the model package except the tile module files (covered by
   `code`) and `reference.py`, the bytes of every file under `<model>/assumptions/` and of
   every table file declared in `tilekit.toml`; for the model workbook also the case it shows;
-- translator: the translator and workbook layout versions.
+- translator: the translator version and the formula layout version (layout changes that change
+  what a formula means);
+- layout: the workbook layout version (any other layout change).
 
-`code`/`spec` changing means the formula itself changed; only `upstream`/`cases`/`params`
-changing means only values changed.
+`code`/`spec`/`translator` changing means the formula itself changed; only
+`upstream`/`cases`/`params`/`layout` changing means only values (or how they are shown) changed.
+A stamp written before `layout` existed lacks the key, so it differs from a current stamp in
+`layout` (values drift) and, for tilekit-workbook 4 stamps, in nothing else.
 """
 
 import ast
@@ -31,8 +35,14 @@ from pathlib import Path
 
 from tilekit.translate import TRANSLATOR_VERSION
 
-LAYOUT_VERSION = "tilekit-workbook 4"
-STAMP_KEYS = ("code", "spec", "upstream", "cases", "params", "translator")
+# Two layout versions. FORMULA_LAYOUT_VERSION is part of `translator` (formula drift): bump it only for a layout
+# change that changes what a tile's formula means. It was the whole layout version up to "tilekit-workbook 4".
+# LAYOUT_VERSION is the stamp's own `layout` key (values drift): bump it for any other change to how workbooks are
+# laid out, such as "tilekit-workbook 5", which shows a per-policy constant input as one named cell. A sign-off
+# then goes stale with values drift and, its formula text being unchanged, can be re-confirmed.
+FORMULA_LAYOUT_VERSION = "tilekit-workbook 4"
+LAYOUT_VERSION = "tilekit-workbook 5"
+STAMP_KEYS = ("code", "spec", "upstream", "cases", "params", "translator", "layout")
 
 
 def _digest(*parts):
@@ -162,13 +172,18 @@ def _data_files(model):
 
 
 def translator_digest():
-    return _digest(TRANSLATOR_VERSION, LAYOUT_VERSION)
+    return _digest(TRANSLATOR_VERSION, FORMULA_LAYOUT_VERSION)
+
+
+def layout_digest():
+    return _digest(LAYOUT_VERSION)
 
 
 def _shared(model):
     cache = model.__dict__.get("_stamp_shared")
     if cache is None:
-        cache = {"cases": cases_digest(model), "params": params_digest(model), "translator": translator_digest()}
+        cache = {"cases": cases_digest(model), "params": params_digest(model), "translator": translator_digest(),
+                 "layout": layout_digest()}
         model.__dict__["_stamp_shared"] = cache
     return cache
 

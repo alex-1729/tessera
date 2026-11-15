@@ -1,14 +1,15 @@
 {
   "kind": "module",
   "name": "cashflows",
-  "built_at": "2026-11-14T21:09:16+00:00",
+  "built_at": "2026-11-15T03:56:51+00:00",
   "stamp": {
     "code": "320fc0df15c5129ea27c396bca9bb0beccbacec095bedf1bd36002ab08fead74",
     "spec": "309194226e235f5b97a2d100fdf2f820098583ccb354c92f79ec1589e10a3165",
     "upstream": "072450c77c8c07d37dfeaf92269cc9ddd8d3a5cfe68f9a37095e11e002e4344e",
     "cases": "a42493b46f4e2e1d7ec9309bfd93f977df0cf13535b4eaf45c63ac35f8dc13dc",
     "params": "05fab2750280bae719ccdeae45603fce740d04232cbcda23e56fa79d7c849932",
-    "translator": "85ca37244a9a88223a28309b6eb53ed0af322f2884af42ac6efc6eabe05d2f36"
+    "translator": "85ca37244a9a88223a28309b6eb53ed0af322f2884af42ac6efc6eabe05d2f36",
+    "layout": "3eba926eed01be4ba94187d8dc967dd2b34a47fb0aa19af038f02254b718cd79"
   },
   "workbook": "workbook.xlsx",
   "tolerance": 1e-09,
@@ -417,9 +418,9 @@
     "death_strain",
     "gross_profit"
   ],
-  "content_digest": "f01276e9c92c16b10932d1f0263d8fc43bd577ee4256b65cb6c24d886660cc1d",
+  "content_digest": "7f0045fb1419996f45e1310f952fe653e56ca4f3d3a817f33ea33eaee2f412ce",
   "content_stat": {
-    "mtime_ns": 1794690556033193178,
-    "size": 220545
+    "mtime_ns": 1794715011539394697,
+    "size": 219142
   }
 }

@@ -2,14 +2,15 @@
   "kind": "tile",
   "name": "reinsurance_premium",
   "module": "quota_share",
-  "built_at": "2026-11-15T03:22:54+00:00",
+  "built_at": "2026-11-15T03:56:49+00:00",
   "stamp": {
     "code": "536cf0595dad8a5e04f9106a9c9da963c798b5687355c688e1124555775d7f6c",
     "spec": "2dc05703097f6c5ce0ab86abfd10ebf32f55a4b35a6a2089bbe32ce26f8312ba",
     "upstream": "058e5acd91111436781fac28cf1551bb9f689621e89713ffa00cbc627f768770",
     "cases": "a42493b46f4e2e1d7ec9309bfd93f977df0cf13535b4eaf45c63ac35f8dc13dc",
     "params": "05fab2750280bae719ccdeae45603fce740d04232cbcda23e56fa79d7c849932",
-    "translator": "85ca37244a9a88223a28309b6eb53ed0af322f2884af42ac6efc6eabe05d2f36"
+    "translator": "85ca37244a9a88223a28309b6eb53ed0af322f2884af42ac6efc6eabe05d2f36",
+    "layout": "3eba926eed01be4ba94187d8dc967dd2b34a47fb0aa19af038f02254b718cd79"
   },
   "workbook": "workbook.xlsx",
   "formula": "=-{sum_at_risk}*{in_force_bop}*{mort_rate_pm}*quota_share*(1+reinsurance_loading)",
@@ -101,7 +102,7 @@
   },
   "content_digest": "7e7e8bc886620d267924f2a28e8e075f8d37021339cac5bf34e65383758ae9ab",
   "content_stat": {
-    "mtime_ns": 1794712974967079007,
+    "mtime_ns": 1794715009629301626,
     "size": 67278
   }
 }

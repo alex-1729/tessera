@@ -1,14 +1,15 @@
 {
   "kind": "module",
   "name": "profit",
-  "built_at": "2026-11-14T21:09:16+00:00",
+  "built_at": "2026-11-15T03:56:52+00:00",
   "stamp": {
     "code": "74fcc0bc25a42285cb4d729da6d7546700412aa8f9685b5b4e9037c957b41f1b",
     "spec": "e360dfe2cb9a36bf9666fcdcd5d65937bf534da8dbda5f30fb6e30860a699630",
     "upstream": "b9b50958629de1e4a1c48df8d799a17710ab80fd0aba9f0995040d96d41c8649",
     "cases": "a42493b46f4e2e1d7ec9309bfd93f977df0cf13535b4eaf45c63ac35f8dc13dc",
     "params": "05fab2750280bae719ccdeae45603fce740d04232cbcda23e56fa79d7c849932",
-    "translator": "85ca37244a9a88223a28309b6eb53ed0af322f2884af42ac6efc6eabe05d2f36"
+    "translator": "85ca37244a9a88223a28309b6eb53ed0af322f2884af42ac6efc6eabe05d2f36",
+    "layout": "3eba926eed01be4ba94187d8dc967dd2b34a47fb0aa19af038f02254b718cd79"
   },
   "workbook": "workbook.xlsx",
   "tolerance": 1e-09,
@@ -299,7 +300,7 @@
   ],
   "content_digest": "9560b4d1579771e9bb4f7cf1f475b6139979b372f10142d49829dd39a7703f1e",
   "content_stat": {
-    "mtime_ns": 1794690556760738647,
+    "mtime_ns": 1794715012205574155,
     "size": 71987
   }
 }

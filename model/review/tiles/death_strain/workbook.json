@@ -2,14 +2,15 @@
   "kind": "tile",
   "name": "death_strain",
   "module": "cashflows",
-  "built_at": "2026-11-15T03:22:54+00:00",
+  "built_at": "2026-11-15T03:56:49+00:00",
   "stamp": {
     "code": "50cc33f9ea06ad1ddd9fb7ed48a9bf554ca3601c1829ae62e45e9e881c3eb2c3",
     "spec": "9f6d0e74ae3554002f93a750d67e753127592264c6a60c4c4a2b656447c81be9",
     "upstream": "058e5acd91111436781fac28cf1551bb9f689621e89713ffa00cbc627f768770",
     "cases": "a42493b46f4e2e1d7ec9309bfd93f977df0cf13535b4eaf45c63ac35f8dc13dc",
     "params": "05fab2750280bae719ccdeae45603fce740d04232cbcda23e56fa79d7c849932",
-    "translator": "85ca37244a9a88223a28309b6eb53ed0af322f2884af42ac6efc6eabe05d2f36"
+    "translator": "85ca37244a9a88223a28309b6eb53ed0af322f2884af42ac6efc6eabe05d2f36",
+    "layout": "3eba926eed01be4ba94187d8dc967dd2b34a47fb0aa19af038f02254b718cd79"
   },
   "workbook": "workbook.xlsx",
   "formula": "=-{deaths}*{sum_at_risk}",
@@ -108,7 +109,7 @@
   },
   "content_digest": "5f8e18126a8b14bcd90e8a365dbd368315d28400eb19291b2ea34439bbc64116",
   "content_stat": {
-    "mtime_ns": 1794712974439802297,
+    "mtime_ns": 1794715009145842649,
     "size": 57663
   }
 }

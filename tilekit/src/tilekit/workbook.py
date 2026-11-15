@@ -8,6 +8,9 @@ workbook, then rendered into GridCraft commands in the house style. After the
 build the computed values of every formula row are read back and compared with
 the Python trace: that is the difference check.
 
+An input series that is a model-point field passed through unchanged (`policy_constants`) is laid out as one named
+input cell under the parameters instead of a row, and formulas refer to it by its defined name.
+
 The model workbook also replicates the input series that declare an `excel` template
 in `tilekit.toml`: assumption tables are laid out on an "Assumptions" sheet and those
 inputs become live formula rows on "Inputs" (checked against Python like tile rows).
@@ -197,6 +200,8 @@ class SheetPlan:
     subtitle: str
     months: int
     params: list = field(default_factory=list)  # (name, label, value, format code)
+    # per-policy constant inputs (see `policy_constants`), laid out like parameters directly under them
+    constants: list = field(default_factory=list)  # (name, label, value, format code)
     scope: str = "sheet"  # scope of defined names: "sheet" or "workbook"
     series: list = field(default_factory=list)  # sections of time Lines
     scalars: list = field(default_factory=list)  # sections of scalar Lines
@@ -207,6 +212,11 @@ class SheetPlan:
     header: str = "Month"  # what the numbered header row counts
     column_notes: tuple = ()  # (label, texts): a row of text above the header, one per column
     last_row: int = 3
+
+    @property
+    def block(self):
+        """The named input cells at the top of the sheet: the parameters, then the per-policy constants."""
+        return [*self.params, *self.constants]
 
     @property
     def last_col(self):
@@ -223,6 +233,8 @@ class Loc:
     row: int
     scalar: bool
     last_col: str
+    name: str | None = None  # a named input cell (a per-policy constant): formulas use this defined name
+    scope: str = "sheet"  # scope of that name: "sheet" or "workbook"
 
 
 class Locator:
@@ -260,8 +272,8 @@ def allocate(plans):
     locator = Locator()
     for plan in plans:
         row = 5
-        if plan.params:
-            row += len(plan.params) + 1
+        if plan.block:
+            row += len(plan.block) + 1
         for table in plan.tables:
             plan.rows[id(table)] = row
             row += len(table.rows) + 3  # label, header, values, blank
@@ -291,6 +303,9 @@ def allocate(plans):
             for index, column in enumerate(table.columns):
                 letter = column_letter(2 + index)
                 locator.tables[(table.name, column)] = (plan.name, f"${letter}${first}:${letter}${last}")
+        for i, (name, *_) in enumerate(plan.constants):
+            loc = Loc(plan.name, 5 + len(plan.params) + i, True, plan.last_col, excel_name(name), plan.scope)
+            locator.add(plan.name, name, loc, True)
         for line in _lines(plan):
             if line.key is not None:
                 loc = Loc(plan.name, plan.rows[id(line)], line.scalar, plan.last_col)
@@ -309,12 +324,23 @@ _PLACEHOLDER = re.compile(r"\{([^{}]+)\}")
 _IDENTIFIER = re.compile(r"(?<![\w.$!'])([A-Za-z_][A-Za-z0-9_]*)(?![\w(!])")
 
 
+def _named(loc, from_sheet):
+    """A named input cell by its defined name (sheet-qualified only when sheet-scoped on another sheet)."""
+    if loc.scope == "workbook" or loc.sheet == from_sheet:
+        return loc.name
+    return f"{quote_sheet(loc.sheet)}!{loc.name}"
+
+
 def _cell(loc, col, from_sheet):
+    if loc.name:
+        return _named(loc, from_sheet)
     prefix = "" if loc.sheet == from_sheet else quote_sheet(loc.sheet) + "!"
     return f"{prefix}{col}{loc.row}"
 
 
 def _range(loc, from_sheet):
+    if loc.name:
+        return _named(loc, from_sheet)
     prefix = "" if loc.sheet == from_sheet else quote_sheet(loc.sheet) + "!"
     if loc.scalar:
         return f"{prefix}C{loc.row}"
@@ -402,13 +428,13 @@ def render_sheet(plan, locator, renames):
         return (excel_name(name), plan.name if plan.scope == "sheet" else "Workbook")
 
     defined = []
-    for i, (name, label, value, code) in enumerate(plan.params):
+    for i, (name, label, value, code) in enumerate(plan.block):
         row = 5 + i
         cmds.append(_cmd("range.setValues", range=f"B{row}", values=[[label, _plain(value), name]], parse=False))
         cmds.append(_cmd("home.numberFormat", range=f"C{row}", format=code))
         defined.append(define(name, f"={q}!$C${row}"))
-    if plan.params:
-        end = 4 + len(plan.params)
+    if plan.block:
+        end = 4 + len(plan.block)
         cmds.append(_cmd("home.bold", range=f"C5:C{end}"))
         cmds.append(_cmd("home.fontColor", range=f"C5:C{end}", color=BLUE))
         cmds.append(_cmd("home.fontColor", range=f"D5:D{end}", color=MAROON))
@@ -477,7 +503,7 @@ def render_sheet(plan, locator, renames):
             defined.append(define(line.name, refers))
 
     # geometry
-    labels = [*(p[1] for p in plan.params), *(line.label for line in _lines(plan)), plan.header,
+    labels = [*(p[1] for p in plan.block), *(line.label for line in _lines(plan)), plan.header,
               *(t.label for t in plan.tables), plan.title, plan.subtitle]  # B2/B3 never clip at the frozen column
     label_px = (max(len(t) for t in labels) + 2) * CHAR_PX
     cmds.append(_cmd("home.columnWidth", cols="A:A", width=EDGE_PX))
@@ -488,7 +514,7 @@ def render_sheet(plan, locator, renames):
         if line.python is not None and not line.scalar:
             value_chars = max(value_chars, display_length(line.fmt, line.python))
     scalar_chars = max([display_length(l.fmt, l.python) for l in _lines(plan) if l.scalar and l.python is not None]
-                       + [display_length(code, value) for _, _, value, code in plan.params] + [0])
+                       + [display_length(code, value) for _, _, value, code in plan.block] + [0])
     month_px = (value_chars + 2) * CHAR_PX
     names = [l.name for l in _lines(plan) if l.name and not l.scalar]
     if has_series:
@@ -701,6 +727,41 @@ class CaseData:
         return float(getattr(self.params, name))
 
 
+def policy_constants(model):
+    """The input series laid out as one named input cell (like a parameter) instead of a row across the months.
+
+    An input series qualifies when it is a model-point field passed through unchanged, decided once for the whole
+    model so a quantity is never a row in one workbook and a cell in another:
+      - it has no `excel` template (those are live formula rows on the model workbook's Inputs sheet);
+      - no summary tile reads it (a summary formula takes a series as a whole row range);
+      - there is at least one case, and in every case the case's model point has a field of the same name and the
+        Python series equals that value in every month.
+    Cached on the model, like the stamps.
+    """
+    cached = model.__dict__.get("_policy_constants")
+    if cached is not None:
+        return cached
+    graph = model.graph
+    summary = set(graph.summary_order())
+    cases = load_cases(model)
+    names = [i.name for i in model.config.input_series
+             if not i.excel and not any(t in summary for t in graph.used_by.get(i.name, ()))]
+    names = [n for n in names if cases and all(n in c.model_point for c in cases)]
+    for case in cases:
+        if not names:
+            break
+        _, _, results = run_case(model, case.id)
+        names = [n for n in names if n in results and _all_equal(results[n], float(case.model_point[n]))]
+    found = frozenset(names)
+    model.__dict__["_policy_constants"] = found
+    return found
+
+
+def _all_equal(values, value):
+    values = np.asarray(values, dtype=np.float64)
+    return math.isfinite(value) and values.size > 0 and bool(np.all(values == value))
+
+
 class ModelInfo:
     """Labels, formats and roles of the model's quantities."""
 
@@ -712,6 +773,16 @@ class ModelInfo:
         self.inputs = {i.name: i for i in model.config.input_series}
         self.states = {s.name: s for s in model.config.states}
         self.summary = set(self.graph.summary_order())
+        self.constants = policy_constants(model)
+
+    def is_constant(self, data, name):
+        """True when `name` is shown as a named input cell on a sheet for `data`: a per-policy constant of the model
+        (`policy_constants`) whose series is one value throughout this case. The second part only ever matters for
+        a real policy (never part of sign-off), where the series could in principle vary; it then stays a row."""
+        if name not in self.constants:
+            return False
+        values = data.series(name)
+        return _all_equal(values, float(values[0]))
 
     def kind(self, name):
         return self.graph.kinds[name]
@@ -823,6 +894,16 @@ def _params_block(info, data, names):
             for n in info.param_order(names)]
 
 
+def _constants_block(info, data, names):
+    """The named input cells of the per-policy constants among `names`, in that order."""
+    block = []
+    for n in dict.fromkeys(names):
+        if info.is_constant(data, n):
+            value = float(data.series(n)[0])
+            block.append((n, info.label(n), value, number_format(info.fmt(n), [value])))
+    return block
+
+
 # ---------------------------------------------------------------- tile workbook
 
 def tile_plans(info, tile_name, datas):
@@ -832,8 +913,11 @@ def tile_plans(info, tile_name, datas):
     for data in datas:
         params = [a for a in tile.args if info.kind(a) == "param"]
         others = [a for a in dict.fromkeys(tile.args) if info.kind(a) != "param"]
+        constants = _constants_block(info, data, others)
+        others = [a for a in others if not info.is_constant(data, a)]
         plan = SheetPlan(sheet_name(data.case.name, taken), tile.doc.label or tile_name, data.case.name,
-                         data.months, params=_params_block(info, data, params), scope="sheet", case=data.case.id)
+                         data.months, params=_params_block(info, data, params), constants=constants, scope="sheet",
+                         case=data.case.id)
         series_inputs = [_value_line(info, data, a) for a in others if not info.is_scalar(a)]
         scalar_inputs = [_value_line(info, data, a) for a in others if info.is_scalar(a)]
         own = _tile_line(info, data, tile_name, "output")
@@ -939,6 +1023,8 @@ def _module_sections(info, data, module_id, linked):
     graph = info.graph
     module = graph.modules[module_id]
     params, external, states = _module_parts(info, module_id)
+    # per-policy constants are named input cells in the block at the top (of the Inputs sheet in the model workbook)
+    external = [n for n in external if not info.is_constant(data, n)]
     outputs = set(info.module_outputs(module_id))
 
     def external_line(name):
@@ -963,12 +1049,13 @@ def _module_sections(info, data, module_id, linked):
 
 def module_plans(info, module_id, datas):
     module = info.model.config.module(module_id)
-    params, _, _ = _module_parts(info, module_id)
+    params, external, _ = _module_parts(info, module_id)
     taken = set()
     plans = []
     for data in datas:
         plan = SheetPlan(sheet_name(data.case.name, taken), module.title, data.case.name, data.months,
-                         params=_params_block(info, data, params), scope="sheet", case=data.case.id)
+                         params=_params_block(info, data, params), constants=_constants_block(info, data, external),
+                         scope="sheet", case=data.case.id)
         plan.series, plan.scalars = _module_sections(info, data, module_id, linked=False)
         plans.append(plan)
     return plans
@@ -1031,9 +1118,12 @@ def assumptions_plan(info, data, taken):
 def model_plans(info, data):
     model = info.model
     taken = {SCRATCH}
+    names = [i.name for i in model.config.input_series]
     inputs = SheetPlan(sheet_name("Inputs", taken), model.config.name, data.case.name, data.months,
-                       params=_params_block(info, data, list(info.fields)), scope="workbook", case=data.case.id)
-    pasted = [_value_line(info, data, i.name) for i in model.config.input_series if not i.excel]
+                       params=_params_block(info, data, list(info.fields)),
+                       constants=_constants_block(info, data, names), scope="workbook", case=data.case.id)
+    pasted = [_value_line(info, data, i.name) for i in model.config.input_series
+              if not i.excel and not info.is_constant(data, i.name)]
     formulas, grey = _input_formula_lines(info, data)
     inputs.series = [pasted, formulas, grey]
     plans = [inputs]

@@ -1,0 +1,132 @@
+diff --git a/crates/ui-egui/src/editor.rs b/crates/ui-egui/src/editor.rs
+index 71fd2a1..68ff0f3 100644
+--- a/crates/ui-egui/src/editor.rs
++++ b/crates/ui-egui/src/editor.rs
+@@ -371,6 +371,36 @@ impl EditState {
+ /// References in formula text with their byte spans and colour index (same reference text ⇒
+ /// same colour), for colouring the editor and outlining ranges on the grid.
+ pub fn formula_refs(text: &str) -> Vec<(usize, usize, RangeRef, Option<String>, usize)> {
++    refs_with(text, &|_, _| None)
++}
++
++/// [`formula_refs`] plus defined names that refer to a plain cell or range, which are coloured
++/// and outlined like references (as Excel does), on the sheet they refer to. A name resolves
++/// against the sheet the edit started on (`origin`), then the workbook.
++pub fn formula_refs_named(text: &str, wb: &gridcraft_engine::model::Workbook, origin: usize) -> Vec<(usize, usize, RangeRef, Option<String>, usize)> {
++    refs_with(text, &|qualifier, name| name_ref(wb, origin, qualifier, name))
++}
++
++/// What a defined name refers to when that is one cell or range (`'Base'!$C$6`,
++/// `Base!$C$14:$DR$14`): a name qualified with a sheet (`Base!rate`) is that sheet's own; an
++/// unqualified one is the `origin` sheet's, else the workbook's. Constants and formulas give `None`.
++fn name_ref(wb: &gridcraft_engine::model::Workbook, origin: usize, qualifier: Option<&str>, name: &str) -> Option<(RangeRef, Option<String>)> {
++    let find = |scope: Option<usize>| wb.names.iter().find(|n| n.scope == scope && n.name.eq_ignore_ascii_case(name));
++    let def = match qualifier {
++        Some(sheet) => find(Some(wb.sheet_index(sheet)?)),
++        None => find(Some(origin)).or_else(|| find(None)),
++    }?;
++    let formula = def.formula.trim();
++    let formula = formula.strip_prefix('=').unwrap_or(formula);
++    match formula_refs(formula).as_slice() {
++        [(0, end, range, sheet, _)] if *end == formula.len() => Some((*range, sheet.clone())),
++        _ => None,
++    }
++}
++
++type NameLookup<'a> = dyn Fn(Option<&str>, &str) -> Option<(RangeRef, Option<String>)> + 'a;
++
++fn refs_with(text: &str, names: &NameLookup<'_>) -> Vec<(usize, usize, RangeRef, Option<String>, usize)> {
+     let body = text.strip_prefix('=').or_else(|| text.strip_prefix('+')).unwrap_or(text);
+     let offset = text.len() - body.len();
+     let Ok(toks) = gridcraft_engine::formula::lexer::tokenize(body) else { return vec![] };
+@@ -402,8 +432,16 @@ pub fn formula_refs(text: &str) -> Vec<(usize, usize, RangeRef, Option<String>,
+             } else if let Some(c) = CellRef::parse(w) {
+                 i = j + 1;
+                 (RangeRef::cell(c), toks[j].end)
++            } else if let Some((range, target)) = names(sheet.as_deref(), w).filter(|_| !matches!(toks.get(j + 1).map(|t| &t.tok), Some(Tok::Struct(_)))) {
++                // A defined name: outlined on the sheet it refers to.
++                i = j + 1;
++                let key = body.get(start..toks[j].end).unwrap_or("").to_ascii_uppercase();
++                let next = seen.len();
++                let idx = *seen.entry(key).or_insert(next);
++                out.push((start + offset, toks[j].end + offset, range, target, idx % REF_COLOR_COUNT));
++                continue;
+             } else {
+-                i += 1;
++                i = j + 1;
+                 continue;
+             };
+             let key = body.get(start..end).unwrap_or("").replace('$', "").to_ascii_uppercase();
+@@ -541,6 +579,39 @@ mod tests {
+         assert!(ref_is_on_sheet(Some("sheet2"), "Sheet1", "Sheet2"), "sheet names compare ignoring case");
+     }
+ 
++    #[test]
++    fn defined_names_that_are_ranges_are_refs() {
++        use gridcraft_engine::model::{DefinedName, Sheet, Workbook};
++        let mut wb = Workbook::new();
++        wb.sheets.push(std::sync::Arc::new(Sheet::new("Base")));
++        let name = |name: &str, scope: Option<usize>, formula: &str| DefinedName { name: name.into(), scope, formula: formula.into(), comment: String::new(), hidden: false };
++        wb.names = vec![
++            name("rate", Some(1), "'Base'!$C$6"),
++            name("rate", None, "Sheet1!$A$1"),
++            name("series", None, "Base!$C$14:$DR$14"),
++            name("months", None, "12"),
++            name("double", None, "Base!$C$6*2"),
++        ];
++        let text = "=1-(1-IF(E11<=E12,rate,series))^(1/months)+double+SUM(Sheet1!rate)";
++        // Started on Base: the sheet's own `rate` wins over the workbook's.
++        let refs = formula_refs_named(text, &wb, 1);
++        let shown: Vec<_> = refs.iter().map(|r| (&text[r.0..r.1], r.2.a1(), r.3.as_deref())).collect();
++        assert_eq!(
++            shown,
++            [("E11", "E11".into(), None), ("E12", "E12".into(), None), ("rate", "C6".into(), Some("Base")), ("series", "C14:DR14".into(), Some("Base"))],
++            "constants, formulas and a sheet-qualified name with no such sheet-scoped name stay plain"
++        );
++        assert_ne!(refs[2].4, refs[3].4, "each name has its own colour");
++        // Started on Sheet1: only the workbook's `rate` is in scope.
++        let refs = formula_refs_named(text, &wb, 0);
++        assert_eq!((refs[2].2.a1(), refs[2].3.as_deref()), ("A1".into(), Some("Sheet1")));
++        // Qualified with its sheet, a sheet-scoped name resolves from anywhere.
++        let refs = formula_refs_named("=Base!rate+1", &wb, 0);
++        assert_eq!((refs.len(), refs[0].0, refs[0].1, refs[0].2.a1()), (1, 1, 10, "C6".into()));
++        // Without the workbook, names stay plain.
++        assert_eq!(formula_refs(text).len(), 2);
++    }
++
+     #[test]
+     fn whole_row_and_column_ref_spans() {
+         let refs = formula_refs("=SUM(C:C,4:6,$D:$E,Sheet2!7:8)");
+diff --git a/crates/ui-egui/src/formula_bar.rs b/crates/ui-egui/src/formula_bar.rs
+index 96fbdcf..983990f 100644
+--- a/crates/ui-egui/src/formula_bar.rs
++++ b/crates/ui-egui/src/formula_bar.rs
+@@ -493,7 +493,10 @@ pub fn editor_widget(app: &mut SheetApp, ui: &mut egui::Ui, id: egui::Id, font:
+     let has_focus = focused == Some(id) || (mine && (ed.request_focus || focused.is_none()));
+     let EditorKeyOutcome { action, arrow, cancel, to_python } = editor_shortcuts(app, ui, id, &mut ed, mine, has_focus);
+     // The text widget.
+-    let refs = formula_refs(&ed.text);
++    let refs = match app.session.documents().iter().find(|d| d.uid == ed.doc) {
++        Some(d) => crate::editor::formula_refs_named(&ed.text, &d.wb, ed.sheet),
++        None => formula_refs(&ed.text),
++    };
+     let t = Tokens::get(ui.ctx());
+     let on_sheet = id == egui::Id::unique("gridcraft.cell_editor");
+     let cell_text_color = if on_sheet { t.cell_text } else { t.text };
+diff --git a/crates/ui-egui/src/grid/selection.rs b/crates/ui-egui/src/grid/selection.rs
+index 3fbd081..0904f4f 100644
+--- a/crates/ui-egui/src/grid/selection.rs
++++ b/crates/ui-egui/src/grid/selection.rs
+@@ -105,8 +105,10 @@ pub(crate) fn paint_selection(input: SelectionPaintInput<'_>) {
+         && ed.is_formula()
+         && app.session.active().is_some_and(|d| d.uid == ed.doc)
+     {
+-        let origin = app.session.active().and_then(|d| d.wb.sheet(ed.sheet)).map_or(sh.name.as_str(), |o| o.name.as_str());
+-        for (_, _, r, sheet, idx) in crate::editor::formula_refs(&ed.text) {
++        let doc = app.session.active();
++        let origin = doc.and_then(|d| d.wb.sheet(ed.sheet)).map_or(sh.name.as_str(), |o| o.name.as_str());
++        let refs = doc.map_or_else(|| crate::editor::formula_refs(&ed.text), |d| crate::editor::formula_refs_named(&ed.text, &d.wb, ed.sheet));
++        for (_, _, r, sheet, idx) in refs {
+             if !crate::editor::ref_is_on_sheet(sheet.as_deref(), origin, &sh.name) {
+                 continue;
+             }
