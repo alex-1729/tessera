@@ -246,7 +246,31 @@ section.agentlog[hidden] { display: none; }
 .alog-txt { flex: 1; min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
 .alog-action .alog-txt, .alog-done, .alog-line .grey { color: var(--slate); }
 .alog-num { font: 12px var(--mono); }
+.md { white-space: normal; }
+.md > :first-child { margin-top: 0; }
+.md > :last-child { margin-bottom: 0; }
+.md p, .md ul, .md ol, .md pre, .md table, .md blockquote { margin: 0 0 6px; }
+.md .md-h { font-weight: 600; margin: 8px 0 3px; }
+.md ul, .md ol { padding-left: 18px; }
+.md li { margin: 1px 0; }
+.md li > ul, .md li > ol { margin: 1px 0 0; }
+.md code { font-size: 12px; background: var(--buff); padding: 0 2px; }
+.md pre.code code { background: none; padding: 0; }
+.md hr { border: 0; border-top: 1px solid var(--rule); margin: 6px 0; }
+.md blockquote { border-left: 2px solid var(--rule); padding-left: 8px; color: var(--slate); }
+.md-table { border-collapse: collapse; max-width: 100%; }
+.md-table th, .md-table td { border-bottom: 1px solid var(--rule); padding: 2px 10px 2px 0; text-align: left; vertical-align: top; }
+.md-table th { font-weight: 600; border-bottom-color: var(--navy); }
+.md-table .r { text-align: right; }
 .alog-btns, .alog-opts { margin-top: 3px; }
+.alog-qtext:has(+ .qcard) { display: none; }
+.qcard .qblock + .qblock { border-top: 1px solid var(--rule, #ccc); margin-top: 6px; padding-top: 2px; }
+.qcard .cardsec:first-child { margin-top: 0; }
+.qcard .qtext { margin: 0 0 3px; }
+.qcard .qopt { display: flex; gap: 6px; align-items: baseline; margin: 2px 0; cursor: default; }
+.qcard .qopt input { margin: 0; flex: none; position: relative; top: 1px; }
+.qcard .qlabel { font-weight: 600; }
+.qcard .qother { display: block; width: 100%; margin-top: 3px; }
 .alog-opts button, .alog-btns button { margin: 0 6px 2px 0; }
 .alog-txt .alog-done { margin-top: 3px; }
 

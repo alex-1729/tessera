@@ -499,6 +499,30 @@ const check = (name, ok, detail) => { summary.checks.push({ name, ok: !!ok, ...(
     await ev(`document.querySelector('.alog-opts button').click()`);
     check('chat: clicking an option sends it as the answer', await waitFor(`!document.getElementById('agentlog-input').disabled`, 8000) && stub.calls.send.length === nb + 1 && stub.calls.send[nb].text === 'Base');
     check('chat: once answered the options are gone and the strip is quiet', await ev(`!document.querySelector('.alog-opts')`));
+    // markdown in an agent reply is drawn as structure, never as markup
+    stub.inject({ type: 'agent', scope, text: '## Plan\n\nUse the **monthly** rate, not `annual_rate`.\n\n1. First step\n2. Second step\n   - a nested point\n\n| Month | Units |\n|---|---:|\n| 1 | 10.5 |\n\n```python\nx = a * b  # **not bold**\n```\n\n<img src=x onerror=alert(1)> 2 * 3 * 4 and snake_case_name stay as typed.' });
+    await waitFor(`!!document.querySelector('#agentlog-log .md table')`, 5000);
+    check('chat: an agent reply shows markdown as headings, bold, code, lists and a table', await ev(`(()=>{const m=[...document.querySelectorAll('#agentlog-log .md')].pop(); const t=q=>[...m.querySelectorAll(q)].map(x=>x.textContent).join('|');
+      return t('.md-h')==='Plan' && t('strong')==='monthly' && t('p code')==='annual_rate' && m.querySelectorAll('ol > li').length===2 && t('ol ul li')==='a nested point'
+        && t('th')==='Month|Units' && t('td')==='1|10.5' && m.querySelector('td.r').textContent==='10.5' && m.querySelector('pre').textContent==='x = a * b  # **not bold**'})()`));
+    check('chat: markup and stray symbols in a reply stay as plain text', await ev(`(()=>{const m=[...document.querySelectorAll('#agentlog-log .md')].pop(); const p=[...m.querySelectorAll('p')].pop();
+      return !m.querySelector('img') && !p.querySelector('em,strong') && p.textContent==='<img src=x onerror=alert(1)> 2 * 3 * 4 and snake_case_name stay as typed.'})()`));
+    await ev(`(()=>{const l=document.getElementById('agentlog-log'); l.scrollTop=l.scrollHeight})()`); await settle();
+    await shot('chat-markdown');
+    // several questions at once: one form, suggested answers, a box for another answer, one Send
+    stub.inject({ type: 'question', scope, text: '1. What is being priced?\n2. Which results?', questions: [
+      { question: 'What is being priced?', header: 'Purpose', options: [{ label: 'Profit', description: 'Profit on a block of policies' }, { label: 'Reserve' }] },
+      { question: 'Which results?', header: 'Results', multi: true, options: [{ label: 'IRR' }, { label: 'Present values' }] }] });
+    await waitFor(`!!document.querySelector('#agentlog-log .qcard')`, 5000);
+    check('chat: several questions show as one form with headers, choices and a box for another answer', await ev(`(()=>{const c=document.querySelector('.qcard'); return [...c.querySelectorAll('.cardsec')].map(x=>x.textContent).join('|')==='Purpose|Results' && c.querySelectorAll('input[type=radio]').length===2 && c.querySelectorAll('input[type=checkbox]').length===2 && c.querySelectorAll('.qother').length===2 && getComputedStyle(document.querySelector('.alog-qtext')).display==='none' && c.querySelector('.alog-btns button').disabled})()`));
+    await ev(`(()=>{const c=document.querySelector('.qcard'); const fire=(el,t)=>el.dispatchEvent(new Event(t,{bubbles:true})); const r=c.querySelector('input[type=radio]'); r.checked=true; fire(r,'change'); return 1})()`);
+    await shot('chat-question-form');
+    check('chat: Send answers waits until every question has an answer', await ev(`document.querySelector('.qcard .alog-btns button').disabled`));
+    await ev(`(()=>{const c=document.querySelector('.qcard'); const fire=(el,t)=>el.dispatchEvent(new Event(t,{bubbles:true})); const k=c.querySelector('input[type=checkbox]'); k.checked=true; fire(k,'change'); const o=c.querySelectorAll('.qother')[1]; o.value='Reserves'; fire(o,'input'); return 1})()`);
+    const nq = stub.calls.send.length;
+    await ev(`document.querySelector('.qcard .alog-btns button').click()`);
+    check('chat: the answers go as one message, a line per question', await waitFor(`!document.getElementById('agentlog-input').disabled`, 8000) && stub.calls.send.length === nq + 1 && stub.calls.send[nq].text === 'Purpose: Profit\nResults: IRR, Reserves', stub.calls.send[nq] && stub.calls.send[nq].text);
+    check('chat: once answered the form is gone and the questions stay as text', await ev(`!document.querySelector('.qcard') && [...document.querySelectorAll('.alog-qtext')].pop().querySelectorAll('ol > li').length===2 && [...document.querySelectorAll('.alog-qtext li')].pop().textContent==='Which results?' && getComputedStyle([...document.querySelectorAll('.alog-qtext')].pop()).display!=='none'`));
     await say('give me a draft');
     check('chat: a draft shows Apply draft and Discard', await ev(`[...document.querySelectorAll('#agentlog-log .alog-draft button')].map(b=>b.textContent).join('|')==='Apply draft|Discard'`));
     await ev(`document.getElementById('hideright').click()`); await settle();

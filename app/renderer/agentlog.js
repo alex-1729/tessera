@@ -3,6 +3,7 @@
 // at the bottom. Every message is sent with the current selection as its scope. Views call mount(scope) when they render.
 // scope: {level: 'model' | 'module' | 'tile', id}
 import { h, fmtNumber, plainFormula } from './util.js';
+import { markdown } from './markdown.js';
 
 const agentApi = () => (window.api && window.api.agent) || null;
 
@@ -319,6 +320,39 @@ function pushCard(ev, status) {
   return e;
 }
 
+// Questions from the agent as one form: each with its header, the suggested answers (one, or several when the
+// question allows it) and a box for an answer of the reviewer's own. Send answers is live once every question has
+// an answer. The form goes when it is answered or when the reviewer types a reply instead; the questions stay as text.
+let qcardN = 0;
+function questionCard(ev) {
+  const qs = ev.questions;
+  const group = 'q' + (++qcardN);
+  const send1 = h('button', { type: 'button', class: 'small', disabled: true }, qs.length === 1 ? 'Send answer' : 'Send answers');
+  const parts = qs.map((q, i) => {
+    const boxes = (q.options || []).map(o => {
+      const box = h('input', { type: q.multi ? 'checkbox' : 'radio', name: `${group}-${i}`, value: o.label });
+      return { box, row: h('label', { class: 'qopt' }, box, h('span', {}, h('span', { class: 'qlabel' }, o.label), o.description ? h('span', { class: 'grey' }, ' ' + o.description) : null)) };
+    });
+    const other = h('input', { type: 'text', class: 'qother', autocomplete: 'off', maxlength: 2000, placeholder: boxes.length ? 'Other' : 'Your answer', 'aria-label': 'Another answer' });
+    // typing an answer of your own replaces a single choice; with several allowed it is added to them
+    other.addEventListener('input', () => { if (!q.multi && other.value.trim()) boxes.forEach(b => { b.box.checked = false; }); paint(); });
+    other.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); if (!send1.disabled) send1.click(); } });
+    boxes.forEach(b => b.box.addEventListener('change', () => { if (!q.multi && b.box.checked) other.value = ''; paint(); }));
+    const answer = () => [...boxes.filter(b => b.box.checked).map(b => b.box.value), other.value.trim()].filter(Boolean).join(', ');
+    return { q, answer, node: h('div', { class: 'qblock' }, h('div', { class: 'cardsec' }, q.header || `Question ${i + 1}`), h('div', { class: 'qtext' }, q.question), boxes.map(b => b.row), other) };
+  });
+  function paint() { send1.disabled = busy || parts.some(p => !p.answer()); }
+  send1.addEventListener('click', () => {
+    if (parts.some(p => !p.answer())) return;
+    const text = parts.length === 1 ? parts[0].answer() : parts.map((p, i) => `${p.q.header || `Question ${i + 1}`}: ${p.answer()}`).join('\n');
+    void send(text);
+  });
+  const e = line('Agent', '', 'alog-question', ev);
+  e.querySelector('.alog-txt').append(h('div', { class: 'alog-qtext' }, markdown(ev.text || '')),
+    h('div', { class: 'alog-opts alog-card qcard' }, parts.map(p => p.node), h('div', { class: 'alog-btns' }, send1)));
+  return e;
+}
+
 function divider(scope) {
   return h('div', { class: 'alog-divider', 'data-scope': keyOf(scope) }, hooks.titleOf(scope));
 }
@@ -328,10 +362,11 @@ function render(ev, draftStatus) {
     case 'user':
       logEl.querySelectorAll('.alog-opts').forEach(n => n.remove());
       return line('You', ev.text, '', ev);
-    case 'agent': return line('Agent', ev.text, '', ev);
+    case 'agent': return line('Agent', markdown(ev.text), '', ev);
     case 'action': return line('', ev.text, 'alog-action', ev);
     case 'question': {
-      const e = line('Agent', ev.text, 'alog-question', ev);
+      if ((ev.questions || []).length) return questionCard(ev);
+      const e = line('Agent', markdown(ev.text), 'alog-question', ev);
       if ((ev.options || []).length) {
         e.querySelector('.alog-txt').append(h('div', { class: 'alog-opts' }, ev.options.map(o =>
           h('button', { type: 'button', class: 'small', onclick: () => send(String(o)) }, o))));

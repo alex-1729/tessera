@@ -5,7 +5,7 @@
 const fs = require('fs');
 const path = require('path');
 const git = require('./git');
-const { isModelDir, readName } = require('./models');
+const { isModelDir, readName, writeName } = require('./models');
 const { createNewModel } = require('./newmodel');
 const github = require('./github');
 const { createModelInNewRepo } = require('./newrepo');
@@ -78,6 +78,17 @@ function registerLaunch({ ipcMain, dialog, shell, wrap, models, cfg, getWin, swi
         if (st && !st.isDirectory()) throw new Error('That real-data location is a file, not a folder.');
       }
       out.realDataDir = d ? path.resolve(d) : '';
+    }
+    // The name is the model's own: it is written to tilekit.toml (after everything else was checked), then to the list.
+    if (v.name !== undefined) {
+      const n = str(v.name, 200, 'name').trim();
+      if (!n) throw new Error('Give the model a name.');
+      if (/[\u0000-\u001f\u007f]/.test(n)) throw new Error('The name must be one line of plain text.');
+      if (n !== m.name || n !== readName(m.dir)) {
+        if (!isModelDir(m.dir)) throw new Error('The model folder is missing, so it cannot be renamed.');
+        writeName(m.dir, n);
+        out.name = n;
+      }
     }
     return view(models.update(m.id, out));
   }));
