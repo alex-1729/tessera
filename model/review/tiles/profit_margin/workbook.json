@@ -2,7 +2,7 @@
   "kind": "tile",
   "name": "profit_margin",
   "module": "profit",
-  "built_at": "2026-11-14T21:09:14+00:00",
+  "built_at": "2026-11-15T03:22:55+00:00",
   "stamp": {
     "code": "f79c1389779e13e5d1165f2db1c087426bc7651899ff015bd4b5299b938126f4",
     "spec": "74ec4344c643141acd170b0b5cb6968b1cfbe347cfbe85e64f606ff74b6bf443",
@@ -58,9 +58,19 @@
     }
   },
   "near_ties": {},
+  "hand_checks": {
+    "digest": "f36750c39b296a5fe505f95c061377fbee5f2ba811581a573cef9319c02fd4ec",
+    "sheet": null,
+    "not_in_sheet": [
+      "test_profit_margin_by_hand"
+    ],
+    "checks": [],
+    "max_abs_difference": null,
+    "checks_pass": null
+  },
   "content_digest": "fade144af0155eaeacd9acbc1601e284434a657d5526cb612869b57ba2c0fa31",
   "content_stat": {
-    "mtime_ns": 1794690554303051930,
+    "mtime_ns": 1794712975265589916,
     "size": 8713
   }
 }

@@ -2,7 +2,7 @@
   "kind": "tile",
   "name": "gross_profit",
   "module": "cashflows",
-  "built_at": "2026-11-14T21:09:13+00:00",
+  "built_at": "2026-11-15T03:22:54+00:00",
   "stamp": {
     "code": "5fc6cfbfad19f34728179e0152bf57f5b4baed557d538ca02e5bd6c9399c4fed",
     "spec": "bd5ce00ba360ebac0913e7008275bce387ca3b0749bbc15c8543ac9d4d72fbbb",
@@ -58,9 +58,50 @@
     }
   },
   "near_ties": {},
-  "content_digest": "efc531ff7c3bf3d9b2ca93af5f6797d75d3d8d6d1506266db98de227f08b1cb7",
+  "hand_checks": {
+    "digest": "95962754e8d934fdbb9667527294c1442b1ca610339a3c8f39a3231a8380929e",
+    "sheet": "Hand checks",
+    "not_in_sheet": [],
+    "checks": [
+      {
+        "test": "test_gross_profit_by_hand",
+        "index": 1,
+        "args": {
+          "allocation_margin": 7.5,
+          "amc_income": 0.1515625,
+          "maintenance_expense": -2.0,
+          "acquisition_expense": -150.0,
+          "death_strain": -7.287069749742
+        },
+        "expected": -151.635507249742,
+        "tolerance": 1e-09,
+        "excel": -151.63550724974198,
+        "difference": 2.842170943040401e-14,
+        "pass": true
+      },
+      {
+        "test": "test_gross_profit_by_hand",
+        "index": 2,
+        "args": {
+          "allocation_margin": 7.460334668469,
+          "amc_income": 0.302041468739,
+          "maintenance_expense": -1.989422578258,
+          "acquisition_expense": 0.0,
+          "death_strain": -7.213104344031
+        },
+        "expected": -1.440150785081,
+        "tolerance": 1e-09,
+        "excel": -1.4401507850810003,
+        "difference": 2.220446049250313e-16,
+        "pass": true
+      }
+    ],
+    "max_abs_difference": 2.842170943040401e-14,
+    "checks_pass": true
+  },
+  "content_digest": "7580f372d2e0e94d431c3acf1b2b02d795ee3430ac679bb896e7d915b2d66a6f",
   "content_stat": {
-    "mtime_ns": 1794690553522489371,
-    "size": 79237
+    "mtime_ns": 1794712974561527400,
+    "size": 80530
   }
 }

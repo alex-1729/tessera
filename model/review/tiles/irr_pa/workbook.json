@@ -2,7 +2,7 @@
   "kind": "tile",
   "name": "irr_pa",
   "module": "profit",
-  "built_at": "2026-11-14T21:09:14+00:00",
+  "built_at": "2026-11-15T03:22:55+00:00",
   "stamp": {
     "code": "5153e395451bc8e5d370c7407f09d73acfc510905b2ae6e58a911f93db97b1dc",
     "spec": "9cf0fc205d256f9562e2782ba1a2a53c916388989be2d9febe18bd72fc6fdd1f",
@@ -58,9 +58,19 @@
     }
   },
   "near_ties": {},
+  "hand_checks": {
+    "digest": "1fb1406e90b0bb6726e3b041cfe9ccffe0e307486ab563c979ac58736b648df4",
+    "sheet": null,
+    "not_in_sheet": [
+      "test_irr_pa_by_hand"
+    ],
+    "checks": [],
+    "max_abs_difference": null,
+    "checks_pass": null
+  },
   "content_digest": "8c92ebf1f033f03d8d52359637ea4728a6dc9f0ca422fd39cbfd58ceeb5a5fea",
   "content_stat": {
-    "mtime_ns": 1794690554367848459,
+    "mtime_ns": 1794712975330383068,
     "size": 8856
   }
 }

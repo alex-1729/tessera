@@ -2,7 +2,7 @@
   "kind": "tile",
   "name": "units_eop",
   "module": "unit_projection",
-  "built_at": "2026-11-14T21:09:12+00:00",
+  "built_at": "2026-11-15T03:22:53+00:00",
   "stamp": {
     "code": "363474654648badc5086a9341f809a2feebf35b05268eff5336e405f81e99675",
     "spec": "319834b419e34b3cb2608fbb7062fc624a696a15e562f46c737e28dbb15e95da",
@@ -58,9 +58,57 @@
     }
   },
   "near_ties": {},
-  "content_digest": "8d7629f545938d03f137937110e9a1cd131ce1146140451782480d7ccf043a74",
+  "hand_checks": {
+    "digest": "0d3a500371d82c88d10965a076fff11defcc74ea19c63b3b64ffd2d39881e00f",
+    "sheet": "Hand checks",
+    "not_in_sheet": [],
+    "checks": [
+      {
+        "test": "test_units_eop_by_hand",
+        "index": 1,
+        "args": {
+          "units_after_alloc": 194.0,
+          "units_amc": 0.12125
+        },
+        "expected": 193.87875,
+        "tolerance": 1e-09,
+        "excel": 193.87875,
+        "difference": 0.0,
+        "pass": true
+      },
+      {
+        "test": "test_units_eop_by_hand",
+        "index": 2,
+        "args": {
+          "units_after_alloc": 387.091577026107,
+          "units_amc": 0.241932235641317
+        },
+        "expected": 386.849644790466,
+        "tolerance": 1e-09,
+        "excel": 386.8496447904657,
+        "difference": 3.410605131648481e-13,
+        "pass": true
+      },
+      {
+        "test": "test_units_eop_by_hand",
+        "index": 3,
+        "args": {
+          "units_after_alloc": 579.278492869952,
+          "units_amc": 0.36204905804372
+        },
+        "expected": 578.916443811908,
+        "tolerance": 1e-09,
+        "excel": 578.9164438119083,
+        "difference": 2.2737367544323206e-13,
+        "pass": true
+      }
+    ],
+    "max_abs_difference": 3.410605131648481e-13,
+    "checks_pass": true
+  },
+  "content_digest": "16aa3c36239167d7e51d4dcf33a117bad2320bb909b30f65f4764d8f74e9d657",
   "content_stat": {
-    "mtime_ns": 1794690552337014484,
-    "size": 54021
+    "mtime_ns": 1794712973430154293,
+    "size": 55272
   }
 }

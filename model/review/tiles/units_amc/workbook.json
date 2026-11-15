@@ -2,7 +2,7 @@
   "kind": "tile",
   "name": "units_amc",
   "module": "unit_projection",
-  "built_at": "2026-11-14T21:09:12+00:00",
+  "built_at": "2026-11-15T03:22:53+00:00",
   "stamp": {
     "code": "a6a752b4310030652475a8562f9fddd049ef0a89d0624aa204159755830951e6",
     "spec": "efd51cd9d2f9efe19d9c2e789f7cec84d946758f9d96663709a627c20aca4cbd",
@@ -76,9 +76,88 @@
     }
   },
   "near_ties": {},
-  "content_digest": "48fe051c95ebe7dee656d07b5f8c92d9f21f5597f41fcaa7c92c335b02a8a257",
+  "hand_checks": {
+    "digest": "64697ca787470a4c02d0c522cda8cd08173cbdc0b573b786f696dbd64259e902",
+    "sheet": "Hand checks",
+    "not_in_sheet": [],
+    "checks": [
+      {
+        "test": "test_units_amc_by_hand",
+        "index": 1,
+        "args": {
+          "units_after_alloc": 194.0,
+          "amc_pm": 0.000625,
+          "amc_cap_units": 25.0
+        },
+        "expected": 0.12125,
+        "tolerance": 1e-09,
+        "excel": 0.12125,
+        "difference": 0.0,
+        "pass": true
+      },
+      {
+        "test": "test_units_amc_by_hand",
+        "index": 2,
+        "args": {
+          "units_after_alloc": 387.091577026107,
+          "amc_pm": 0.000625,
+          "amc_cap_units": 25.0
+        },
+        "expected": 0.241932235641317,
+        "tolerance": 1e-09,
+        "excel": 0.24193223564131688,
+        "difference": 1.1102230246251565e-16,
+        "pass": true
+      },
+      {
+        "test": "test_units_amc_by_hand",
+        "index": 3,
+        "args": {
+          "units_after_alloc": 579.278492869952,
+          "amc_pm": 0.000625,
+          "amc_cap_units": 25.0
+        },
+        "expected": 0.36204905804372,
+        "tolerance": 1e-09,
+        "excel": 0.36204905804371995,
+        "difference": 5.551115123125783e-17,
+        "pass": true
+      },
+      {
+        "test": "test_units_amc_by_hand",
+        "index": 4,
+        "args": {
+          "units_after_alloc": 12570.889893416273,
+          "amc_pm": 0.002,
+          "amc_cap_units": 25.0
+        },
+        "expected": 25.0,
+        "tolerance": 1e-09,
+        "excel": 25.0,
+        "difference": 0.0,
+        "pass": true
+      },
+      {
+        "test": "test_units_amc_by_hand",
+        "index": 5,
+        "args": {
+          "units_after_alloc": 12456.805621505462,
+          "amc_pm": 0.002,
+          "amc_cap_units": 25.0
+        },
+        "expected": 24.913611243010926,
+        "tolerance": 1e-09,
+        "excel": 24.913611243010926,
+        "difference": 0.0,
+        "pass": true
+      }
+    ],
+    "max_abs_difference": 1.1102230246251565e-16,
+    "checks_pass": true
+  },
+  "content_digest": "291289968e0a00e6394db260d2f2c43a78645e270ea411d95aeb882daa5441d9",
   "content_stat": {
-    "mtime_ns": 1794690552232858845,
-    "size": 50963
+    "mtime_ns": 1794712973346964948,
+    "size": 52418
   }
 }

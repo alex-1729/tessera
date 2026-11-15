@@ -2,7 +2,7 @@
   "kind": "tile",
   "name": "acquisition_expense",
   "module": "cashflows",
-  "built_at": "2026-11-14T21:09:13+00:00",
+  "built_at": "2026-11-15T03:22:54+00:00",
   "stamp": {
     "code": "84b55ef95f7846565844d41073a8fb2f551083c7cca0277741379acd1daec8d2",
     "spec": "24e171ae51eedcce415112724a00682ae721883056d90b732f116a6371757df2",
@@ -58,9 +58,44 @@
     }
   },
   "near_ties": {},
-  "content_digest": "85220b753c1785a5a944adcb933e080700cc4bf50cbaddde4d3a9dbb03dc873c",
+  "hand_checks": {
+    "digest": "a9f1ae205f0cdcfaefa9d17bf55959deba947411dfeb02c5d02689bdf1140534",
+    "sheet": "Hand checks",
+    "not_in_sheet": [],
+    "checks": [
+      {
+        "test": "test_acquisition_expense_by_hand",
+        "index": 1,
+        "args": {
+          "acquisition_cost_paid": 150.0,
+          "in_force_bop": 1.0
+        },
+        "expected": -150.0,
+        "tolerance": 1e-09,
+        "excel": -150.0,
+        "difference": 0.0,
+        "pass": true
+      },
+      {
+        "test": "test_acquisition_expense_by_hand",
+        "index": 2,
+        "args": {
+          "acquisition_cost_paid": 0.0,
+          "in_force_bop": 0.994711289129205
+        },
+        "expected": 0.0,
+        "tolerance": 1e-09,
+        "excel": 0.0,
+        "difference": 0.0,
+        "pass": true
+      }
+    ],
+    "max_abs_difference": 0.0,
+    "checks_pass": true
+  },
+  "content_digest": "ab40eff1993354d859f4ba1fe0cd8eadd6fa82a5d8a6446b4fb70664b6fb855d",
   "content_stat": {
-    "mtime_ns": 1794690553230405865,
-    "size": 44661
+    "mtime_ns": 1794712974273544566,
+    "size": 45757
   }
 }

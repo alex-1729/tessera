@@ -8,7 +8,9 @@ from pathlib import Path
 from tilekit.cases import get_case, load_cases
 from tilekit.errors import TilekitError
 from tilekit.gridcraft import GridCraft, require_cli
+from tilekit import handchecks
 from tilekit.stamps import model_stamp, module_stamp, tile_stamp
+from tilekit.translate import model_translations
 from tilekit.workbook import (CaseData, build_model, build_module, build_tile, content_digest, default_case_id,
                               file_stat, model_paths, module_paths, review_dir, tile_paths, write_json)
 
@@ -119,10 +121,20 @@ def build(model, tile=None, module=None, whole_model=False, case=None, force=Fal
         targets.append(("model", model_case, model_paths(model, model_case), lambda: model_stamp(model, model_case)))
 
     todo, skipped = [], []
+    cache = {}
+
+    def translations():
+        if "t" not in cache:
+            cache["t"] = model_translations(model)
+        return cache["t"]
+
     for kind, name, (xlsx, sidecar), make_stamp in targets:
         stamp = make_stamp()
-        stored, _, content_ok = workbook_state(xlsx, sidecar)
-        if not force and stored == stamp and content_ok:
+        stored, document, content_ok = workbook_state(xlsx, sidecar)
+        # a tile workbook is also built for the checks of the tile's test; a changed test needs a rebuild
+        hand_ok = kind != "tile" or stored is None or \
+            handchecks.current(document, handchecks.extract(model, name, translations()))
+        if not force and stored == stamp and content_ok and hand_ok:
             skipped.append({"kind": kind, "name": name if kind != "model" else model.config.name,
                             **({"case": name} if kind == "model" else {}),
                             "workbook": _relative(model, xlsx), "reason": "up to date"})

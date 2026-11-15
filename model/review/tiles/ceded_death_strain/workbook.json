@@ -2,7 +2,7 @@
   "kind": "tile",
   "name": "ceded_death_strain",
   "module": "quota_share",
-  "built_at": "2026-11-14T21:09:13+00:00",
+  "built_at": "2026-11-15T03:22:54+00:00",
   "stamp": {
     "code": "e4edd6c9a147912d38691c468b214d050ccebc785a6451134b93998cd693fa88",
     "spec": "acd5409199fc22a139d1562f9c92bfb70c01f24f4fdfb9fb93e3448ad98d5d72",
@@ -58,9 +58,44 @@
     }
   },
   "near_ties": {},
-  "content_digest": "eaf3055219afae9ec1736c4c5252a832f222eeba09c3637d266f327f78d54f0b",
+  "hand_checks": {
+    "digest": "c1cb73fe2b81a92ef515b92db3f3d9eca7d26605cb63a3beaae0cc36a137e5ad",
+    "sheet": "Hand checks",
+    "not_in_sheet": [],
+    "checks": [
+      {
+        "test": "test_ceded_death_strain_by_hand",
+        "index": 1,
+        "args": {
+          "death_strain": -7.287069749742,
+          "quota_share": 0.5
+        },
+        "expected": -3.643534874871,
+        "tolerance": 1e-09,
+        "excel": -3.643534874871,
+        "difference": 0.0,
+        "pass": true
+      },
+      {
+        "test": "test_ceded_death_strain_by_hand",
+        "index": 2,
+        "args": {
+          "death_strain": -7.213104344031,
+          "quota_share": 0.5
+        },
+        "expected": -3.606552172015,
+        "tolerance": 1e-09,
+        "excel": -3.6065521720155,
+        "difference": 5.000444502911705e-13,
+        "pass": true
+      }
+    ],
+    "max_abs_difference": 5.000444502911705e-13,
+    "checks_pass": true
+  },
+  "content_digest": "492e24a5a26c1dfdd7e2e4f6971ce0f9dde5a7e5781f1d8775860ae02ccfd38b",
   "content_stat": {
-    "mtime_ns": 1794690553650246800,
-    "size": 50913
+    "mtime_ns": 1794712974686062126,
+    "size": 52059
   }
 }

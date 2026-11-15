@@ -2,7 +2,7 @@
   "kind": "tile",
   "name": "fund_value_eop",
   "module": "cashflows",
-  "built_at": "2026-11-14T21:09:12+00:00",
+  "built_at": "2026-11-15T03:22:53+00:00",
   "stamp": {
     "code": "b4cfa1561d217e088ec47813acf119a2e3c60f9cb73ffe85b666e21596b1f812",
     "spec": "7b42509cf437631cf8bb54ef1593193bbe10f96473759866bc2622268df84e94",
@@ -58,9 +58,19 @@
     }
   },
   "near_ties": {},
+  "hand_checks": {
+    "digest": "95b38d8cd8b9ed04c360c6e9787cceb827d575fc9dc4baee93373e78904097ea",
+    "sheet": null,
+    "not_in_sheet": [
+      "test_fund_value_eop_by_hand"
+    ],
+    "checks": [],
+    "max_abs_difference": null,
+    "checks_pass": null
+  },
   "content_digest": "43d605e79accedcea3c5cb658ef3c6f3f95aa13ee41999ebb452a409ee98b889",
   "content_stat": {
-    "mtime_ns": 1794690552727795994,
+    "mtime_ns": 1794712973772615039,
     "size": 56462
   }
 }

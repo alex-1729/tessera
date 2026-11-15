@@ -2,7 +2,7 @@
   "kind": "tile",
   "name": "allocation_margin",
   "module": "cashflows",
-  "built_at": "2026-11-14T21:09:12+00:00",
+  "built_at": "2026-11-15T03:22:53+00:00",
   "stamp": {
     "code": "1525b831d8e05cde13c59814d2e718f6a0b860be50479c846a6282475e611467",
     "spec": "c4957b9b289dd4d8a3ac8046eae34be569bdc43fa64cc62390373732aa4e2ba3",
@@ -58,9 +58,60 @@
     }
   },
   "near_ties": {},
-  "content_digest": "561e9772d482b078455a56b2ab864c7e434362d81a7297892fd2056e9360d470",
+  "hand_checks": {
+    "digest": "290d5d266b0946605e55d4cc750ab9fd50d07626cf265cb9962b4c28e64eb0b4",
+    "sheet": "Hand checks",
+    "not_in_sheet": [],
+    "checks": [
+      {
+        "test": "test_allocation_margin_by_hand",
+        "index": 1,
+        "args": {
+          "premium": 250.0,
+          "allocation_rate": 0.97,
+          "in_force_bop": 1.0
+        },
+        "expected": 7.5,
+        "tolerance": 1e-09,
+        "excel": 7.500000000000007,
+        "difference": 7.105427357601002e-15,
+        "pass": true
+      },
+      {
+        "test": "test_allocation_margin_by_hand",
+        "index": 2,
+        "args": {
+          "premium": 250.0,
+          "allocation_rate": 0.97,
+          "in_force_bop": 0.994711289129205
+        },
+        "expected": 7.460334668469,
+        "tolerance": 1e-09,
+        "excel": 7.460334668469045,
+        "difference": 4.529709940470639e-14,
+        "pass": true
+      },
+      {
+        "test": "test_allocation_margin_by_hand",
+        "index": 3,
+        "args": {
+          "premium": 250.0,
+          "allocation_rate": 0.97,
+          "in_force_bop": 0.989450548721085
+        },
+        "expected": 7.420879115408,
+        "tolerance": 1e-09,
+        "excel": 7.420879115408145,
+        "difference": 1.4477308241112041e-13,
+        "pass": true
+      }
+    ],
+    "max_abs_difference": 1.4477308241112041e-13,
+    "checks_pass": true
+  },
+  "content_digest": "623e95372e1b1dc8acbe91a65711a753b9c864ad7bd67ea7b250081a9166d5bc",
   "content_stat": {
-    "mtime_ns": 1794690552946924458,
-    "size": 53838
+    "mtime_ns": 1794712973985316689,
+    "size": 55136
   }
 }

@@ -2,7 +2,7 @@
   "kind": "tile",
   "name": "deaths",
   "module": "decrements",
-  "built_at": "2026-11-14T21:09:12+00:00",
+  "built_at": "2026-11-15T03:22:53+00:00",
   "stamp": {
     "code": "00f6a36cde4e1c080467e6549e9fd9b9be994a51be0209c575e525df4937c2b8",
     "spec": "5641c679ec9cb391eb54143cdfbdc807afd644f1643336f1ac7fca249197d551",
@@ -58,9 +58,57 @@
     }
   },
   "near_ties": {},
-  "content_digest": "19b6dc7962dd80c3ea7cb4c4604f0de83794408f89b5a7bafb05688f55bd8da4",
+  "hand_checks": {
+    "digest": "be4f7c945f41c9fe7f274acc4b40e250e98e79b57f058ff51c27351a1f7ec65b",
+    "sheet": "Hand checks",
+    "not_in_sheet": [],
+    "checks": [
+      {
+        "test": "test_deaths_by_hand",
+        "index": 1,
+        "args": {
+          "in_force_bop": 1.0,
+          "mort_rate_pm": 0.00014645123957646167
+        },
+        "expected": 0.000146451239576,
+        "tolerance": 1e-15,
+        "excel": 0.00014645123957646167,
+        "difference": 4.616803900986399e-16,
+        "pass": true
+      },
+      {
+        "test": "test_deaths_by_hand",
+        "index": 2,
+        "args": {
+          "in_force_bop": 0.994711289129205,
+          "mort_rate_pm": 0.00014645123957646167
+        },
+        "expected": 0.000145676701314,
+        "tolerance": 1e-15,
+        "excel": 0.00014567670131367225,
+        "difference": 3.27754316742368e-16,
+        "pass": true
+      },
+      {
+        "test": "test_deaths_by_hand",
+        "index": 3,
+        "args": {
+          "in_force_bop": 0.989450548721085,
+          "mort_rate_pm": 0.00014645123957646167
+        },
+        "expected": 0.00014490625936,
+        "tolerance": 1e-15,
+        "excel": 0.00014490625935981307,
+        "difference": 1.8691645453650096e-16,
+        "pass": true
+      }
+    ],
+    "max_abs_difference": 4.616803900986399e-16,
+    "checks_pass": true
+  },
+  "content_digest": "8b2bbdadc1913d7e687d5551240e7e3349ee63456c5a657281f458b907066b43",
   "content_stat": {
-    "mtime_ns": 1794690552439591370,
-    "size": 53179
+    "mtime_ns": 1794712973513193971,
+    "size": 54430
   }
 }

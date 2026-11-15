@@ -2,7 +2,7 @@
   "kind": "tile",
   "name": "units_allocated",
   "module": "unit_projection",
-  "built_at": "2026-11-14T21:09:12+00:00",
+  "built_at": "2026-11-15T03:22:53+00:00",
   "stamp": {
     "code": "7cc071d1987071cf1a4b199b49260c1fa52da43169e63349a26e2026917fc9a2",
     "spec": "13f7ec99ec54bf053d9cbb49c460c615201bbf22790df71ab8bba5692de49d5a",
@@ -58,9 +58,74 @@
     }
   },
   "near_ties": {},
-  "content_digest": "e73ebd9148fad6cfd4b30bd5961f2b9b32cf69d8127b4a1794649aab44017808",
+  "hand_checks": {
+    "digest": "ce414cb1b5fcd331117da3947c82b68031a50345cbf3e180063cd74973b12ef2",
+    "sheet": "Hand checks",
+    "not_in_sheet": [],
+    "checks": [
+      {
+        "test": "test_units_allocated_by_hand",
+        "index": 1,
+        "args": {
+          "premium": 250.0,
+          "allocation_rate": 0.97,
+          "unit_price": 1.25
+        },
+        "expected": 194.0,
+        "tolerance": 1e-09,
+        "excel": 194.0,
+        "difference": 0.0,
+        "pass": true
+      },
+      {
+        "test": "test_units_allocated_by_hand",
+        "index": 2,
+        "args": {
+          "premium": 250.0,
+          "allocation_rate": 0.97,
+          "unit_price": 1.2550926547295604
+        },
+        "expected": 193.212827026107,
+        "tolerance": 1e-09,
+        "excel": 193.212827026107,
+        "difference": 0.0,
+        "pass": true
+      },
+      {
+        "test": "test_units_allocated_by_hand",
+        "index": 3,
+        "args": {
+          "premium": 250.0,
+          "allocation_rate": 0.97,
+          "unit_price": 1.2602060575648766
+        },
+        "expected": 192.428848079486,
+        "tolerance": 1e-09,
+        "excel": 192.4288480794863,
+        "difference": 3.126388037344441e-13,
+        "pass": true
+      },
+      {
+        "test": "test_units_allocated_by_hand",
+        "index": 4,
+        "args": {
+          "premium": 0.0,
+          "allocation_rate": 0.97,
+          "unit_price": 1.25
+        },
+        "expected": 0.0,
+        "tolerance": 1e-09,
+        "excel": 0.0,
+        "difference": 0.0,
+        "pass": true
+      }
+    ],
+    "max_abs_difference": 3.126388037344441e-13,
+    "checks_pass": true
+  },
+  "content_digest": "dd6117d814ee542290582dc3b0c99615db4356b70305dd4aad3cef0bf7ec7236",
   "content_stat": {
-    "mtime_ns": 1794690552012305588,
-    "size": 53766
+    "mtime_ns": 1794712973110251027,
+    "size": 55091
   }
 }

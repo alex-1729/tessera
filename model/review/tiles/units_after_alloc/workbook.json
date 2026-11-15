@@ -2,7 +2,7 @@
   "kind": "tile",
   "name": "units_after_alloc",
   "module": "unit_projection",
-  "built_at": "2026-11-14T21:09:12+00:00",
+  "built_at": "2026-11-15T03:22:53+00:00",
   "stamp": {
     "code": "d80a9ec51875f9d26c6fee017810d6a58bbe3ac257cccff0fce59e9594fc7481",
     "spec": "ad1f0f0c7be50f5b262cc0b7ae9778a6ce2a610cf55f644386be5a9b62e83280",
@@ -58,9 +58,57 @@
     }
   },
   "near_ties": {},
-  "content_digest": "dd5256e0c32dbfcc85bd75e810527c1c680edd1b0f3a3f6d8b0da29ee44a9a1f",
+  "hand_checks": {
+    "digest": "0de5dca7abe8c6bbd9b1a3c23e5c1ee9f67e7859954ab3589cb74d31058a7829",
+    "sheet": "Hand checks",
+    "not_in_sheet": [],
+    "checks": [
+      {
+        "test": "test_units_after_alloc_by_hand",
+        "index": 1,
+        "args": {
+          "units_bop": 0.0,
+          "units_allocated": 194.0
+        },
+        "expected": 194.0,
+        "tolerance": 1e-09,
+        "excel": 194.0,
+        "difference": 0.0,
+        "pass": true
+      },
+      {
+        "test": "test_units_after_alloc_by_hand",
+        "index": 2,
+        "args": {
+          "units_bop": 193.87875,
+          "units_allocated": 193.212827026107
+        },
+        "expected": 387.091577026107,
+        "tolerance": 1e-09,
+        "excel": 387.09157702610696,
+        "difference": 5.684341886080802e-14,
+        "pass": true
+      },
+      {
+        "test": "test_units_after_alloc_by_hand",
+        "index": 3,
+        "args": {
+          "units_bop": 386.849644790466,
+          "units_allocated": 192.428848079486
+        },
+        "expected": 579.278492869952,
+        "tolerance": 1e-09,
+        "excel": 579.2784928699521,
+        "difference": 1.1368683772161603e-13,
+        "pass": true
+      }
+    ],
+    "max_abs_difference": 1.1368683772161603e-13,
+    "checks_pass": true
+  },
+  "content_digest": "a21c248436b8f8a7c28e223cff72c025845f70a40d220ee0e8c604b5d4f6a8a0",
   "content_stat": {
-    "mtime_ns": 1794690552094706356,
-    "size": 53871
+    "mtime_ns": 1794712973194774662,
+    "size": 55110
   }
 }

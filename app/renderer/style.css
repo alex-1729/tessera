@@ -211,6 +211,15 @@ button.seg:active:not([aria-selected="true"]) { background: var(--white); }
 .testwork pre { background: var(--sand); padding: 6px 10px; }
 .testchecks { margin-top: 8px; }
 .testcheck { padding: 1px 0; }
+.sheetline { max-width: 860px; margin: 0 0 6px; font: 600 13px/1.5 var(--sans); }
+.sheetline.ok { color: #2c6a2c; } .sheetline.bad { color: var(--terra); }
+.sheetchecks { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--rule); }
+.sheetchecks table { border-collapse: collapse; }
+.sheetchecks th { text-align: left; font: 600 11px var(--sans); color: var(--slate); padding: 2px 18px 2px 0; }
+.sheetchecks td { padding: 2px 18px 2px 0; }
+.sheetchecks .r { text-align: right; }
+.sheetchecks .ok { color: #2c6a2c; } .sheetchecks .bad { color: var(--terra); font-weight: 600; }
+.sheetnote { margin: 6px 0 0; font-size: 12px; }
 .threeway { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--rule); }
 .threeway table { border-collapse: collapse; }
 .threeway td { padding: 2px 18px 2px 0; }

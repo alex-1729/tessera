@@ -24,7 +24,7 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from pathlib import Path
 
-from tilekit import version
+from tilekit import handchecks, version
 from tilekit.build import workbook_state
 from tilekit.cases import case_months, get_case, load_cases
 from tilekit.checks import run_checks
@@ -261,7 +261,12 @@ def _tile_entry(model, name, hash_now, errors, translations):
     state, drift, new_cases = _assess(current, stored, signoff, hash_now, content_ok, checks_pass is True)
     if signoff and state in ("signed_off", "stale") and signoff.get("formula") != formula:
         state, drift = "stale", "formula"  # the formula moved since sign-off, whatever the stamps say
-    workbook_current = stored == current and content_ok
+    # The workbook is also built for the checks of the tile's hand-calculation test (not part of the stamp, so a
+    # changed test never makes a sign-off stale: it only asks for a rebuild and blocks a new sign-off until then).
+    hand_now = handchecks.extract(model, name, translations)
+    hand_current = stored is None or handchecks.current(doc, hand_now)
+    hand = (doc or {}).get("hand_checks") if hand_current else None
+    workbook_current = stored == current and content_ok and hand_current
     own = [{"rule": v["rule"], "message": v["message"], "line": v["line"]} for v in errors if v["tile"] == name]
     cases = (doc or {}).get("cases", {})
     case_results = {cid: {"max_abs_difference": c.get("max_abs_difference"),
@@ -275,6 +280,12 @@ def _tile_entry(model, name, hash_now, errors, translations):
     near = {cid: c.get("near_ties") for cid, c in cases.items() if c.get("near_ties")}
 
     blockers = _workbook_blockers("tile's workbook", stored, current, content_ok)
+    if not blockers and not hand_current:
+        blockers.append("The tile's workbook was built before its test last changed; rebuild it first.")
+    if hand and hand.get("checks_pass") is False:
+        failing = list(dict.fromkeys(c["test"] for c in hand.get("checks", []) if not c.get("pass")))
+        blockers.append("The spreadsheet formula does not agree with the hand calculation in "
+                        + (", ".join(failing) if failing else "a test") + ".")
     if doc is not None and checks_pass is False:
         worst = doc.get("max_abs_difference")
         failing = [cid for cid, c in case_results.items() if c["pass"] is False]
@@ -309,6 +320,11 @@ def _tile_entry(model, name, hash_now, errors, translations):
         "new_cases": new_cases,
         "signed_off": _signed_summary(signoff),
         "workbook": _relative(model, xlsx),
+        "hand_checks": None if hand is None else {
+            "sheet": hand.get("sheet"), "checks_pass": hand.get("checks_pass"),
+            "max_abs_difference": hand.get("max_abs_difference"), "not_in_sheet": hand.get("not_in_sheet", []),
+            "checks": [{k: c.get(k) for k in ("test", "index", "args", "expected", "tolerance", "excel", "difference",
+                                              "pass")} for c in hand.get("checks", [])]},
         "can_sign_off": not blockers,
         "blockers": blockers,
         "_formula": (doc or {}).get("formula"),
