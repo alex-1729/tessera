@@ -1,0 +1,938 @@
+{
+  "at": "2026-11-15T04:59:02+00:00",
+  "stamp": {
+    "code": "173ace42346b1352ea53afd6e5a2158b7c78c2aebd91656ea82e2120b6d7713c",
+    "spec": "5e3972b6ac571c489e330f86116c8dd45a3daf883d7d32394b926ac2b0484dd3",
+    "upstream": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "cases": "a42493b46f4e2e1d7ec9309bfd93f977df0cf13535b4eaf45c63ac35f8dc13dc",
+    "params": "05fab2750280bae719ccdeae45603fce740d04232cbcda23e56fa79d7c849932",
+    "translator": "85ca37244a9a88223a28309b6eb53ed0af322f2884af42ac6efc6eabe05d2f36",
+    "layout": "3eba926eed01be4ba94187d8dc967dd2b34a47fb0aa19af038f02254b718cd79"
+  },
+  "passed": 103,
+  "failed": 0,
+  "tests": [
+    {
+      "id": "test_unit_projection.py::test_unit_projection_first_three_months",
+      "name": "test_unit_projection_first_three_months",
+      "file": "test_unit_projection.py",
+      "path": "tests/modules/test_unit_projection.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_engine_vs_reference.py::test_every_case_file_loads",
+      "name": "test_every_case_file_loads",
+      "file": "test_engine_vs_reference.py",
+      "path": "tests/test_engine_vs_reference.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_engine_vs_reference.py::test_engine_matches_reference[base]",
+      "name": "test_engine_matches_reference[base]",
+      "file": "test_engine_vs_reference.py",
+      "path": "tests/test_engine_vs_reference.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_engine_vs_reference.py::test_engine_matches_reference[fund_overtakes]",
+      "name": "test_engine_matches_reference[fund_overtakes]",
+      "file": "test_engine_vs_reference.py",
+      "path": "tests/test_engine_vs_reference.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_engine_vs_reference.py::test_engine_matches_reference[high_charge]",
+      "name": "test_engine_matches_reference[high_charge]",
+      "file": "test_engine_vs_reference.py",
+      "path": "tests/test_engine_vs_reference.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_engine_vs_reference.py::test_engine_matches_reference[older_short_term]",
+      "name": "test_engine_matches_reference[older_short_term]",
+      "file": "test_engine_vs_reference.py",
+      "path": "tests/test_engine_vs_reference.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_engine_vs_reference.py::test_engine_matches_reference[zero_premium]",
+      "name": "test_engine_matches_reference[zero_premium]",
+      "file": "test_engine_vs_reference.py",
+      "path": "tests/test_engine_vs_reference.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_engine_vs_reference.py::test_high_charge_cap_bites",
+      "name": "test_high_charge_cap_bites",
+      "file": "test_engine_vs_reference.py",
+      "path": "tests/test_engine_vs_reference.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_engine_vs_reference.py::test_fund_overtakes_the_sum_assured",
+      "name": "test_fund_overtakes_the_sum_assured",
+      "file": "test_engine_vs_reference.py",
+      "path": "tests/test_engine_vs_reference.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_engine_vs_reference.py::test_vectorised_equals_single_policy_runs",
+      "name": "test_vectorised_equals_single_policy_runs",
+      "file": "test_engine_vs_reference.py",
+      "path": "tests/test_engine_vs_reference.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_engine_vs_reference.py::test_fifty_policies_together_equal_fifty_alone_for_every_summary",
+      "name": "test_fifty_policies_together_equal_fifty_alone_for_every_summary",
+      "file": "test_engine_vs_reference.py",
+      "path": "tests/test_engine_vs_reference.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_inputs_by_hand.py::test_monthly_growth_rate",
+      "name": "test_monthly_growth_rate",
+      "file": "test_inputs_by_hand.py",
+      "path": "tests/test_inputs_by_hand.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_inputs_by_hand.py::test_inputs_by_hand",
+      "name": "test_inputs_by_hand",
+      "file": "test_inputs_by_hand.py",
+      "path": "tests/test_inputs_by_hand.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_inputs_by_hand.py::test_engine_inputs_for_the_base_case",
+      "name": "test_engine_inputs_for_the_base_case",
+      "file": "test_inputs_by_hand.py",
+      "path": "tests/test_inputs_by_hand.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_inputs_by_hand.py::test_engine_reproduces_hand_figures",
+      "name": "test_engine_reproduces_hand_figures",
+      "file": "test_inputs_by_hand.py",
+      "path": "tests/test_inputs_by_hand.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_inputs_by_hand.py::test_npv_follows_excel",
+      "name": "test_npv_follows_excel",
+      "file": "test_inputs_by_hand.py",
+      "path": "tests/test_inputs_by_hand.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_invariants.py::test_zero_premium_gives_zero_units",
+      "name": "test_zero_premium_gives_zero_units",
+      "file": "test_invariants.py",
+      "path": "tests/test_invariants.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_invariants.py::test_closing_units_are_after_alloc_less_amc[base]",
+      "name": "test_closing_units_are_after_alloc_less_amc[base]",
+      "file": "test_invariants.py",
+      "path": "tests/test_invariants.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_invariants.py::test_closing_units_are_after_alloc_less_amc[fund_overtakes]",
+      "name": "test_closing_units_are_after_alloc_less_amc[fund_overtakes]",
+      "file": "test_invariants.py",
+      "path": "tests/test_invariants.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_invariants.py::test_closing_units_are_after_alloc_less_amc[high_charge]",
+      "name": "test_closing_units_are_after_alloc_less_amc[high_charge]",
+      "file": "test_invariants.py",
+      "path": "tests/test_invariants.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_invariants.py::test_closing_units_are_after_alloc_less_amc[older_short_term]",
+      "name": "test_closing_units_are_after_alloc_less_amc[older_short_term]",
+      "file": "test_invariants.py",
+      "path": "tests/test_invariants.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_invariants.py::test_closing_units_are_after_alloc_less_amc[zero_premium]",
+      "name": "test_closing_units_are_after_alloc_less_amc[zero_premium]",
+      "file": "test_invariants.py",
+      "path": "tests/test_invariants.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_invariants.py::test_opening_units_are_last_months_closing[base]",
+      "name": "test_opening_units_are_last_months_closing[base]",
+      "file": "test_invariants.py",
+      "path": "tests/test_invariants.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_invariants.py::test_opening_units_are_last_months_closing[fund_overtakes]",
+      "name": "test_opening_units_are_last_months_closing[fund_overtakes]",
+      "file": "test_invariants.py",
+      "path": "tests/test_invariants.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_invariants.py::test_opening_units_are_last_months_closing[high_charge]",
+      "name": "test_opening_units_are_last_months_closing[high_charge]",
+      "file": "test_invariants.py",
+      "path": "tests/test_invariants.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_invariants.py::test_opening_units_are_last_months_closing[older_short_term]",
+      "name": "test_opening_units_are_last_months_closing[older_short_term]",
+      "file": "test_invariants.py",
+      "path": "tests/test_invariants.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_invariants.py::test_opening_units_are_last_months_closing[zero_premium]",
+      "name": "test_opening_units_are_last_months_closing[zero_premium]",
+      "file": "test_invariants.py",
+      "path": "tests/test_invariants.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_invariants.py::test_units_never_negative[base]",
+      "name": "test_units_never_negative[base]",
+      "file": "test_invariants.py",
+      "path": "tests/test_invariants.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_invariants.py::test_units_never_negative[fund_overtakes]",
+      "name": "test_units_never_negative[fund_overtakes]",
+      "file": "test_invariants.py",
+      "path": "tests/test_invariants.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_invariants.py::test_units_never_negative[high_charge]",
+      "name": "test_units_never_negative[high_charge]",
+      "file": "test_invariants.py",
+      "path": "tests/test_invariants.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_invariants.py::test_units_never_negative[older_short_term]",
+      "name": "test_units_never_negative[older_short_term]",
+      "file": "test_invariants.py",
+      "path": "tests/test_invariants.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_invariants.py::test_units_never_negative[zero_premium]",
+      "name": "test_units_never_negative[zero_premium]",
+      "file": "test_invariants.py",
+      "path": "tests/test_invariants.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_invariants.py::test_in_force_never_increases[base]",
+      "name": "test_in_force_never_increases[base]",
+      "file": "test_invariants.py",
+      "path": "tests/test_invariants.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_invariants.py::test_in_force_never_increases[fund_overtakes]",
+      "name": "test_in_force_never_increases[fund_overtakes]",
+      "file": "test_invariants.py",
+      "path": "tests/test_invariants.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_invariants.py::test_in_force_never_increases[high_charge]",
+      "name": "test_in_force_never_increases[high_charge]",
+      "file": "test_invariants.py",
+      "path": "tests/test_invariants.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_invariants.py::test_in_force_never_increases[older_short_term]",
+      "name": "test_in_force_never_increases[older_short_term]",
+      "file": "test_invariants.py",
+      "path": "tests/test_invariants.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_invariants.py::test_in_force_never_increases[zero_premium]",
+      "name": "test_in_force_never_increases[zero_premium]",
+      "file": "test_invariants.py",
+      "path": "tests/test_invariants.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_invariants.py::test_opening_in_force_is_last_months_closing[base]",
+      "name": "test_opening_in_force_is_last_months_closing[base]",
+      "file": "test_invariants.py",
+      "path": "tests/test_invariants.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_invariants.py::test_opening_in_force_is_last_months_closing[fund_overtakes]",
+      "name": "test_opening_in_force_is_last_months_closing[fund_overtakes]",
+      "file": "test_invariants.py",
+      "path": "tests/test_invariants.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_invariants.py::test_opening_in_force_is_last_months_closing[high_charge]",
+      "name": "test_opening_in_force_is_last_months_closing[high_charge]",
+      "file": "test_invariants.py",
+      "path": "tests/test_invariants.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_invariants.py::test_opening_in_force_is_last_months_closing[older_short_term]",
+      "name": "test_opening_in_force_is_last_months_closing[older_short_term]",
+      "file": "test_invariants.py",
+      "path": "tests/test_invariants.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_invariants.py::test_opening_in_force_is_last_months_closing[zero_premium]",
+      "name": "test_opening_in_force_is_last_months_closing[zero_premium]",
+      "file": "test_invariants.py",
+      "path": "tests/test_invariants.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_invariants.py::test_zero_decrements_leave_in_force_at_one",
+      "name": "test_zero_decrements_leave_in_force_at_one",
+      "file": "test_invariants.py",
+      "path": "tests/test_invariants.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_invariants.py::test_gross_equals_ceded_plus_retained_death_strain[base]",
+      "name": "test_gross_equals_ceded_plus_retained_death_strain[base]",
+      "file": "test_invariants.py",
+      "path": "tests/test_invariants.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_invariants.py::test_gross_equals_ceded_plus_retained_death_strain[fund_overtakes]",
+      "name": "test_gross_equals_ceded_plus_retained_death_strain[fund_overtakes]",
+      "file": "test_invariants.py",
+      "path": "tests/test_invariants.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_invariants.py::test_gross_equals_ceded_plus_retained_death_strain[high_charge]",
+      "name": "test_gross_equals_ceded_plus_retained_death_strain[high_charge]",
+      "file": "test_invariants.py",
+      "path": "tests/test_invariants.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_invariants.py::test_gross_equals_ceded_plus_retained_death_strain[older_short_term]",
+      "name": "test_gross_equals_ceded_plus_retained_death_strain[older_short_term]",
+      "file": "test_invariants.py",
+      "path": "tests/test_invariants.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_invariants.py::test_gross_equals_ceded_plus_retained_death_strain[zero_premium]",
+      "name": "test_gross_equals_ceded_plus_retained_death_strain[zero_premium]",
+      "file": "test_invariants.py",
+      "path": "tests/test_invariants.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_invariants.py::test_outflows_are_negative_and_inflows_positive[base]",
+      "name": "test_outflows_are_negative_and_inflows_positive[base]",
+      "file": "test_invariants.py",
+      "path": "tests/test_invariants.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_invariants.py::test_outflows_are_negative_and_inflows_positive[fund_overtakes]",
+      "name": "test_outflows_are_negative_and_inflows_positive[fund_overtakes]",
+      "file": "test_invariants.py",
+      "path": "tests/test_invariants.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_invariants.py::test_outflows_are_negative_and_inflows_positive[high_charge]",
+      "name": "test_outflows_are_negative_and_inflows_positive[high_charge]",
+      "file": "test_invariants.py",
+      "path": "tests/test_invariants.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_invariants.py::test_outflows_are_negative_and_inflows_positive[older_short_term]",
+      "name": "test_outflows_are_negative_and_inflows_positive[older_short_term]",
+      "file": "test_invariants.py",
+      "path": "tests/test_invariants.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_invariants.py::test_outflows_are_negative_and_inflows_positive[zero_premium]",
+      "name": "test_outflows_are_negative_and_inflows_positive[zero_premium]",
+      "file": "test_invariants.py",
+      "path": "tests/test_invariants.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_invariants.py::test_zero_quota_share_makes_net_profit_equal_gross_profit",
+      "name": "test_zero_quota_share_makes_net_profit_equal_gross_profit",
+      "file": "test_invariants.py",
+      "path": "tests/test_invariants.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_invariants.py::test_reinsurance_costs_the_loading_on_average",
+      "name": "test_reinsurance_costs_the_loading_on_average",
+      "file": "test_invariants.py",
+      "path": "tests/test_invariants.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_invariants.py::test_no_charges_or_expenses_and_full_allocation_leave_only_the_death_strain",
+      "name": "test_no_charges_or_expenses_and_full_allocation_leave_only_the_death_strain",
+      "file": "test_invariants.py",
+      "path": "tests/test_invariants.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_invariants.py::test_present_value_at_zero_discount_is_the_undiscounted_sum",
+      "name": "test_present_value_at_zero_discount_is_the_undiscounted_sum",
+      "file": "test_invariants.py",
+      "path": "tests/test_invariants.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_invariants.py::test_net_profit_has_zero_value_at_the_irr[base]",
+      "name": "test_net_profit_has_zero_value_at_the_irr[base]",
+      "file": "test_invariants.py",
+      "path": "tests/test_invariants.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_invariants.py::test_net_profit_has_zero_value_at_the_irr[fund_overtakes]",
+      "name": "test_net_profit_has_zero_value_at_the_irr[fund_overtakes]",
+      "file": "test_invariants.py",
+      "path": "tests/test_invariants.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_invariants.py::test_net_profit_has_zero_value_at_the_irr[high_charge]",
+      "name": "test_net_profit_has_zero_value_at_the_irr[high_charge]",
+      "file": "test_invariants.py",
+      "path": "tests/test_invariants.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_invariants.py::test_net_profit_has_zero_value_at_the_irr[older_short_term]",
+      "name": "test_net_profit_has_zero_value_at_the_irr[older_short_term]",
+      "file": "test_invariants.py",
+      "path": "tests/test_invariants.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_invariants.py::test_net_profit_has_zero_value_at_the_irr[zero_premium]",
+      "name": "test_net_profit_has_zero_value_at_the_irr[zero_premium]",
+      "file": "test_invariants.py",
+      "path": "tests/test_invariants.py",
+      "outcome": "skipped"
+    },
+    {
+      "id": "test_invariants.py::test_zero_premium_has_no_margin_or_irr",
+      "name": "test_zero_premium_has_no_margin_or_irr",
+      "file": "test_invariants.py",
+      "path": "tests/test_invariants.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_invariants.py::test_model_passes_rule_checks",
+      "name": "test_model_passes_rule_checks",
+      "file": "test_invariants.py",
+      "path": "tests/test_invariants.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_invariants.py::test_tilekit_check_reports_no_errors_or_warnings",
+      "name": "test_tilekit_check_reports_no_errors_or_warnings",
+      "file": "test_invariants.py",
+      "path": "tests/test_invariants.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_signed_off.py::test_signed_off_tile_values_unchanged[None]",
+      "name": "test_signed_off_tile_values_unchanged[None]",
+      "file": "test_signed_off.py",
+      "path": "tests/test_signed_off.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_workbooks.py::test_every_workbook_agrees_with_python",
+      "name": "test_every_workbook_agrees_with_python",
+      "file": "test_workbooks.py",
+      "path": "tests/test_workbooks.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_workbooks.py::test_branches",
+      "name": "test_branches",
+      "file": "test_workbooks.py",
+      "path": "tests/test_workbooks.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_workbooks.py::test_undefined_results_agree_with_excel_errors",
+      "name": "test_undefined_results_agree_with_excel_errors",
+      "file": "test_workbooks.py",
+      "path": "tests/test_workbooks.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_workbooks.py::test_house_style[review/tiles/units_amc/workbook.xlsx]",
+      "name": "test_house_style[review/tiles/units_amc/workbook.xlsx]",
+      "file": "test_workbooks.py",
+      "path": "tests/test_workbooks.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_workbooks.py::test_house_style[review/modules/unit_projection/workbook.xlsx]",
+      "name": "test_house_style[review/modules/unit_projection/workbook.xlsx]",
+      "file": "test_workbooks.py",
+      "path": "tests/test_workbooks.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_workbooks.py::test_house_style[review/model/workbook.xlsx]",
+      "name": "test_house_style[review/model/workbook.xlsx]",
+      "file": "test_workbooks.py",
+      "path": "tests/test_workbooks.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_workbooks.py::test_layout_formats_and_names_of_the_tile_workbook",
+      "name": "test_layout_formats_and_names_of_the_tile_workbook",
+      "file": "test_workbooks.py",
+      "path": "tests/test_workbooks.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_workbooks.py::test_formats_and_links_of_the_model_workbook",
+      "name": "test_formats_and_links_of_the_model_workbook",
+      "file": "test_workbooks.py",
+      "path": "tests/test_workbooks.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_workbooks.py::test_colours_say_where_a_value_comes_from",
+      "name": "test_colours_say_where_a_value_comes_from",
+      "file": "test_workbooks.py",
+      "path": "tests/test_workbooks.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_workbooks.py::test_inputs_replicate_lookups_with_formulas",
+      "name": "test_inputs_replicate_lookups_with_formulas",
+      "file": "test_workbooks.py",
+      "path": "tests/test_workbooks.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_workbooks.py::test_profit_sheet_reads_series_and_summaries",
+      "name": "test_profit_sheet_reads_series_and_summaries",
+      "file": "test_workbooks.py",
+      "path": "tests/test_workbooks.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_acquisition_expense.py::test_acquisition_expense_by_hand",
+      "name": "test_acquisition_expense_by_hand",
+      "file": "test_acquisition_expense.py",
+      "path": "tests/tiles/test_acquisition_expense.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_allocation_margin.py::test_allocation_margin_by_hand",
+      "name": "test_allocation_margin_by_hand",
+      "file": "test_allocation_margin.py",
+      "path": "tests/tiles/test_allocation_margin.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_amc_income.py::test_amc_income_by_hand",
+      "name": "test_amc_income_by_hand",
+      "file": "test_amc_income.py",
+      "path": "tests/tiles/test_amc_income.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_ceded_death_strain.py::test_ceded_death_strain_by_hand",
+      "name": "test_ceded_death_strain_by_hand",
+      "file": "test_ceded_death_strain.py",
+      "path": "tests/tiles/test_ceded_death_strain.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_death_strain.py::test_death_strain_by_hand",
+      "name": "test_death_strain_by_hand",
+      "file": "test_death_strain.py",
+      "path": "tests/tiles/test_death_strain.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_deaths.py::test_deaths_by_hand",
+      "name": "test_deaths_by_hand",
+      "file": "test_deaths.py",
+      "path": "tests/tiles/test_deaths.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_fund_value_eop.py::test_fund_value_eop_by_hand",
+      "name": "test_fund_value_eop_by_hand",
+      "file": "test_fund_value_eop.py",
+      "path": "tests/tiles/test_fund_value_eop.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_gross_profit.py::test_gross_profit_by_hand",
+      "name": "test_gross_profit_by_hand",
+      "file": "test_gross_profit.py",
+      "path": "tests/tiles/test_gross_profit.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_in_force_eop.py::test_in_force_eop_by_hand",
+      "name": "test_in_force_eop_by_hand",
+      "file": "test_in_force_eop.py",
+      "path": "tests/tiles/test_in_force_eop.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_irr_pa.py::test_irr_pa_by_hand",
+      "name": "test_irr_pa_by_hand",
+      "file": "test_irr_pa.py",
+      "path": "tests/tiles/test_irr_pa.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_irr_pm.py::test_irr_pm_by_hand",
+      "name": "test_irr_pm_by_hand",
+      "file": "test_irr_pm.py",
+      "path": "tests/tiles/test_irr_pm.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_lapses.py::test_lapses_by_hand",
+      "name": "test_lapses_by_hand",
+      "file": "test_lapses.py",
+      "path": "tests/tiles/test_lapses.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_maintenance_expense.py::test_maintenance_expense_by_hand",
+      "name": "test_maintenance_expense_by_hand",
+      "file": "test_maintenance_expense.py",
+      "path": "tests/tiles/test_maintenance_expense.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_net_profit.py::test_net_profit_by_hand",
+      "name": "test_net_profit_by_hand",
+      "file": "test_net_profit.py",
+      "path": "tests/tiles/test_net_profit.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_premium_income.py::test_premium_income_by_hand",
+      "name": "test_premium_income_by_hand",
+      "file": "test_premium_income.py",
+      "path": "tests/tiles/test_premium_income.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_profit_margin.py::test_profit_margin_by_hand",
+      "name": "test_profit_margin_by_hand",
+      "file": "test_profit_margin.py",
+      "path": "tests/tiles/test_profit_margin.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_pv_gross_profit.py::test_pv_gross_profit_by_hand",
+      "name": "test_pv_gross_profit_by_hand",
+      "file": "test_pv_gross_profit.py",
+      "path": "tests/tiles/test_pv_gross_profit.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_pv_net_profit.py::test_pv_net_profit_by_hand",
+      "name": "test_pv_net_profit_by_hand",
+      "file": "test_pv_net_profit.py",
+      "path": "tests/tiles/test_pv_net_profit.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_pv_net_profit.py::test_pv_net_profit_is_per_policy",
+      "name": "test_pv_net_profit_is_per_policy",
+      "file": "test_pv_net_profit.py",
+      "path": "tests/tiles/test_pv_net_profit.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_pv_premium.py::test_pv_premium_by_hand",
+      "name": "test_pv_premium_by_hand",
+      "file": "test_pv_premium.py",
+      "path": "tests/tiles/test_pv_premium.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_reinsurance_premium.py::test_reinsurance_premium_by_hand",
+      "name": "test_reinsurance_premium_by_hand",
+      "file": "test_reinsurance_premium.py",
+      "path": "tests/tiles/test_reinsurance_premium.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_retained_death_strain.py::test_retained_death_strain_by_hand",
+      "name": "test_retained_death_strain_by_hand",
+      "file": "test_retained_death_strain.py",
+      "path": "tests/tiles/test_retained_death_strain.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_sum_at_risk.py::test_sum_at_risk_by_hand",
+      "name": "test_sum_at_risk_by_hand",
+      "file": "test_sum_at_risk.py",
+      "path": "tests/tiles/test_sum_at_risk.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_units_after_alloc.py::test_units_after_alloc_by_hand",
+      "name": "test_units_after_alloc_by_hand",
+      "file": "test_units_after_alloc.py",
+      "path": "tests/tiles/test_units_after_alloc.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_units_allocated.py::test_units_allocated_by_hand",
+      "name": "test_units_allocated_by_hand",
+      "file": "test_units_allocated.py",
+      "path": "tests/tiles/test_units_allocated.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_units_amc.py::test_units_amc_by_hand",
+      "name": "test_units_amc_by_hand",
+      "file": "test_units_amc.py",
+      "path": "tests/tiles/test_units_amc.py",
+      "outcome": "passed"
+    },
+    {
+      "id": "test_units_eop.py::test_units_eop_by_hand",
+      "name": "test_units_eop_by_hand",
+      "file": "test_units_eop.py",
+      "path": "tests/tiles/test_units_eop.py",
+      "outcome": "passed"
+    }
+  ],
+  "files": {
+    "tests/modules/test_unit_projection.py": {
+      "sha256": "c0bfe30f67992c56f9e94192f117942aa4e79ed121b5dafcda9efc71ab84e65d",
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    "tests/test_engine_vs_reference.py": {
+      "sha256": "e7cd3fa6e7f0c45da137e0c6dfbc8f50cca3e3e2ba5328066f802e40d36f8afa",
+      "passed": 10,
+      "failed": 0,
+      "skipped": 0
+    },
+    "tests/test_inputs_by_hand.py": {
+      "sha256": "51f0e31fccdc9bd889f0dd4ca87bdab70a3a8205afdfef7e82ab893f23ecea23",
+      "passed": 5,
+      "failed": 0,
+      "skipped": 0
+    },
+    "tests/test_invariants.py": {
+      "sha256": "1e29af01c000ce2d0a8ead64590e74fff60d23022dc70fbeab9f1813345f8b51",
+      "passed": 48,
+      "failed": 0,
+      "skipped": 1
+    },
+    "tests/test_signed_off.py": {
+      "sha256": "49874b7036872e32c27b594d5f8d9d0c96e453ecf3e6dfefcb2b4d3804f93e47",
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    "tests/test_workbooks.py": {
+      "sha256": "a9a8c81de36b6b0bc806211f1b32ac8f6a459577e051da1cb4819526b60ed213",
+      "passed": 11,
+      "failed": 0,
+      "skipped": 0
+    },
+    "tests/tiles/test_acquisition_expense.py": {
+      "sha256": "b9c48f8c2cd583021a149e697b80503b1229f8ab2af58291229ecfb76bae9daa",
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    "tests/tiles/test_allocation_margin.py": {
+      "sha256": "ed8f13393c2948e8c904f49e712bae1842e5a97f5cbc0b78f3854fa0dbaf6bf6",
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    "tests/tiles/test_amc_income.py": {
+      "sha256": "24576e783bfb649de4de04e664a2ad3c05acb88354b75db5848d693e4b19c626",
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    "tests/tiles/test_ceded_death_strain.py": {
+      "sha256": "febc6d9ac968977d89a9c1e3580e2236fe1600baa9783f0c9dac32343d87dd5e",
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    "tests/tiles/test_death_strain.py": {
+      "sha256": "961c7bb635ebe4273e94f7025c858c530b01c5af5d65c50f997c234dce9ef191",
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    "tests/tiles/test_deaths.py": {
+      "sha256": "bb5880a2d69b01aeff09b3288c0b6d2be34762d3a621498f06d063921ad58440",
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    "tests/tiles/test_fund_value_eop.py": {
+      "sha256": "9c5149eb52b685e239f6c13bb7ed5cc10ba672bd85a0db830654e77a1cd89293",
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    "tests/tiles/test_gross_profit.py": {
+      "sha256": "b8cb6076a944834b6005b57ddb235f3c356a322e739dae3627b6d4f87dce0452",
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    "tests/tiles/test_in_force_eop.py": {
+      "sha256": "3b0b81a34b9e690356c0171f09e5ac746f015c175df6fcca42336605ecb9496a",
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    "tests/tiles/test_irr_pa.py": {
+      "sha256": "bc09de97f43bf9892709ab73852580f9d80760d4af936773fe3d67564a848d5e",
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    "tests/tiles/test_irr_pm.py": {
+      "sha256": "4ca9aa2c36b681055db021633fa4068e467df260c13a184cdc2cced9fc0186ae",
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    "tests/tiles/test_lapses.py": {
+      "sha256": "eb06b314208d3cae598a08caf5b36c636b2e6f77ca6e6af9efef097b6f8848e1",
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    "tests/tiles/test_maintenance_expense.py": {
+      "sha256": "671e879677018a2e39834f4ed957ee18e0c9696d2709eed92370e0232f7170de",
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    "tests/tiles/test_net_profit.py": {
+      "sha256": "e89b4c3d4f3a498222257fae494792f7073c340087508bc87d287976b8f5b700",
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    "tests/tiles/test_premium_income.py": {
+      "sha256": "5f903f37b4b56bb396092ddec46c4cc827464e34b32ce393897022867dfd86a9",
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    "tests/tiles/test_profit_margin.py": {
+      "sha256": "7bba0f6ded3558b306ae72730432aa67f25e0d28fec60302f19e1ebc03df948b",
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    "tests/tiles/test_pv_gross_profit.py": {
+      "sha256": "16139c331e39f461ea91ab37793b86224b8e3cedd6312cbce5b6e4cc7c7198bc",
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    "tests/tiles/test_pv_net_profit.py": {
+      "sha256": "8541ef04c629602122e2be15edb6717a6bd62875011d9c131b7606d0aeafbf5a",
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0
+    },
+    "tests/tiles/test_pv_premium.py": {
+      "sha256": "f7e7870e40ecd9c32d51734efb35893458551eadb553c2e8d2b2598c8605f53c",
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    "tests/tiles/test_reinsurance_premium.py": {
+      "sha256": "8c665d007f7ba9b3f172ffdd18f5ff41cf33c371447e1bffd88ae7ee7255ce65",
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    "tests/tiles/test_retained_death_strain.py": {
+      "sha256": "a33af309d342d81bafeb3e16e0a7d17dcad2b854dffb9c2025eceaab7f8180f5",
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    "tests/tiles/test_sum_at_risk.py": {
+      "sha256": "b7b5705f4396c8e011c5501eacb9663dc8367c6e00e86acd9d8c905249775bfc",
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    "tests/tiles/test_units_after_alloc.py": {
+      "sha256": "0cac3f74de7f43aec72a461e7eea8ed6488d2dfd6cf8c6b399ac4846886fe0f1",
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    "tests/tiles/test_units_allocated.py": {
+      "sha256": "70152b9c67b89821601714f1c2101cbd13682eb9f8d5a257e5939f4ad57385a2",
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    "tests/tiles/test_units_amc.py": {
+      "sha256": "b714c4f1cd12c811a29db99640207d30018cf2f9c514be6ab304d0badd04dd61",
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    "tests/tiles/test_units_eop.py": {
+      "sha256": "4ad9b4cef5651a2a82a420db787a68e0a0c2bbc63c31584372b1dc8c5a7ab812",
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    }
+  }
+}

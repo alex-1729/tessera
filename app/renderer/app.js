@@ -150,13 +150,13 @@ const approvable = () => (S.drafts || []).filter(d => d.kind !== 'what_if');
 function centreOf(level) {
   if (draftOpen && approvable().length) return 'draft';
   const c = (settings.centre || {})[level];
-  return c === 'code' || (c === 'test' && level === 'tile') ? c : 'spreadsheet';
+  return c === 'code' || (c === 'test' && level !== 'model') ? c : 'spreadsheet';
 }
 function setCentre(seg) {
   const level = levelNow();
   if (seg === 'draft') { draftOpen = approvable().length > 0; void paintCentre(); return; }
   draftOpen = false;
-  if (!SEGS.includes(seg) || (seg === 'test' && level !== 'tile')) return;
+  if (!SEGS.includes(seg) || (seg === 'test' && level === 'model')) return;
   settings.centre = { ...(settings.centre || {}), [level]: seg };
   api.setSetting('centre', settings.centre).catch(() => {});
   void paintCentre();
@@ -168,7 +168,7 @@ async function paintCentre() {
   const n = approvable().length;
   $('seg-draft').hidden = !n; $('seg-draft').textContent = n > 1 ? `Draft to approve (${n})` : 'Draft to approve';
   for (const b of document.querySelectorAll('button.seg')) b.setAttribute('aria-selected', String(b.dataset.seg === seg));
-  $('seg-test').hidden = level !== 'tile';
+  $('seg-test').hidden = level === 'model';
   $('codewrap').hidden = seg === 'spreadsheet';
   if (seg === 'draft') {
     // a draft that could not be applied says why (the model's files are put back as they were)
@@ -186,7 +186,12 @@ async function paintCentre() {
   try {
     await paintSource($('codewrap'), { seg, level, id: route.id, S, api, changed: codeWas, busy: () => S.busy || working > 0 || agent.isBusy(), repaint: paintCentre,
       build: api.agent ? name => { void agent.send(`Build the tile ${name}.`); } : null,
-      askTests: api.agent ? (name, kinds, extra) => { void agent.send(`Propose more tests for the tile ${name} with propose_tests.${kinds.length ? ` Kinds wanted: ${kinds.join('; ')}.` : ''}${extra ? ` Also: ${extra}` : ''}`); } : null });
+      working: name => { const w = agent.workingOn(); return !!w && w.level === 'tile' && w.id === name; },
+      askTests: api.agent ? (name, kinds, extra) => { void agent.send(`Propose more tests for the tile ${name} with propose_tests.${kinds.length ? ` Kinds wanted: ${kinds.join('; ')}.` : ''}${extra ? ` Also: ${extra}` : ''}`); } : null,
+      // the module's own hand-worked test: asks the agent to propose it as a draft (nothing is written until accepted)
+      askModuleTest: api.agent ? (id, exists) => { void agent.send(exists
+        ? `Propose more tests for the module test of ${id} with propose_module_test.`
+        : `Propose the module test for ${id} with propose_module_test: walk one case through the module's tiles for the first months and the month where behaviour changes, every figure worked by hand.`); } : null });
   } catch (e) { $('codewrap').replaceChildren(h('p', { class: 'grey' }, 'Could not show this: ' + e.message)); }
 }
 function trackCode() {
@@ -255,14 +260,29 @@ function paintNav(route) {
     h('span', { class: 'vr' }),
     h('span', { class: 't io' }, [h('b', {}, 'inputs'), h('i', {}, inputs.length > 2 ? `${inputs.length} series` : (inputs.join(', ') || 'parameters'))]),
   ];
-  strip.push(arrow(ordered.length > 0 && (L.q(S, ordered[0]).args || []).some(a => !((L.q(S, a) || {}).kind === 'tile'))));
-  ordered.forEach((t, i) => {
-    const st = (L.tileStatus(S, t) || {}).state;
-    const cur = route.view === 'tile' && route.id === t;
-    const cls = ['t', cur ? 'cur' : '', st === 'stale' ? 'stale' : '', st === 'not_built' ? 'notbuilt' : ''].filter(Boolean).join(' ');
-    if (i) strip.push(arrow(uses(t, ordered[i - 1])));
-    strip.push(h('a', { href: '#/tile/' + encodeURIComponent(t), class: cls, ...(cur ? { 'aria-current': 'page' } : {}) }, [h('b', {}, t), h('i', {}, L.mapWord(st))]));
-  });
+  // The module sheet's blocks (`sections` from graph): each group of boxes starts with its title as a small plain label.
+  // With no sections, or only one untitled one, the strip is a single run of boxes as before.
+  const groups = L.tileGroups(S, curMod, ordered);
+  const boxes = groups.flatMap(g => g.tiles);
+  strip.push(arrow(boxes.length > 0 && (L.q(S, boxes[0]).args || []).some(a => !((L.q(S, a) || {}).kind === 'tile'))));
+  let i = 0;
+  for (const g of groups) {
+    if (g.title !== null) {
+      if (i) strip.push(h('span', { class: 'secgap' }));
+      strip.push(h('span', { class: 'secl', 'data-section': g.title }, g.title));
+    }
+    for (const t of g.tiles) {
+      const st = (L.tileStatus(S, t) || {}).state;
+      const cur = route.view === 'tile' && route.id === t;
+      // the tile the agent is working on right now says so in place of its state
+      const w = agent.workingOn();
+      const working = !!w && w.level === 'tile' && w.id === t;
+      const cls = ['t', cur ? 'cur' : '', st === 'stale' ? 'stale' : '', st === 'not_built' ? 'notbuilt' : '', working ? 'working' : ''].filter(Boolean).join(' ');
+      if (i && !(g.title !== null && t === g.tiles[0])) strip.push(arrow(uses(t, boxes[i - 1])));
+      strip.push(h('a', { href: '#/tile/' + encodeURIComponent(t), class: cls, ...(cur ? { 'aria-current': 'page' } : {}) }, [h('b', {}, t), h('i', {}, working ? (st === 'not_built' ? 'building…' : 'agent working…') : L.mapWord(st))]));
+      i++;
+    }
+  }
   const proposed = (S.drafts || []).filter(d => d.kind === 'tiles' && (d.module === curMod.id || (d.scope && d.scope.level === 'module' && d.scope.id === curMod.id)))
     .flatMap(d => d.items || []).filter(p => !L.q(S, p.name));
   proposed.forEach(p => {
@@ -378,6 +398,18 @@ async function doRender() {
   const nog = $('nogrid');
   const bar = $('stalebar');
   const rbar = $('realbar');
+  {
+    // A tile that depends on tiles not built yet (often through a carried-forward state) shows #NUM! where their
+    // values would be. Say so above the sheet, so the placeholders are not mistaken for a fault.
+    const wst = route.view === 'tile' ? L.tileStatus(S, route.id) : null;
+    const waiting = (!real && wst && wst.waiting_on) || [];
+    const wbar = $('waitbar');
+    wbar.hidden = !waiting.length;
+    if (waiting.length) {
+      const one = waiting.length === 1;
+      wbar.textContent = `Cells showing #NUM! are placeholders: this tile depends on ${waiting.join(', ')}, which ${one ? 'is' : 'are'} not built yet. It can be signed off once ${one ? 'it is' : 'they are'} built.`;
+    }
+  }
   if (real) {
     // A real policy: build its workbook for this view (under real-data/) and show it. Sign-off is not involved.
     bar.hidden = true; spec.clear();

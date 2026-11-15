@@ -5,7 +5,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const src = require('./source');
-const { signoffImpact, validateTileDraft, validateModuleDraft, count } = require('./validate');
+const { signoffImpact, validateTileDraft, validateModuleDraft, validateLayout, count } = require('./validate');
 
 const read = f => fs.readFileSync(f, 'utf8');
 const exists = f => fs.existsSync(f);
@@ -353,7 +353,12 @@ async function acceptTileDraft(ctx, draft) {
   const graph = await tk('graph');
   const moduleId = draft.module || draft.scope.id;
   const states = draft.states || [];
-  const { problems } = validateTileDraft(graph, moduleId, draft.items, states);
+  const removed = (draft.remove || []).map(r => (typeof r === 'string' ? r : r.name));
+  const sections = Array.isArray(draft.sections) ? draft.sections : undefined;
+  const checks = Array.isArray(draft.checks) ? draft.checks : undefined;
+  // the house rules were enforced when the draft was proposed; here only that it still fits the model
+  const problems = [...validateTileDraft(graph, moduleId, draft.items, states, removed, { layoutOnly: !!(draft.sections || draft.checks) }).problems,
+    ...validateLayout(graph, moduleId, draft.items, states, removed, sections, checks).problems];
   if (problems.length) throw new Error('The draft no longer fits the model: ' + problems.join(' '));
   const file = moduleFile(ctx, graph, moduleId);
   const before = read(file);
@@ -361,9 +366,9 @@ async function acceptTileDraft(ctx, draft) {
   const added = draft.items.filter(i => !q[i.name]);
   const changed = draft.items.filter(i => q[i.name]);
 
-  if (changed.length) {
+  if (changed.length || removed.length) {
     const status = await tk('status');
-    const impacts = changed.map(i => signoffImpact(graph, status, i.name)).filter(Boolean);
+    const impacts = [...changed.map(i => i.name), ...removed].map(n => signoffImpact(graph, status, n)).filter(Boolean);
     if (impacts.length) {
       const ok = await ctx.confirm({
         title: 'Accept draft?', message: impacts.map(x => x.message).join(' ') + ' Accept the draft anyway?',
@@ -391,17 +396,29 @@ async function acceptTileDraft(ctx, draft) {
     text = src.spliceFunction(text, cur.source, src.skeleton(it, cur.expression));
     // later splices search by content, so positions shifting is fine
   }
-  text = src.appendFunctions(text, ordered.map(it => src.skeleton(it)));
+  // tiles to delete are cut out of the module file (nothing reads them: the draft was checked for that)
+  for (const n of removed) text = src.spliceFunction(text, q[n].source, '');
+  if (removed.length) text = text.replace(/\n{4,}/g, '\n\n\n').replace(/\n+$/, '\n');
+  if (ordered.length) text = src.appendFunctions(text, ordered.map(it => src.skeleton(it)));
   fs.writeFileSync(file, text);
-  // the states the tiles read go into tilekit.toml in the same step, so the model loads with both or neither
+  // the states the tiles read, and the module's sections and reconciliation checks, go into tilekit.toml in the same
+  // step, so the model loads with both files changed or neither
   const tomlFile = path.join(ctx.modelDir, 'tilekit.toml');
-  const tomlBefore = states.length ? read(tomlFile) : null;
-  if (states.length) {
-    const qs = x => JSON.stringify(String(x));
-    const blocks = states.flatMap(st => ['', `[state.${st.name}]`, `from = ${qs(st.from)}`, `initial = ${Number.isInteger(st.initial) ? st.initial.toFixed(1) : String(st.initial)}`, `label = ${qs(st.label)}`, `format = ${qs(st.format)}`]);
-    fs.writeFileSync(tomlFile, tomlBefore.replace(/\s+$/, '') + '\n' + blocks.join('\n') + '\n');
-  }
+  const tomlTouched = states.length || sections || checks || removed.length;
+  const tomlBefore = tomlTouched ? read(tomlFile) : null;
   try {
+    if (tomlTouched) {
+      let toml = tomlBefore;
+      if (sections || checks) toml = src.setModuleLayout(toml, moduleId, { sections, checks });
+      // tiles that go are taken out of the module's sections (unless the draft gave the sections afresh)
+      if (removed.length && !sections) toml = src.dropTilesFromSections(toml, moduleId, removed);
+      if (states.length) {
+        const qs = x => JSON.stringify(String(x));
+        const blocks = states.flatMap(st => ['', `[state.${st.name}]`, `from = ${qs(st.from)}`, `initial = ${Number.isInteger(st.initial) ? st.initial.toFixed(1) : String(st.initial)}`, `label = ${qs(st.label)}`, `format = ${qs(st.format)}`]);
+        toml = toml.replace(/\s+$/, '') + '\n' + blocks.join('\n') + '\n';
+      }
+      if (toml !== tomlBefore) fs.writeFileSync(tomlFile, toml);
+    }
     await tk('graph');
   } catch (e) {
     fs.writeFileSync(file, before);
@@ -410,7 +427,17 @@ async function acceptTileDraft(ctx, draft) {
   }
   const actions = [];
   if (ordered.length) actions.push(`Added ${count(ordered.length, 'tile skeleton')} to ${moduleId}: ${ordered.map(i => i.name).join(', ')}.`);
+  if (removed.length) {
+    // with the model loading without them, their tests and stored review files go too
+    for (const n of removed) {
+      fs.rmSync(path.join(ctx.modelDir, 'tests', 'tiles', `test_${n}.py`), { force: true });
+      fs.rmSync(path.join(ctx.modelDir, 'review', 'tiles', n), { recursive: true, force: true });
+    }
+    actions.push(`Removed ${count(removed.length, 'tile')} from ${moduleId}: ${removed.join(', ')} (code, test and stored workbook).`);
+  }
   if (states.length) actions.push(`Added ${count(states.length, 'carried-forward state')}: ${states.map(x => `${x.name} (from ${x.from})`).join(', ')}.`);
+  if (sections) actions.push(sections.length ? `Laid out ${moduleId} in ${count(sections.length, 'section')}: ${sections.map(s => s.title).join(', ')}.` : `Removed the sections of ${moduleId}.`);
+  if (checks) actions.push(checks.length ? `Set ${count(checks.length, 'reconciliation check')} for ${moduleId}: ${checks.map(c => c.name).join(', ')}.` : `Removed the reconciliation checks of ${moduleId}.`);
   if (changed.length) actions.push(`Respecified ${changed.map(i => i.name).join(', ')}; ${changed.length === 1 ? 'it is' : 'they are'} now not built.`);
   const related = await rebuildRelated(ctx, [moduleId]);
   if (related.sentence) actions.push(related.sentence);

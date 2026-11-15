@@ -89,6 +89,10 @@ body.launching #gitline { display: none; }
 #tiles a.t:hover { background: #fbf8f2; }
 #tiles .t.stale { border-style: dashed; }
 #tiles .t.notbuilt { border-style: dotted; }
+/* the tile the agent is working on: its state line says so, in terracotta, with a slow pulse */
+#tiles .t.working i { color: var(--terra); font-weight: 600; animation: working 1.6s ease-in-out infinite; }
+@keyframes working { 50% { opacity: .45; } }
+.nb-working { color: var(--terra); font-weight: 600; animation: working 1.6s ease-in-out infinite; }
 #tiles .t.cur { border-width: 2px; border-bottom: 5px solid var(--terra); padding: 5px 9px 4px; }
 #tiles .t.io { background: transparent; border: 1px solid #a9a08c; min-width: 0; color: var(--slate); }
 #tiles .t.io b { color: var(--slate); }
@@ -158,6 +162,7 @@ button.seg[hidden] { display: none; }
 .dv-table .r { text-align: right; padding-right: 0; }
 .dv-table tbody tr:first-child td { border-top: 0; }
 .dv-name { font: 12px var(--mono); color: #7b1e1e; }
+.dv-expr { font-size: 12px; overflow-wrap: anywhere; }
 .dv-val { font-weight: 700; color: #0000cc; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .dv-more td { border-top: 0; padding-top: 0; padding-bottom: 7px; color: var(--slate); font-size: 12px; white-space: pre-wrap; }
 .dv-code { margin: 3px 0 0; padding: 4px 8px; background: var(--sand); color: var(--navy); font: 12px/1.45 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -239,6 +244,8 @@ button.seg:active:not([aria-selected="true"]) { background: var(--white); }
 #realbar button, #stalebar button, #sheetbar button { margin: 0 0 0 8px; padding: 1px 10px; font-size: 12px; }
 #realbar button:first-of-type { margin-left: 4px; }
 #stalebar { overflow-wrap: anywhere; }
+#waitbar { padding: 4px 16px; color: var(--terra); font-size: 12px; overflow-wrap: anywhere; }
+#waitbar[hidden] { display: none; }
 
 #working, #notice, #error { padding: 4px 0; border-bottom: 1px solid var(--rule); overflow-wrap: anywhere; flex: none; }
 #error { border-bottom-color: var(--navy); font-weight: 600; }
@@ -266,6 +273,13 @@ pre.code { margin: 0; padding: 6px 8px; border: 1px solid var(--rule); backgroun
 table.checks { border-collapse: collapse; width: 100%; }
 table.checks td { padding: 2px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
 table.checks td + td { text-align: right; color: var(--slate); padding-left: 12px; }
+table.checks th { text-align: left; font-weight: 600; font-size: 11px; color: var(--slate); padding: 2px 8px 2px 0; border-bottom: 1px solid var(--navy); }
+table.tiletests td { padding-right: 8px; }
+table.tiletests td + td { text-align: left; padding-left: 0; white-space: nowrap; }
+table.checks tr.bad td { color: var(--terra); }
+table.recon .expr { font-size: 11px; color: var(--slate); overflow-wrap: anywhere; }
+#tiles .secl { flex: none; align-self: center; max-width: 140px; white-space: normal; font-size: 11px; line-height: 1.25; color: var(--slate); padding: 0 8px 0 0; }
+#tiles .secgap { flex: none; width: 1px; background: var(--rule); margin: 0 12px 0 14px; }
 table.runs td + td { text-align: left; color: inherit; }
 table.runs td:nth-child(2) { text-align: right; }
 table.runs tr.head td { color: var(--slate); font-size: 11px; }

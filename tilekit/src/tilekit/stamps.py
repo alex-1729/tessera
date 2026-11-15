@@ -206,17 +206,37 @@ def _group_stamp(model, names, extra):
     }
 
 
+def presentation_layout(presentation):
+    """The `layout` key for a workbook that shows module sections and checks (`presentation` is a JSON-able value, or
+    None when there are none). With none it is exactly `layout_digest()`, so a module or model without sections or
+    checks keeps the stamp it always had."""
+    if not presentation:
+        return layout_digest()
+    return _digest(LAYOUT_VERSION, json.dumps(presentation, sort_keys=True))
+
+
 def module_stamp(model, module_id):
+    """A module workbook's stamp. The module's config is part of `code`, except its sections and checks: they change
+    how the module sheet is laid out and what it reconciles, not any tile's formula, so they are part of `layout`
+    (values drift) and never touch a tile's stamp."""
     module = model.config.module(module_id)
     names = list(model.graph.modules[module_id].tiles)
-    return _group_stamp(model, names, json.dumps(dataclasses.asdict(module), sort_keys=True))
+    stamp = _group_stamp(model, names, json.dumps(module.identity(), sort_keys=True))
+    stamp["layout"] = presentation_layout(module.presentation())
+    return stamp
 
 
 def model_stamp(model, case_id=None):
-    """The model's stamp; with `case_id`, the stamp of the model workbook for that case (the case is in `params`)."""
-    modules = [dataclasses.asdict(m) for m in model.config.modules]
+    """The model's stamp; with `case_id`, the stamp of the model workbook for that case (the case is in `params`).
+
+    The model workbook's module sheets show the modules' sections and checks, so with `case_id` they are part of
+    `layout` (values drift). Without `case_id` (the stamp the test cache and real-data runs are held to) they are not:
+    neither depends on how sheets are laid out."""
+    modules = [m.identity() for m in model.config.modules]
     extra = json.dumps({"name": model.config.name, "modules": modules}, sort_keys=True)
     stamp = _group_stamp(model, list(model.graph.order), extra)
     if case_id is not None:
         stamp["params"] = _digest(stamp["params"], f"case:{case_id}")
+        presentation = {m.id: m.presentation() for m in model.config.modules if m.presentation()}
+        stamp["layout"] = presentation_layout(presentation)
     return stamp

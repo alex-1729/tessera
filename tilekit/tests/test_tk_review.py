@@ -55,10 +55,29 @@ def sign(capsys, root, *target):
     return run(capsys, root, "signoff", *target, "--reviewer", "Pat", "--comment", "ok")
 
 
+def pass_tile_tests(capsys, root):
+    """Give every tile without one a (trivially) passing test file, then run `tilekit test` so the cache is current:
+    a module's sign-off needs every built tile's tests to have passed since the last change."""
+    folder = root / "tests" / "tiles"
+    folder.mkdir(parents=True, exist_ok=True)
+    wrote = False
+    for tile in load_model(root).graph.order:
+        path = folder / f"test_{tile}.py"
+        if not path.exists():
+            path.write_text(f"def test_{tile}_by_hand():\n    assert 1 + 1 == 2\n")
+            wrote = True
+    if wrote:  # a tile's workbook is built for its test (the hand checks), so a new test file asks for a rebuild
+        code, doc = run(capsys, root, "build")
+        assert code == 0, doc
+    code, doc = run(capsys, root, "test")
+    assert code == 0 and doc["failed"] == 0, doc
+
+
 def sign_all(capsys, root):
     for t in ("doubled", "balance_eop", "weighted", "weighted_grown"):
         code, doc = sign(capsys, root, "--tile", t)
         assert code == 0, doc
+    pass_tile_tests(capsys, root)
     for m in ("first", "second", "results"):
         code, doc = sign(capsys, root, "--module", m)
         assert code == 0, doc
@@ -251,13 +270,15 @@ def test_module_and_model_rules(built, capsys):
     m = s["modules"]["first"]
     assert m["state"] == "built" and [c["name"] for c in m["checks"]] == [
         "Sheet agrees with Python", "Tile formulas match the tile workbooks", "Every tile signed off",
-        "No rule violations"]
+        "No rule violations", "Tile tests pass (0 of 1)"]
     assert not m["can_sign_off"] and "not signed off" in " ".join(m["blockers"])
+    assert "Tile tests do not all pass: no test file for doubled." in m["blockers"]
     code, doc = sign(capsys, built, "--module", "first")
     assert code == 1 and "doubled" in doc["error"]["message"]
     code, doc = sign(capsys, built, "--whole-model")
     assert code == 1
     sign(capsys, built, "--tile", "doubled")
+    pass_tile_tests(capsys, built)
     code, doc = sign(capsys, built, "--module", "first")
     assert code == 0 and doc["signed_off"]["kind"] == "module"
     s = status(capsys, built)

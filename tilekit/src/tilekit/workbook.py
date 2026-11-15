@@ -38,7 +38,7 @@ from tilekit.errors import TilekitError
 from tilekit.graph import param_fields
 from tilekit.stamps import upstream_tiles
 from tilekit.trace import branch_counts, near_tie_map, run_case
-from tilekit import handchecks
+from tilekit import handchecks, reconcile
 from tilekit.translate import TOLERANCE_ABS, model_translations
 
 TOLERANCE_REL = 1e-12
@@ -168,10 +168,12 @@ class Line:
     """One row: a time row (months across) or, with `scalar`, a single cell in column C."""
     key: str | None  # what formulas call this row ({key}); None for a row nothing refers to
     label: str
-    content: tuple  # ("values", data) | ("formula", template) | ("state", initial, source) | ("link", name)
+    # ("values", data) | ("formula", template) | ("state", initial, source) | ("link", name) | ("heading",)
+    content: tuple
     fmt: str  # number format code
     # input (bold blue: a true input) | elsewhere (bold dark green: pasted from another tile or module) |
-    # link (bold dark green: a live link to another sheet) | calc | output | grey
+    # link (bold dark green: a live link to another sheet) | calc | output | grey | heading (a bold section title in
+    # column B and nothing else)
     style: str = "calc"
     name: str | None = None  # code name shown in maroon
     define: bool = False  # define a named range for it
@@ -180,7 +182,7 @@ class Line:
     python: object = None  # Python values (for widths and the comparison)
     home: bool = True  # the row that owns the quantity in this workbook (not a link)
     tolerance: float = TOLERANCE_ABS  # absolute tolerance of the difference check
-    check_kind: str = "tile"  # what `check` names: "tile" or "input"
+    check_kind: str = "tile"  # what `check` names: "tile", "input" or "reconciliation" (a module check)
 
 
 @dataclass
@@ -376,6 +378,8 @@ def _line_cells(line, plan, locator, renames):
     """The values/formulas for a line's value cells."""
     kind = line.content[0]
     sheet = plan.name
+    if kind == "heading":
+        return []
     if line.scalar:
         if kind == "values":
             return [_pasted(line.content[1])]
@@ -472,6 +476,10 @@ def render_sheet(plan, locator, renames):
 
     for line in _lines(plan):
         row = plan.rows[id(line)]
+        if line.content[0] == "heading":
+            cmds.append(_cmd("range.setValues", range=f"B{row}", values=[[line.label]], parse=False))
+            cmds.append(_cmd("home.bold", range=f"B{row}"))
+            continue
         cells = _line_cells(line, plan, locator, renames)
         value_end = "C" if line.scalar else last
         name_at = "D" if line.scalar else name_col
@@ -1004,13 +1012,18 @@ def _hand_document(hand, plan, results, translation):
 # ---------------------------------------------------------------- module workbook
 
 def _module_parts(info, module_id):
-    """(params, external quantities, states) a module's tiles read."""
+    """(params, external quantities, states) a module's tiles read, then what its checks read that the tiles do not
+    (so a check's formula refers only to the sheet's own rows and names)."""
     graph = info.graph
     module = graph.modules[module_id]
     own = set(module.tiles)
-    params = [n for n in module.inputs if info.kind(n) == "param"]
-    states = [n for n in module.inputs if info.kind(n) == "state"]
-    external = [n for n in module.inputs if info.kind(n) in ("tile", "input")]
+    read = list(module.inputs)
+    for check in info.model.config.module(module_id).checks:
+        read += [n for n in reconcile.names(reconcile.parse_expression(check.expression))
+                 if n not in own and n not in read]
+    params = [n for n in read if info.kind(n) == "param"]
+    states = [n for n in read if info.kind(n) == "state"]
+    external = [n for n in read if info.kind(n) in ("tile", "input")]
     for state in states:
         source = info.states[state].source
         if source not in own and source not in external:
@@ -1042,9 +1055,52 @@ def _module_sections(info, data, module_id, linked):
                   for n in module.tiles]
     grey = [line for n in module.tiles if n in outputs for line in _comparison_lines(info, data, n)]
 
-    if info.model.config.module(module_id).timing == "summary":
-        return [ext_series + state_lines], [ext_scalars, tile_lines, grey]
-    return [ext_series, state_lines + tile_lines, grey], [ext_scalars]
+    config = info.model.config.module(module_id)
+    if not config.sections and not config.checks:  # laid out exactly as before sections and checks existed
+        if config.timing == "summary":
+            return [ext_series + state_lines], [ext_scalars, tile_lines, grey]
+        return [ext_series, state_lines + tile_lines, grey], [ext_scalars]
+
+    # Sections: each under a bold heading row, in the order given (tiles in the order listed), then the tiles no
+    # section lists, untitled. A carried-forward state's row goes with the section of the first tile that reads it.
+    by_tile = dict(zip(module.tiles, tile_lines))
+    groups = graph.sections[module_id]
+    state_at = {}
+    for index, (_, names) in enumerate(groups):
+        for name in names:
+            for arg in graph.tiles[name].args:
+                if arg in states:
+                    state_at.setdefault(arg, index)
+    tile_sections = []
+    for index, (title, names) in enumerate(groups):
+        heading = [Line(None, title, ("heading",), "General", style="heading")] if title else []
+        own_states = [line for s, line in zip(states, state_lines) if state_at.get(s, len(groups) - 1) == index]
+        tile_sections.append(heading + own_states + [by_tile[n] for n in names])
+    checks = _check_lines(info, data, module_id)
+    check_section = [Line(None, "Checks", ("heading",), "General", style="heading"), *checks] if checks else []
+    if config.timing == "summary":
+        return [ext_series + state_lines], [ext_scalars, *tile_sections, grey]
+    return [ext_series, *tile_sections, grey, check_section], [ext_scalars]
+
+
+def check_key(module_id, name):
+    """What a module check's row is called in a build's results (unique across the model workbook's sheets)."""
+    return f"{module_id}:{name}"
+
+
+def _check_lines(info, data, module_id):
+    """One grey row per `[[module.check]]`: the expression as a live formula over the sheet's rows, which must be zero.
+    Its `python` is the same expression evaluated on the case's Python results."""
+    lines = []
+    for check in info.model.config.module(module_id).checks:
+        node = reconcile.parse_expression(check.expression)
+        rows = {n for n in reconcile.names(node) if info.kind(n) != "param"}
+        python = reconcile.evaluate(node, lambda n: data.param(n) if info.kind(n) == "param" else data.series(n))
+        python = np.broadcast_to(python, (data.months,)).astype(np.float64)
+        lines.append(Line(None, check.label, ("formula", reconcile.excel_template(node, rows)), DIFFERENCE_FORMAT,
+                          style="grey", name=check.name, check=check_key(module_id, check.name),
+                          check_kind="reconciliation", python=python, tolerance=check.tolerance))
+    return lines
 
 
 def module_plans(info, module_id, datas):
@@ -1145,8 +1201,11 @@ def summarise(results, datas):
     """Per case: {sheet, max_abs_difference, checks_pass, tiles: {tile: {...}}}."""
     by_case = {}
     for plan, line, values in results:
-        worst, ok, error = compare(values, line.python, line.tolerance)
         entry = by_case.setdefault(plan.case, {"sheet": plan.name, "tiles": {}})
+        if line.check_kind == "reconciliation":  # must be zero; not part of the sheet agreeing with Python
+            entry.setdefault("reconciliations", {})[line.check] = _reconciliation_case(values, line)
+            continue
+        worst, ok, error = compare(values, line.python, line.tolerance)
         tile_entry = {"max_abs_difference": worst, "checks_pass": ok}
         if line.tolerance != TOLERANCE_ABS:
             tile_entry["tolerance"] = line.tolerance
@@ -1161,6 +1220,41 @@ def summarise(results, datas):
         entry["max_abs_difference"] = None if None in diffs else max(diffs, default=0.0)
         entry["checks_pass"] = all(t["checks_pass"] for t in checked)
     return by_case
+
+
+def _reconciliation_case(values, line):
+    """One case of a module check: the largest |value| in Excel and in Python, and whether both are within tolerance
+    in every month."""
+    numbers = [v for v in values if isinstance(v, int | float) and not isinstance(v, bool)]
+    error = next((v.get("error") if isinstance(v, dict) else repr(v) for v in values
+                  if not (isinstance(v, int | float) and not isinstance(v, bool))), None)
+    excel = None if error is not None or len(numbers) != len(np.ravel(line.python)) else reconcile.largest(numbers)
+    python = reconcile.largest(line.python)
+    entry = {"excel_max_abs": excel, "python_max_abs": python,
+             "pass": excel is not None and python is not None and excel <= line.tolerance and python <= line.tolerance}
+    if error is not None:
+        entry["error"] = error
+    return entry
+
+
+def reconciliations(info, module_id, cases):
+    """The sidecar's `reconciliations` for one module from the per-case results: one entry per check, in order."""
+    out = []
+    for check in info.model.config.module(module_id).checks:
+        per_case = {cid: c.get("reconciliations", {}).get(check_key(module_id, check.name)) for cid, c in cases.items()}
+        found = [c for c in per_case.values() if c is not None]
+        excel = [c["excel_max_abs"] for c in found]
+        python = [c["python_max_abs"] for c in found]
+        both = excel + python
+        out.append({
+            "name": check.name, "label": check.label, "expression": check.expression, "tolerance": check.tolerance,
+            "excel_max_abs": None if None in excel else max(excel, default=0.0),
+            "python_max_abs": None if None in python else max(python, default=0.0),
+            "max_abs_difference": None if None in both else max(both, default=0.0),
+            "pass": bool(found) and len(found) == len(per_case) and all(c["pass"] for c in found),
+            "cases": {cid: c for cid, c in per_case.items() if c is not None},
+        })
+    return out
 
 
 def _overall(cases):
@@ -1364,6 +1458,8 @@ def build_module(model, gridcraft, module_id, datas, stamp, paths=None, sheet=No
     results = build_workbook(gridcraft, xlsx, plans)
     document = _group_document("module", module_id, info, tile_names, plans, datas, results, stamp, xlsx)
     document["outputs"] = info.module_outputs(module_id)
+    if model.config.module(module_id).checks:
+        document["reconciliations"] = reconciliations(info, module_id, document["cases"])
     document.update(extra or {})
     write_json(sidecar, _seal(document, xlsx))
     return document
@@ -1383,6 +1479,9 @@ def build_model(model, gridcraft, data, stamp, paths=None, label=None, extra=Non
     document = _group_document("model", model.config.name, info, tile_names, plans, [data], results, stamp, xlsx)
     document["case"] = data.case.id
     document["sheets"] = [p.name for p in plans] + [SCRATCH]
+    checked = {m.id: reconciliations(info, m.id, document["cases"]) for m in model.config.modules if m.checks}
+    if checked:
+        document["reconciliations"] = checked
     case_inputs = document["cases"][data.case.id].get("inputs", {})
     document["inputs"] = {
         name: {"excel": info.inputs[name].excel, **case_inputs.get(name, {})}

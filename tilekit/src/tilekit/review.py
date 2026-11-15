@@ -17,6 +17,7 @@ import json
 import logging
 import math
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -30,7 +31,7 @@ from tilekit.build import workbook_state
 from tilekit.cases import case_months, get_case, load_cases
 from tilekit.checks import run_checks
 from tilekit.errors import TilekitError
-from tilekit.stamps import STAMP_KEYS, model_stamp, module_stamp, tile_stamp
+from tilekit.stamps import STAMP_KEYS, model_stamp, module_stamp, tile_stamp, upstream_tiles
 from tilekit.trace import plain_float, run_case
 from tilekit.translate import model_translations
 from tilekit.workbook import default_case_id, model_paths, module_paths, review_dir, tile_paths, write_json
@@ -162,12 +163,68 @@ def _signed_summary(signoff):
 
 # ---------------------------------------------------------------- status
 
-def _test_checks(model):
-    """Model checks from the cached `tilekit test` result (empty when there is none)."""
+def _tests_state(model):
+    """(cached `tilekit test` result or None, stale). The cache is stale when its model stamp is not the current one."""
     cache = _read_json(tests_cache_path(model))
     if not cache or not isinstance(cache.get("tests"), list):
+        return None, False
+    return cache, cache.get("stamp") != model_stamp(model)
+
+
+def _file_digest(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def cached_test_result(model, tests, relative):
+    """How one test file fared in the cached test run: "passed", "failed", "not_run" or "none" (no such file).
+
+    "not_run" when there is no cache, the cache is stale (the model changed since), the cache does not record the file
+    (a cache written before per-file results existed, or a file added since), the file's bytes differ from those that
+    ran (it was edited since), or none of its tests ran. A file whose tests were all skipped counts as passed, as the
+    model-level check counts skipped tests."""
+    path = model.root / relative
+    if not path.is_file():
+        return "none"
+    cache, stale = tests
+    if cache is None or stale or not isinstance(cache.get("files"), dict):
+        return "not_run"
+    entry = cache["files"].get(relative)
+    if not isinstance(entry, dict) or entry.get("sha256") != _file_digest(path):
+        return "not_run"
+    if entry.get("failed"):
+        return "failed"
+    if entry.get("passed") or entry.get("skipped"):
+        return "passed"
+    return "not_run"
+
+
+CASE_LINE = re.compile(r"^\s*Case:\s*([A-Za-z0-9_]+)\s*,\s*month\s+(\d+)\s*$", re.MULTILINE)
+
+
+def has_case_check(path):
+    """True when a docstring of the test file (the module's, a class's or a function's) has a line
+    `Case: <case id>, month <n>`: the hand calculation is tied to a month of a named case."""
+    try:
+        tree = ast.parse(Path(path).read_text())
+    except (OSError, SyntaxError, ValueError):
+        return False
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            doc = ast.get_docstring(node, clean=False)
+            if doc and CASE_LINE.search(doc):
+                return True
+    return False
+
+
+def module_test_path(model, module_id):
+    return model.root / "tests" / "modules" / f"test_{module_id}.py"
+
+
+def _test_checks(model, tests=None):
+    """Model checks from the cached `tilekit test` result (empty when there is none)."""
+    cache, stale = tests if tests is not None else _tests_state(model)
+    if not cache:
         return []
-    stale = cache.get("stamp") != model_stamp(model)
     checks = []
     for test in cache["tests"]:
         if not Path(test.get("file", "")).name.startswith("test_invariants"):
@@ -197,6 +254,8 @@ def compute_status(model):
     translations = model_translations(model)
     case_ids = [c.id for c in load_cases(model)]
 
+    tests = _tests_state(model)
+
     tiles = {}
     for name in graph.order:
         tiles[name] = _tile_entry(model, name, hash_now, errors, translations)
@@ -204,9 +263,9 @@ def compute_status(model):
     modules = {}
     for item in model.config.modules:
         if graph.modules[item.id].tiles:
-            modules[item.id] = _module_entry(model, item.id, hash_now, tiles, errors)
+            modules[item.id] = _module_entry(model, item.id, hash_now, tiles, errors, tests)
 
-    model_entry = _model_entry(model, default_case, case_ids, hash_now, tiles, modules, errors)
+    model_entry = _model_entry(model, default_case, case_ids, hash_now, tiles, modules, errors, tests)
 
     def count(entries):
         counts = {s: sum(e["state"] == s for e in entries.values())
@@ -300,6 +359,16 @@ def _tile_entry(model, name, hash_now, errors, translations):
     blockers += _near_tie_blockers(near)
     if values_only:
         blockers.append(VALUES_ONLY_BLOCKER)
+    # A tile that reads something not built yet (directly, or through a carried-forward state that closes a loop)
+    # has placeholder values wherever that reaches: Python's NaN agrees with Excel's #NUM!, so the difference check
+    # passes without checking anything. It cannot be signed off until what it depends on is built.
+    order = {t: i for i, t in enumerate(model.graph.order)}
+    waiting = sorted((u for u in upstream_tiles(model, [name]) if u != name and model.graph.tiles[u].doc.not_built),
+                     key=lambda u: order.get(u, 0))
+    if waiting:
+        blockers.append(f"It depends on {', '.join(waiting)}, which {'is' if len(waiting) == 1 else 'are'} not built "
+                        "yet, so some of its values are placeholders (#NUM!). Build "
+                        f"{'it' if len(waiting) == 1 else 'them'} before signing this off.")
 
     if model.graph.tiles[name].doc.not_built:
         state, drift, blockers = "not_built", None, ["This tile has not been built yet."]
@@ -322,6 +391,7 @@ def _tile_entry(model, name, hash_now, errors, translations):
         "new_cases": new_cases,
         "signed_off": _signed_summary(signoff),
         "workbook": _relative(model, xlsx),
+        "waiting_on": waiting,
         "hand_checks": None if hand is None else {
             "sheet": hand.get("sheet"), "checks_pass": hand.get("checks_pass"),
             "max_abs_difference": hand.get("max_abs_difference"), "not_in_sheet": hand.get("not_in_sheet", []),
@@ -337,7 +407,44 @@ def graph_module(model, name):
     return model.graph.tiles[name].module
 
 
-def _module_entry(model, module_id, hash_now, tiles, errors):
+def _tile_tests(model, names, tiles, tests):
+    """The module's summary of its tiles' tests: per tile the cached result of its test file, its hand checks on the
+    sheet and whether it names the case and month it was worked from; counts over the tiles that are built."""
+    from tilekit.handchecks import test_path
+    entries = {}
+    for name in names:
+        path = test_path(model, name)
+        hand = tiles[name].get("hand_checks")
+        result = cached_test_result(model, tests, _relative(model, path))
+        entries[name] = {
+            "tests": result,
+            # null when the tile has no test file, or no stored workbook built for its current test
+            "hand_checks": None if hand is None or result == "none" else {
+                "in_sheet": len(hand.get("checks") or []),
+                "agree": sum(bool(c.get("pass")) for c in hand.get("checks") or [])},
+            "case_check": path.is_file() and has_case_check(path),
+        }
+    built = [n for n in names if tiles[n]["state"] != "not_built"]
+    count = {k: sum(entries[n]["tests"] == k for n in built) for k in ("passed", "failed", "not_run", "none")}
+    return {"total": len(built), "passed": count["passed"], "failed": count["failed"], "not_run": count["not_run"],
+            "none": count["none"], "tiles": entries}
+
+
+def _tile_tests_blocker(summary):
+    by = {}
+    for name, entry in summary["tiles"].items():
+        by.setdefault(entry["tests"], []).append(name)
+    parts = []
+    if by.get("failed"):
+        parts.append("failed for " + ", ".join(by["failed"]))
+    if by.get("not_run"):
+        parts.append("not run since the last change for " + ", ".join(by["not_run"]) + " (run `tilekit test`)")
+    if by.get("none"):
+        parts.append("no test file for " + ", ".join(by["none"]))
+    return "Tile tests do not all pass: " + "; ".join(parts) + "."
+
+
+def _module_entry(model, module_id, hash_now, tiles, errors, tests=(None, False)):
     xlsx, sidecar = module_paths(model, module_id)
     current = module_stamp(model, module_id)
     stored, doc, content_ok = workbook_state(xlsx, sidecar)
@@ -365,6 +472,48 @@ def _module_entry(model, module_id, hash_now, tiles, errors):
     for check in checks:
         if not check["pass"] and check["name"] != "Every tile signed off":
             blockers.append(f"Check failed: {check['name']}.")
+
+    # Reconciliations (`[[module.check]]`): read from the sidecar, and only from a current one (they are part of the
+    # module workbook's stamp, so a sidecar from before a check was added or changed is never current).
+    workbook_current = stored == current and content_ok
+    config = model.config.module(module_id)
+    reconciliations = None
+    if workbook_current:
+        recorded = {r.get("name"): r for r in (doc.get("reconciliations") or [])}
+        reconciliations = []
+        for check in config.checks:
+            found = recorded.get(check.name) or {}
+            reconciliations.append({"name": check.name, "label": check.label, "expression": check.expression,
+                                    "max_abs_difference": found.get("max_abs_difference"),
+                                    "pass": bool(found.get("pass"))})
+    if config.checks:
+        checks.append({"name": "Reconciliations hold",
+                       "pass": reconciliations is not None and all(r["pass"] for r in reconciliations)})
+        for r in reconciliations or []:
+            if not r["pass"]:
+                worst = r["max_abs_difference"]
+                blockers.append(f"The check '{r['label']}' is not zero (largest value "
+                                + (f"{worst:g}" if isinstance(worst, (int, float)) else "not a number") + ").")
+
+    # The tiles' own tests, from the cached test run.
+    tile_tests = _tile_tests(model, names, tiles, tests)
+    tests_pass = tile_tests["passed"] == tile_tests["total"]
+    checks.append({"name": f"Tile tests pass ({tile_tests['passed']} of {tile_tests['total']})", "pass": tests_pass})
+    if not tests_pass:
+        blockers.append(_tile_tests_blocker({**tile_tests, "tiles": {
+            n: e for n, e in tile_tests["tiles"].items() if tiles[n]["state"] != "not_built" and e["tests"] != "passed"}}))
+
+    # The module's own hand-worked test, when it has one: it never blocks by being absent.
+    module_path = module_test_path(model, module_id)
+    module_test = {"file": _relative(model, module_path),
+                   "status": cached_test_result(model, tests, _relative(model, module_path))}
+    if module_test["status"] != "none":
+        checks.append({"name": "Module test passes", "pass": module_test["status"] == "passed"})
+        if module_test["status"] == "failed":
+            blockers.append(f"The module test {module_test['file']} fails.")
+        elif module_test["status"] == "not_run":
+            blockers.append(f"The module test {module_test['file']} has not been run since the last change; "
+                            "run `tilekit test`.")
     for tile, near in module_near.items():
         for text in _near_tie_blockers(near):
             blockers.append(f"{tile}: {text}")
@@ -380,6 +529,9 @@ def _module_entry(model, module_id, hash_now, tiles, errors):
         "stale": sum(t["state"] == "stale" for t in mine.values()),
         "unbuilt": sum(t["state"] == "unbuilt" for t in mine.values()),
         "checks": checks,
+        "reconciliations": reconciliations,
+        "tile_tests": tile_tests,
+        "module_test": module_test,
         "new_cases": new_cases,
         "signed_off": _signed_summary(signoff),
         "workbook": _relative(model, xlsx),
@@ -388,7 +540,7 @@ def _module_entry(model, module_id, hash_now, tiles, errors):
     }
 
 
-def _model_entry(model, default_case, case_ids, hash_now, tiles, modules, errors):
+def _model_entry(model, default_case, case_ids, hash_now, tiles, modules, errors, tests=None):
     xlsx, sidecar = model_paths(model, default_case)
     current = model_stamp(model, default_case)
     stored, doc, content_ok = workbook_state(xlsx, sidecar)
@@ -405,7 +557,7 @@ def _model_entry(model, default_case, case_ids, hash_now, tiles, modules, errors
         {"name": "Every module signed off", "pass": all(m["state"] == "signed_off" for m in modules.values())},
         {"name": "No rule violations", "pass": not errors},
     ]
-    test_checks = _test_checks(model)
+    test_checks = _test_checks(model, tests)
     checks += test_checks
     blockers = _workbook_blockers("model workbook", stored, current, content_ok)
     if doc is not None and doc.get("case") != default_case:
@@ -784,8 +936,11 @@ def _parse_junit(path):
     tests = []
     for case in ET.parse(path).getroot().iter("testcase"):
         classname = case.get("classname", "")
-        parts = [p for p in classname.split(".") if p.startswith("test_")]
-        file = f"{parts[0]}.py" if parts else (classname.split(".")[-1] + ".py" if classname else "")
+        dotted = classname.split(".")
+        parts = [p for p in dotted if p.startswith("test_")]
+        file = f"{parts[0]}.py" if parts else (dotted[-1] + ".py" if classname else "")
+        # the file's path relative to the model (pytest's rootdir): `tests.tiles.test_x` -> tests/tiles/test_x.py
+        where = "/".join(dotted[:dotted.index(parts[0]) + 1]) + ".py" if parts else file
         if any(c.tag in ("failure", "error") for c in case):
             outcome = "failed"
         elif any(c.tag == "skipped" for c in case):
@@ -793,8 +948,32 @@ def _parse_junit(path):
         else:
             outcome = "passed"
         name = case.get("name", "")
-        tests.append({"id": f"{file}::{name}", "name": name, "file": file, "outcome": outcome})
+        tests.append({"id": f"{file}::{name}", "name": name, "file": file, "path": where, "outcome": outcome})
     return tests
+
+
+def _test_file_digests(model):
+    """{path relative to the model: sha256} of every test file under `tests/`."""
+    folder = model.root / "tests"
+    return {_relative(model, path): _file_digest(path)
+            for path in (sorted(folder.rglob("test_*.py")) if folder.is_dir() else []) if "__pycache__" not in path.parts}
+
+
+def _file_results(digests, tests):
+    """{path: {sha256, passed, failed, skipped}} for every test file under `tests/` (relative to the model): what each
+    file's tests did in this run and the bytes that ran (read before the run), so a file edited since can be told
+    apart."""
+    files = {rel: {"sha256": digest, "passed": 0, "failed": 0, "skipped": 0} for rel, digest in digests.items()}
+    by_name = {}
+    for rel in files:
+        by_name.setdefault(rel.rsplit("/", 1)[-1], []).append(rel)
+    for test in tests:
+        entry = files.get(test.get("path"))
+        if entry is None and len(by_name.get(test.get("file"), [])) == 1:  # a rootdir other than the model
+            entry = files[by_name[test["file"]][0]]
+        if entry is not None:
+            entry[test["outcome"]] += 1
+    return files
 
 
 def run_model_tests(model, file=None):
@@ -809,10 +988,12 @@ def run_model_tests(model, file=None):
             raise TilekitError(f"No test file {file}")
     elif not tests_dir.is_dir():
         raise TilekitError(f"The model has no tests directory ({tests_dir})")
+    digests = _test_file_digests(model) if file is None else {}
     with tempfile.TemporaryDirectory() as tmp:
         report = Path(tmp) / "junit.xml"
         result = subprocess.run(
-            [sys.executable, "-m", "pytest", str(target), "-q", "-p", "no:cacheprovider", f"--junitxml={report}"],
+            [sys.executable, "-m", "pytest", str(target), "-q", "-p", "no:cacheprovider", f"--junitxml={report}",
+             f"--rootdir={model.root}"],  # test ids and paths relative to the model
             cwd=model.root, capture_output=True, text=True,
             # the model's own package is found through its src folder, as `load_model` finds it for every other command
             env={**os.environ, "PYTHONPATH": os.pathsep.join(
@@ -827,6 +1008,8 @@ def run_model_tests(model, file=None):
         "failed": sum(t["outcome"] == "failed" for t in tests),
         "tests": tests,
     }
+    if file is None:
+        document["files"] = _file_results(digests, tests)
     if file is not None:
         document["file"] = _relative(model, target.resolve())
         document["output"] = (result.stdout + result.stderr)[-4000:]

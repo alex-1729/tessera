@@ -4,16 +4,16 @@ import { q, moduleMapWord } from './logic.js';
 import { layeredLayout } from './layout.js';
 
 const NS = 'http://www.w3.org/2000/svg';
-function s(tag, attrs, ...kids) {
+export function s(tag, attrs, ...kids) {
   const e = document.createElementNS(NS, tag);
   for (const [k, v] of Object.entries(attrs || {})) if (v !== null && v !== undefined) e.setAttribute(k, v);
   for (const k of kids.flat()) if (k !== null && k !== undefined) e.append(k instanceof Node ? k : document.createTextNode(String(k)));
   return e;
 }
-const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text) e.textContent = text; return e; };
+export const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text) e.textContent = text; return e; };
 
-const DOTTED = '1.5 3';
-const INK = '#14213d', FAINT = '#a9a08c', SOFT = '#7a838c';
+export const DOTTED = '1.5 3';
+export const INK = '#14213d', FAINT = '#a9a08c', SOFT = '#7a838c';
 function outline(state, light, proposed) {
   if (proposed || state === 'not_built') return { stroke: INK, 'stroke-width': 1, 'stroke-dasharray': DOTTED };
   if (light) return { stroke: FAINT, 'stroke-width': 1 };
@@ -22,7 +22,7 @@ function outline(state, light, proposed) {
   return { stroke: INK, 'stroke-width': 2 };
 }
 
-function arrowDefs() {
+export function arrowDefs() {
   return s('defs', {},
     s('marker', { id: 'arr', viewBox: '0 0 10 10', refX: '9', refY: '5', markerWidth: '7', markerHeight: '7', orient: 'auto' },
       s('path', { d: 'M0,1 L9,5 L0,9 z', fill: INK })),
@@ -30,7 +30,7 @@ function arrowDefs() {
       s('path', { d: 'M0,1 L9,5 L0,9 z', fill: SOFT })));
 }
 
-function box(n, { name, status, state, light, href, mono = true, proposed = false }) {
+export function box(n, { name, status, state, light, href, mono = true, proposed = false }) {
   const inner = [
     s('rect', { x: n.x, y: n.y, width: n.w, height: n.h, fill: '#fff', ...outline(state, light, proposed) }),
     s('text', { x: n.x + n.w / 2, y: n.y + (n.h > 38 ? 17 : 15), 'text-anchor': 'middle', class: (mono ? 'nm' : 'ti') + (light ? ' dim' : '') }, name),
@@ -40,7 +40,7 @@ function box(n, { name, status, state, light, href, mono = true, proposed = fals
 }
 
 // A small list box: "Parameters" heading and the names under it.
-function listBox(n, title, names) {
+export function listBox(n, title, names) {
   const g = [s('rect', { x: n.x, y: n.y, width: n.w, height: n.h, fill: '#fff', stroke: FAINT, 'stroke-width': 1 }),
     s('text', { x: n.x + 6, y: n.y + 12, class: 'st' }, title)];
   const cols = n.cols || 1, per = Math.ceil(names.length / cols), colW = (n.w - 12) / cols;
@@ -48,10 +48,10 @@ function listBox(n, title, names) {
   return s('g', {}, g);
 }
 
-const polyline = pts => 'M' + pts.map(p => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' L');
+export const polyline = pts => 'M' + pts.map(p => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' L');
 
 // Dashed link routed round the outside: out of `a` to the right margin, along it, and back into `b`.
-function outsideRoute(a, b, rows, marginX, k, gy) {
+export function outsideRoute(a, b, rows, marginX, k, gy) {
   const rowA = rows[a.row], rowB = rows[b.row];
   const mx = marginX + k * 8;
   const pts = [];
@@ -62,13 +62,13 @@ function outsideRoute(a, b, rows, marginX, k, gy) {
   return pts;
 }
 
-function markLast(pos) {
+export function markLast(pos) {
   const maxRight = new Map();
   for (const p of pos.values()) maxRight.set(p.row, Math.max(maxRight.get(p.row) || 0, p.x + p.w));
   for (const p of pos.values()) p.last = Math.abs(p.x + p.w - maxRight.get(p.row)) < 0.5;
 }
 
-function legend(text) { return el('p', 'legend', text); }
+export function legend(text) { return el('p', 'legend', text); }
 
 // `proposed` = items of a pending module draft: [{id, title, layer, feeds}]. New modules are drawn dotted; new feeds too.
 export function modelMap(S, avail = 700, proposed = []) {

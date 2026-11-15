@@ -296,6 +296,10 @@ function listFiles(dir) {   // path -> mtime, for "nothing was written here"
   st = await S();
   check('after revert and rebuild every unit_projection workbook is current', ['units_allocated', 'units_after_alloc', 'units_amc', 'units_eop'].every(t => st.tiles[t].workbook_current === true) && st.modules.unit_projection.workbook_current === true, JSON.stringify(Object.fromEntries(['units_amc', 'units_eop'].map(t => [t, [st.tiles[t].state, st.tiles[t].workbook_current]]))));
   for (const t of ['deaths', 'lapses', 'in_force_eop']) await signoffTile(t);
+  // a module can only be signed off once every tile's tests have been run since the last change
+  const tests = await ctl.run('test');
+  check('the model\'s tests run and pass before a module is signed off', tests && (tests.failed || 0) === 0 && (tests.passed || 0) > 0, JSON.stringify({ passed: tests && tests.passed, failed: tests && tests.failed }));
+  await ev('window.__app.refresh().then(() => window.__app.render())'); await idle();
   await go('#/module/decrements');
   await has('module: 3 of 3 tiles', '3 of 3 tiles signed off');
   check('module Sign off module is enabled with a prefilled reviewer', await ev('!document.getElementById("signoff").disabled && document.getElementById("signoff").textContent === "Sign off module" && document.getElementById("reviewer").value.trim().length > 0'), await ev('document.getElementById("signoff").title'));

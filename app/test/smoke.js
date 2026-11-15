@@ -26,6 +26,13 @@ const fixturesCopy = (() => {
   }
   for (const [f, codes] of Object.entries(byFile)) { fs.mkdirSync(path.dirname(path.join(dst, f)), { recursive: true }); fs.writeFileSync(path.join(dst, f), '# module file\nimport numpy as np\n\n\n' + codes.join('\n\n\n') + '\n'); }
   fs.writeFileSync(path.join(dst, 'tilekit.toml'), '[model]\nname = "Fixture model"  # comment\n');
+  // the module's own hand-worked test (tests/modules/test_<module>.py), for the module's Test segment
+  for (const m of graph.modules) {
+    fs.mkdirSync(path.join(dst, 'tests/modules'), { recursive: true });
+    fs.writeFileSync(path.join(dst, 'tests/modules', `test_${m.id}.py`), `"""${m.title}: walked by hand for the base case."""\n\nimport pytest\n\n\n` +
+      `def test_${m.id}_month_1():\n    """Month 1 of the base case, tile by tile.\n\n    Case: base, month 1\n    Allocated 250 * 0.97 / 1.25 = 194.0\n    """\n    assert ${m.tiles[0]}(250.0, 0.97, 1.25) == pytest.approx(194.0, rel=0, abs=1e-9)\n\n\n` +
+      `def test_${m.id}_month_2():\n    """Month 2 carries month 1's closing units forward.\n\n    Opening 193.87875\n    """\n    assert ${m.tiles[m.tiles.length - 1]}(387.091577026107, 0.241932235641317) == pytest.approx(386.849644790466, rel=0, abs=1e-9)\n`);
+  }
   return dst;
 })();
 process.env.APP_FIXTURES = fixturesCopy;
@@ -272,9 +279,9 @@ const check = (name, ok, detail) => { summary.checks.push({ name, ok: !!ok, ...(
 
     // remembered per level
     await go('#/module/' + await ev(`window.__app.S.graph.modules[0].id`)); await settle();
-    check('centre: a module has no Test segment and starts on Spreadsheet (per-level choice)', await ev(`document.getElementById('seg-test').hidden`) && (await segSel()).join() === 'spreadsheet' && !(await codeShown()));
-    await ev(`window.dispatchEvent(new KeyboardEvent('keydown',{key:'3',metaKey:true,bubbles:true}))`); await sleep(200);
-    check('centre: Cmd+3 does nothing on a module', (await segSel()).join() === 'spreadsheet');
+    check('centre: a module has a Test segment (its module test) and starts on Spreadsheet (per-level choice)', !(await ev(`document.getElementById('seg-test').hidden`)) && (await segSel()).join() === 'spreadsheet' && !(await codeShown()));
+    await ev(`window.dispatchEvent(new KeyboardEvent('keydown',{key:'3',metaKey:true,bubbles:true}))`); await sleep(400);
+    check('centre: Cmd+3 selects the module\'s Test', (await segSel()).join() === 'test' && await codeShown());
     await ev(`document.getElementById('seg-code').click()`); await sleep(500);
     const modFile = await ev(`(()=>{const m=window.__app.S.graph.modules[0]; return window.__app.S.graph.quantities[m.tiles[0]].source.file})()`);
     check('centre: module Code shows the whole module file', await ev(`document.getElementById('srcpath').innerText.includes(${JSON.stringify(modFile)}) && document.querySelector('#codewrap .src').dataset.code.includes('# module file') && document.querySelector('#codewrap .src .l .n').textContent==='1'`), await ev(`document.getElementById('codewrap').innerText.slice(0,200)`));
@@ -303,6 +310,106 @@ const check = (name, ok, detail) => { summary.checks.push({ name, ok: !!ok, ...(
     await shot('centre-was-now' + SFX);
     await ev(`document.getElementById('seg-spreadsheet').click()`); await sleep(300);
     await ev(`document.getElementById('seg-spreadsheet').click()`);
+  }
+
+  // Module sheets built out explicitly: the tile strip in named sections, every tile's tests summed up for the module,
+  // the reconciliations, the module's own test in the Test segment, and a tiles draft that carries sections and checks.
+  async function moduleSheetSet() {
+    const M = 'unit_projection';
+    const centreWas = await ev(`(window.__app.settings().centre || {}).module || 'spreadsheet'`);
+    const modJs = `window.__app.S.graph.modules.find(m=>m.id==='${M}')`, msJs = `window.__app.S.status.modules['${M}']`;
+    await go('#/module/' + M); await settle();
+    const strip = () => ev(`[...document.querySelectorAll('#tiles .secl, #tiles .t')].map(e=>e.classList.contains('secl')?'['+e.textContent+']':e.querySelector('b').textContent)`);
+    check('module sheet: the tile strip groups the boxes by section, each section\'s title a plain label before its group',
+      (await strip()).join('|') === 'inputs|[Units allocated in the month]|units_allocated|units_after_alloc|[Charge and closing units]|units_amc|units_eop', JSON.stringify(await strip()));
+    check('module sheet: section labels are plain text (no box, no pill)', await ev(`(()=>{const l=document.querySelector('#tiles .secl'); const c=getComputedStyle(l); return l.tagName==='SPAN' && c.borderTopWidth==='0px' && c.borderTopLeftRadius==='0px' && c.backgroundColor==='rgba(0, 0, 0, 0)'})()`));
+    await ev(`(()=>{const m=${modJs}; m.__s=m.sections; m.sections=[{title:null,tiles:m.tiles.slice()}]; window.__app.render()})()`); await settle();
+    check('module sheet: one untitled section looks exactly as before (no labels, one run of boxes)', (await strip()).join('|') === 'inputs|units_allocated|units_after_alloc|units_amc|units_eop' && !(await ev(`!!document.querySelector('#tiles .secgap')`)), JSON.stringify(await strip()));
+    await ev(`(()=>{const m=${modJs}; delete m.sections; window.__app.render()})()`); await settle();
+    check('module sheet: no sections (older tooling) looks the same', (await strip()).join('|') === 'inputs|units_allocated|units_after_alloc|units_amc|units_eop', JSON.stringify(await strip()));
+    await ev(`(()=>{const m=${modJs}; m.sections=m.__s; delete m.__s; window.__app.render()})()`); await settle();
+    await shot('module-sections');
+
+    // every tile's tests, for the module
+    const heads = () => ev(`[...document.querySelectorAll('#panel h3.sec')].map(h=>h.textContent)`);
+    check('module view: the tile map, then Module checks, Tile tests, Reconciliations, Cases', (await heads()).join('|').startsWith('How the tiles link|Module checks|Tile tests|Reconciliations|Cases'), JSON.stringify(await heads()));
+    const line = () => ev(`document.getElementById('tiletestsline').textContent`);
+    check('module view: one line sums up the tile tests and says what is missing', (await line()) ===
+      "3 of 4 tiles' tests pass. Not run: units_eop. Not yet in a workbook: units_eop. No check taken from a case: units_eop.", await line());
+    const row = t => ev(`[...document.querySelectorAll('#tiletests tr[data-tile="${t}"] td')].map(td=>td.textContent).join('|')`);
+    check('module view: a row per tile: tests, hand checks agreeing in Excel ("4 of 4", or "Python only") and a check from a case', (await row('units_allocated')) === 'units_allocated|pass|4 of 4|yes' &&
+      (await row('units_amc')) === 'units_amc|pass|Python only|yes' && (await row('units_eop')) === 'units_eop|not run||no' && await ev(`!!document.querySelector('#tiletests tr[data-tile="units_amc"] a[href="#/tile/units_amc"]')`),
+      JSON.stringify([await row('units_allocated'), await row('units_amc'), await row('units_eop')]));
+    await ev(`(()=>{const t=${msJs}.tile_tests; t.__e=JSON.stringify(t.tiles.units_eop); t.tiles.units_eop={tests:'passed',hand_checks:{in_sheet:2,agree:2},case_check:true}; window.__app.render()})()`); await settle();
+    check('module view: when every tile passes and agrees: "All 4 tiles\' tests pass and agree in the spreadsheet."', (await line()) === "All 4 tiles' tests pass and agree in the spreadsheet.", await line());
+    await ev(`(()=>{const t=${msJs}.tile_tests; t.tiles.units_eop={tests:'failed',hand_checks:{in_sheet:2,agree:1},case_check:true}; window.__app.render()})()`); await settle();
+    check('module view: a failing tile and a disagreeing hand check are named', (await line()) === "3 of 4 tiles' tests pass. Failing: units_eop. The spreadsheet does not agree with the hand figures in units_eop." &&
+      (await row('units_eop')) === 'units_eop|fail|1 of 2|yes', await line());
+    await ev(`(()=>{const ms=${msJs}; ms.tile_tests.tiles.units_eop=JSON.parse(ms.tile_tests.__e); delete ms.tile_tests.__e; ms.__tt=ms.tile_tests; delete ms.tile_tests; window.__app.render()})()`); await settle();
+    check('module view: without tile_tests from the tooling the section says so', (await text()).includes('Tile test results are not reported by this version of the tooling.'));
+    await ev(`(()=>{const ms=${msJs}; ms.tile_tests=ms.__tt; delete ms.__tt; window.__app.render()})()`); await settle();
+
+    // reconciliations
+    const recon = () => ev(`[...document.querySelectorAll('#reconciliations tr')].map(r=>r.innerText.replace(/\\s+/g,' ').trim()).join('|')`);
+    check('module view: each reconciliation: its label, its expression in small monospace, and "holds"', (await recon()) === 'Units roll-forward reconciles units_bop + units_allocated - units_amc - units_eop holds' &&
+      await ev(`getComputedStyle(document.querySelector('#reconciliations .expr')).fontFamily.toLowerCase().includes('mono')`), await recon());
+    await ev(`(()=>{const r=${msJs}.reconciliations[0]; r.pass=false; r.max_abs_difference=0.25; window.__app.render()})()`); await settle();
+    check('module view: a failing reconciliation reads "not zero (largest value X)"', (await recon()).endsWith('not zero (largest value 0.25)'), await recon());
+    await ev(`(()=>{const ms=${msJs}; ms.__r=ms.reconciliations; ms.reconciliations=null; window.__app.render()})()`); await settle();
+    check('module view: checks declared but not run yet read "not checked yet"', (await recon()).endsWith('not checked yet'), await recon());
+    await ev(`(()=>{const ms=${msJs}; ms.reconciliations=ms.__r; delete ms.__r; ms.reconciliations[0].pass=true; ms.reconciliations[0].max_abs_difference=0; window.__app.render()})()`); await settle();
+    await shot('module-tile-tests');
+
+    // the module's own test, in the Test segment
+    await ev(`window.__app.setCentre('test')`); await settle();
+    check('module Test: shows tests/modules/test_unit_projection.py, one block per test with its working', await ev(`document.getElementById('srcpath').innerText.includes('tests/modules/test_${M}.py') && document.querySelectorAll('#codewrap section.testcase').length===2 && document.querySelector('#codewrap section.testcase .testwork').innerText.includes('250 * 0.97 / 1.25')`),
+      await ev(`document.getElementById('codewrap').innerText.slice(0,300)`));
+    check('module Test: says what the tooling last found', await ev(`document.getElementById('moduletestlast').textContent`) === "The tooling's last run: the module test passes.");
+    await ev(`document.getElementById('runtest').click()`);
+    check('module Test: Run runs the file and says Passed', await waitFor(`document.getElementById('testresult') && document.getElementById('testresult').innerText.startsWith('Passed.')`, 5000));
+    await shot('module-test');
+    const mtFile = path.join(fixturesCopy, 'tests/modules', `test_${M}.py`), mtText = fs.readFileSync(mtFile, 'utf8');
+    fs.rmSync(mtFile); await ev(`window.__app.render()`); await settle();
+    check('module Test: with no file, a plain "No module test yet" panel and a button that asks the agent', await ev(`(()=>{const p=document.getElementById('nomoduletest'); return !!p && p.innerText.includes('No module test yet') && !!document.getElementById('askmoduletest')})()`),
+      await ev(`document.getElementById('codewrap').innerText.slice(0,300)`));
+    await shot('module-test-none');
+    if (ctl.agent) {
+      const stub = ctl.agent, before = stub.calls.send.length;
+      await ev(`document.getElementById('askmoduletest').click()`);
+      await waitFor(`window.__app && !document.querySelector('#agentlog-log .alog-working')`, 3000); await sleep(400); await settle();
+      const sent = stub.calls.send[before] || {};
+      check('module Test: the button asks the agent, with the module selected, to propose the module test', sent.scope && sent.scope.level === 'module' && sent.scope.id === M && /propose_module_test/.test(sent.text || ''), JSON.stringify(sent));
+    }
+    fs.writeFileSync(mtFile, mtText);
+    await ev(`window.__app.setCentre(${JSON.stringify('spreadsheet')})`); await settle();
+
+    // a tiles draft with sections and reconciliations, and a module test draft, in the approval view
+    if (ctl.agent) {
+      const stub = ctl.agent, scope = { level: 'module', id: M };
+      stub.addDraft({ id: 'dr-layout', kind: 'tiles', status: 'proposed', scope, module: M, summary: 'Draft: adds one tile in two sections with one reconciliation check.',
+        items: [{ name: 'units_net_change', label: 'Change in units', args: ['units_eop', 'units_bop'], units: 'units per policy', timing: 'during month', spec: 'Closing units less opening units.' }],
+        sections: [{ title: 'Units allocated in the month', tiles: ['units_allocated', 'units_after_alloc'] }, { title: 'Charge and closing units', tiles: ['units_amc', 'units_eop', 'units_net_change'] }],
+        checks: [{ name: 'units_reconcile', label: 'Units roll-forward reconciles', expression: 'units_bop + units_allocated - units_amc - units_eop' }],
+        replaces: { sections: ['Units allocated in the month', 'Charge and closing units'] } });
+      stub.addDraft({ id: 'dr-mtest', kind: 'module_test', status: 'proposed', scope, module: M, file: `tests/modules/test_${M}.py`, summary: 'Draft: writes the module test for unit_projection (two tests).',
+        items: [{ name: 'test_unit_projection_month_1' }, { name: 'test_unit_projection_month_2' }], code: mtText });
+      await ev(`window.__app.refresh().then(()=>window.__app.render())`); await settle();
+      const dv = () => ev(`document.getElementById('draftview') ? document.getElementById('draftview').innerText : ''`);
+      const secTable = () => ev(`(()=>{const h=[...document.querySelectorAll('#draftview h3.dv-sec')].find(x=>/^sections/i.test(x.textContent)); const t=h&&h.nextElementSibling&&h.nextElementSibling.nextElementSibling; return t ? [...t.querySelectorAll('tbody tr')].map(r=>[...r.cells].map(c=>c.textContent).join(' / ')).join(' | ') : ''})()`);
+      check('draft view: a tiles draft shows its Sections (title and tiles) in the same table style', (await ev(`window.__app.centre()`)) === 'draft' &&
+        (await secTable()) === 'Units allocated in the month / units_allocated, units_after_alloc | Charge and closing units / units_amc, units_eop, units_net_change' && await ev(`!!document.querySelector('#draftview table.dv-table')`), await secTable());
+      check('draft view: it says the sections replace the module\'s current ones, and lists the Reconciliations with their expressions', /They replace the module's current sections \(Units allocated in the month, Charge and closing units\)/.test(await dv()) &&
+        await ev(`(()=>{const t=[...document.querySelectorAll('#draftview td.dv-expr')].map(x=>x.textContent); return t.length===1 && t[0]==='units_bop + units_allocated - units_amc - units_eop'})()`) &&
+        await ev(`[...document.querySelectorAll('#draftview h3.dv-sec')].some(x=>/^reconciliations/i.test(x.textContent))`), (await dv()).slice(0, 900));
+      await shot('draft-layout');
+      await ev(`document.querySelector('[data-dv=discard]').click()`); await settle(); await ev(`window.__app.render()`); await settle();
+      check('draft view: a module test draft shows the file and one block per test with its working', /Module test for unit_projection/i.test(await dv()) && /Written to tests\/modules\/test_unit_projection\.py on accept, then run/.test(await dv()) &&
+        await ev(`document.querySelectorAll('#draftview section.testcase').length===2`) && /250 \* 0\.97 \/ 1\.25/.test(await dv()), (await dv()).slice(0, 600));
+      await shot('draft-module-test');
+      await ev(`document.querySelector('[data-dv=discard]').click()`); await settle(); await ev(`window.__app.render()`); await settle();
+      check('draft view: discarding both leaves no draft in the centre', (await ev(`window.__app.centre()`)) !== 'draft' && stub.calls.discard.includes('dr-layout') && stub.calls.discard.includes('dr-mtest'));
+    }
+    await ev(`window.__app.setCentre(${JSON.stringify(centreWas)})`); await settle();
   }
 
   // The rest of the chat contract: reconfirm cards, request outcomes after a reload, refusals, draft kinds, questions with
@@ -598,7 +705,7 @@ const check = (name, ok, detail) => { summary.checks.push({ name, ok: !!ok, ...(
     await shot('model-full');
 
     await go('#/module/cashflows');
-    check('module view: no tile map in the left bar; reference, title, status, then Module checks, Cases', await ev(`(()=>{const t=[...document.querySelectorAll('#panel h3.sec')].map(h=>h.textContent); return !document.querySelector('#panel svg.map, #panel .mapwrap, #panel .legend') && !t.includes('Tiles') && t.join('|')==='Module checks|Cases' && document.querySelector('#panel .ref') && document.getElementById('title') && document.getElementById('sentence') && !!document.querySelector('#lpin #signoff')})()`), await ev(`[...document.querySelectorAll('#panel h3.sec')].map(h=>h.textContent).join('|')`));
+    check('module view: no tile map in the left bar; reference, title, status, then Module checks, Cases', await ev(`(()=>{const t=[...document.querySelectorAll('#panel h3.sec')].map(h=>h.textContent); return !document.querySelector('#panel svg.map, #panel .mapwrap, #panel .legend') && !t.includes('Tiles') && t.join('|')==='Module checks|Tile tests|Reconciliations|Cases' && document.querySelector('#panel .ref') && document.getElementById('title') && document.getElementById('sentence') && !!document.querySelector('#lpin #signoff')})()`), await ev(`[...document.querySelectorAll('#panel h3.sec')].map(h=>h.textContent).join('|')`));
     check('module view: the tile strip shows the flow, with parameters-free tile boxes as links', await ev(`document.querySelectorAll('#tiles a.t').length >= 5 && document.querySelector('#tiles').innerText.includes('allocation_margin')`));
     check('full cashflows: workbook out of date line', await ev(`!document.getElementById('stalebar').hidden && document.getElementById('stalebar').innerText.includes('This workbook is out of date. Rebuild to see current numbers.')`));
     await shot('module-full');
@@ -895,7 +1002,7 @@ const check = (name, ok, detail) => { summary.checks.push({ name, ok: !!ok, ...(
   await has('module: reconfirm button', 'Re-confirm values-only (1)');
   await has('module: checks', 'Sheet agrees with Python');
   check('module: the tile strip has the tiles and the inputs', await ev(`(()=>{const t=document.getElementById('tiles').innerText;return ['units_allocated','units_eop','units_amc','inputs'].every(x=>t.includes(x))})()`));
-  check('module: tile boxes on the strip are links, and the left bar has no map', await ev(`document.querySelectorAll('#tiles a.t[href^="#/tile/"]').length >= 4 && !document.querySelector('#panel svg.map')`));
+  check('module: tile boxes on the strip are links, and the left bar maps every tile of the module with its links', await ev(`(()=>{const n=document.querySelectorAll('#tiles a.t[href^="#/tile/"]').length; const m=document.querySelector('#panel #tilemap svg.tilemap'); return n >= 4 && !!m && m.querySelectorAll('a[href^="#/tile/"]').length === n && m.querySelectorAll('path[marker-end]').length >= n - 1})()`));
   await shot('module');
 
   // tile
@@ -991,6 +1098,7 @@ const check = (name, ok, detail) => { summary.checks.push({ name, ok: !!ok, ...(
   await centreSet('units_amc', 'units_eop');
   await chatSet('units_amc', 'unit_projection', 'Unit projection');
   await chatMore('units_amc');
+  await moduleSheetSet();
   await traceSet();
   await newModelSet();
   await emptyModelSet();

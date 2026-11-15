@@ -13,11 +13,38 @@ title = "Unit projection"
 layer = "Liability"
 python = "unit_linked.liability.units"
 
+# Sections and checks shape the module sheet only: they never change a tile's formula or stamp.
+[[module.section]]
+title = "Units allocated in the month"
+tiles = ["units_allocated", "units_after_alloc"]
+
+[[module.section]]
+title = "Charge and closing units"
+tiles = ["units_amc", "units_eop"]
+
+[[module.check]]           # must be zero in every month of every case, in Excel and in Python
+name = "units_reconcile"
+label = "Units roll-forward reconciles"
+expression = "units_bop + units_allocated - units_amc - units_eop"
+
 [[module]]
 id = "decrements"
 title = "Decrements"
 layer = "Liability"
 python = "unit_linked.liability.decrements"
+
+[[module.section]]
+title = "Decrements in the month"
+tiles = ["deaths", "lapses"]
+
+[[module.section]]
+title = "In-force roll-forward"
+tiles = ["in_force_eop"]
+
+[[module.check]]
+name = "in_force_reconciles"
+label = "In-force roll-forward reconciles"
+expression = "in_force_bop - deaths - lapses - in_force_eop"
 
 [[module]]
 id = "cashflows"

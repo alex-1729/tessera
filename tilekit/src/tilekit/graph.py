@@ -274,6 +274,9 @@ class Graph:
     edges: tuple[tuple[str, str], ...]  # (argument quantity, tile reading it)
     modules: dict  # module id -> ModuleInfo
     timings: dict  # tile name -> "step" | "summary"
+    # module id -> ((title or None, tiles), ...): every tile of the module once, the configured sections in the
+    # order given and then one untitled section of the tiles not listed (dependency order); see `module_sections`
+    sections: dict = dataclasses.field(default_factory=dict)
 
     def step_order(self):
         return [n for n in self.order if self.timings[n] == "step"]
@@ -354,6 +357,9 @@ def build_graph(model):
         )
         for module_id, (names, inputs) in modules.items()
     }
+    sections = {module.id: module_sections(module, infos[module.id].tiles) for module in model.config.modules}
+    for module in model.config.modules:
+        validate_checks(module, kinds, timings)
     return Graph(
         tiles=tiles_by_name,
         kinds=kinds,
@@ -362,7 +368,55 @@ def build_graph(model):
         edges=tuple(edges),
         modules=infos,
         timings=timings,
+        sections=sections,
     )
+
+
+def module_sections(module, tiles):
+    """((title or None, tiles), ...) for a module: its `[[module.section]]`s in the order given (tiles in the order
+    listed), then the tiles no section lists as one untitled section in dependency order. A module without sections
+    has a single untitled section holding all its tiles. Every listed name must be a tile of the module, and no tile
+    may be in two sections."""
+    own = set(tiles)
+    seen = {}
+    out = []
+    for section in module.sections:
+        for name in section.tiles:
+            if name not in own:
+                raise TilekitError(f"tilekit.toml: section '{section.title}' of module '{module.id}' lists "
+                                   f"'{name}', which is not a tile of that module", {"tiles": list(tiles)})
+            if name in seen:
+                raise TilekitError(f"tilekit.toml: tile '{name}' is in two sections of module '{module.id}' "
+                                   f"('{seen[name]}' and '{section.title}')")
+            seen[name] = section.title
+        out.append((section.title, tuple(section.tiles)))
+    rest = tuple(n for n in tiles if n not in seen)
+    if rest or not out:
+        out.append((None, rest))
+    return tuple(out)
+
+
+CHECK_KINDS = ("tile", "input", "state", "param")
+
+
+def validate_checks(module, kinds, timings):
+    """A module's `[[module.check]]`s read only step quantities of the model, and a check's name is not a quantity."""
+    if module.checks and module.timing == "summary":
+        raise TilekitError(f"tilekit.toml: module '{module.id}' is a summary module; checks are for step modules")
+    folded = {n.lower(): n for n in kinds}
+    from tilekit.reconcile import names, parse_expression
+    for check in module.checks:
+        if check.name.lower() in folded:
+            raise TilekitError(f"tilekit.toml: check '{check.name}' of module '{module.id}' has the name of the "
+                               f"quantity '{folded[check.name.lower()]}'; give it another name")
+        for name in names(parse_expression(check.expression, f"check '{check.name}'")):
+            kind = kinds.get(name)
+            if kind not in CHECK_KINDS:
+                raise TilekitError(f"tilekit.toml: check '{check.name}' of module '{module.id}' reads '{name}', "
+                                   "which is not a tile, input, state or parameter of the model")
+            if kind == "tile" and timings[name] != "step":
+                raise TilekitError(f"tilekit.toml: check '{check.name}' of module '{module.id}' reads the summary "
+                                   f"tile '{name}'; checks hold month by month, so they read step quantities only")
 
 
 def graph_json(model):
@@ -427,6 +481,9 @@ def graph_json(model):
                 "inputs": list(graph.modules[module.id].inputs),
                 "feeds": list(graph.modules[module.id].feeds),
                 "fed_by": list(graph.modules[module.id].fed_by),
+                "sections": [{"title": title, "tiles": list(tiles)} for title, tiles in graph.sections[module.id]],
+                "checks": [{"name": c.name, "label": c.label, "expression": c.expression, "tolerance": c.tolerance}
+                           for c in module.checks],
             }
             for module in config.modules
         ],

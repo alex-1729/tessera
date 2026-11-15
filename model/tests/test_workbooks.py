@@ -55,7 +55,7 @@ def test_every_workbook_agrees_with_python(built):
     for tile in TILES:
         sidecar = json.loads((root / f"review/tiles/{tile}/workbook.json").read_text())
         assert sidecar["translatable"] and sidecar["formula"].startswith("=")
-        assert set(sidecar["stamp"]) == {"code", "spec", "upstream", "cases", "params", "translator"}
+        assert set(sidecar["stamp"]) == {"code", "spec", "upstream", "cases", "params", "translator", "layout"}
         assert sidecar["tolerance"] == (1e-7 if tile == "irr_pm" else 1e-9)
         for case in CASES:
             assert sidecar["cases"][case]["checks_pass"] and sidecar["cases"][case]["max_abs_difference"] < 1e-9
@@ -148,7 +148,9 @@ def test_layout_formats_and_names_of_the_tile_workbook(built, named_case):
     root, _ = built
     named_case("high_charge")
     book = Xlsx(root / "review/tiles/units_amc/workbook.xlsx")
-    assert len(book.sheets) == len(CASES) + 1 and book.sheets[-1] == "Scratch" and "High charge" in book.sheets
+    # one sheet per case, then the hand checks of the tile's test, then Scratch
+    assert len(book.sheets) == len(CASES) + 2 and book.sheets[-2:] == ["Hand checks", "Scratch"]
+    assert "High charge" in book.sheets
     cells = book.cells("High charge")
     assert cells["B2"]["value"] == "AMC units" and cells["B3"]["value"] == "High charge"
     # parameters: label, blue bold value, maroon name; defined per sheet

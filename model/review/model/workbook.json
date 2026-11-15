@@ -1,7 +1,7 @@
 {
   "kind": "model",
   "name": "Unit-linked pricing",
-  "built_at": "2026-11-15T03:56:53+00:00",
+  "built_at": "2026-11-15T04:57:46+00:00",
   "stamp": {
     "code": "173ace42346b1352ea53afd6e5a2158b7c78c2aebd91656ea82e2120b6d7713c",
     "spec": "5e3972b6ac571c489e330f86116c8dd45a3daf883d7d32394b926ac2b0484dd3",
@@ -9,7 +9,7 @@
     "cases": "a42493b46f4e2e1d7ec9309bfd93f977df0cf13535b4eaf45c63ac35f8dc13dc",
     "params": "812034f1892d7390615060102f5c916d6d69193909bff8f65e2131436243fc32",
     "translator": "85ca37244a9a88223a28309b6eb53ed0af322f2884af42ac6efc6eabe05d2f36",
-    "layout": "3eba926eed01be4ba94187d8dc967dd2b34a47fb0aa19af038f02254b718cd79"
+    "layout": "7d6a85e82d0f789ef47a8787fb58bf024e5bfe438f7303583826b6407cb29c3e"
   },
   "workbook": "workbook.xlsx",
   "tolerance": 1e-09,
@@ -429,6 +429,18 @@
           "checks_pass": true
         }
       },
+      "reconciliations": {
+        "unit_projection:units_reconcile": {
+          "excel_max_abs": 0.0,
+          "python_max_abs": 0.0,
+          "pass": true
+        },
+        "decrements:in_force_reconciles": {
+          "excel_max_abs": 0.0,
+          "python_max_abs": 0.0,
+          "pass": true
+        }
+      },
       "max_abs_difference": 1.1641532182693481e-10,
       "checks_pass": true
     }
@@ -444,6 +456,46 @@
     "Profit",
     "Scratch"
   ],
+  "reconciliations": {
+    "unit_projection": [
+      {
+        "name": "units_reconcile",
+        "label": "Units roll-forward reconciles",
+        "expression": "units_bop + units_allocated - units_amc - units_eop",
+        "tolerance": 1e-09,
+        "excel_max_abs": 0.0,
+        "python_max_abs": 0.0,
+        "max_abs_difference": 0.0,
+        "pass": true,
+        "cases": {
+          "base": {
+            "excel_max_abs": 0.0,
+            "python_max_abs": 0.0,
+            "pass": true
+          }
+        }
+      }
+    ],
+    "decrements": [
+      {
+        "name": "in_force_reconciles",
+        "label": "In-force roll-forward reconciles",
+        "expression": "in_force_bop - deaths - lapses - in_force_eop",
+        "tolerance": 1e-09,
+        "excel_max_abs": 0.0,
+        "python_max_abs": 0.0,
+        "max_abs_difference": 0.0,
+        "pass": true,
+        "cases": {
+          "base": {
+            "excel_max_abs": 0.0,
+            "python_max_abs": 0.0,
+            "pass": true
+          }
+        }
+      }
+    ]
+  },
   "inputs": {
     "unit_price": {
       "excel": "=initial_unit_price*(1+unit_growth_pa)^(({month}-1)/months_per_year)",
@@ -486,9 +538,9 @@
       "checks_pass": true
     }
   },
-  "content_digest": "3cbaf24167a9c1ebfc7dad8ce64538f429df35a817264ee281f97151ee6a3c87",
+  "content_digest": "742bce5505c3a4d4d42ed40c30fd318759473ad7486def934a643a5bf78d2635",
   "content_stat": {
-    "mtime_ns": 1794715013219649655,
-    "size": 173500
+    "mtime_ns": 1794718666855209913,
+    "size": 179924
   }
 }

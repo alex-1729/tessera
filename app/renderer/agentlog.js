@@ -74,6 +74,9 @@ const keyOf = s => (s && s.level !== 'model' ? s.level + ':' + s.id : 'model');
 // titleOf(scope) names a selection for a divider; reviewer() is the prefilled name on a sign-off card.
 export function configure(h2) { hooks = { ...hooks, ...h2 }; }
 export const isBusy = () => busy;
+// What the agent is working on right now ({level, id}), or null: the selection its running turn was sent with.
+let busyScope = null;
+export const workingOn = () => (busy ? busyScope : null);
 export const currentScope = () => current;
 
 function paintStarters() {
@@ -190,7 +193,7 @@ function draftItems(d) {
     if (more) rows.push(h('tr', { class: 'draftmore' }, h('td', { colspan: '3' }, String(more))));
   }
   if (!rows.length) return [];
-  const head = { tiles: 'Tiles to add', modules: 'Modules to add', params: 'Parameters to add', inputs: 'Inputs to add', cases: 'Cases to add' }[d.kind] || 'Changes';
+  const head = { tiles: 'Tiles to add', modules: 'Modules to add', params: 'Parameters to add', inputs: 'Inputs to add', cases: 'Cases to add', module_test: 'Module test' }[d.kind] || 'Changes';
   return [h('div', { class: 'draftlist' }, h('div', { class: 'cardsec' }, head + (d.module ? ` (in ${d.module})` : '')), h('table', { class: 'drafttable' }, h('tbody', {}, rows)))];
 }
 
@@ -494,7 +497,7 @@ function onEvent(ev) {
   }
   if (loading) loading.queued.push(ev);
   else { const n = render(ev); if (n) { shown++; startersEl.hidden = true; append(withDividerFrag(ev, n)); } }
-  if (ev.type === 'user' || ev.type === 'turn_start') { busy = true; paintWorking(); hooks.onBusy(); }
+  if (ev.type === 'user' || ev.type === 'turn_start') { busy = true; busyScope = ev.scope || null; paintWorking(); hooks.onBusy(); }
   else if (ev.type === 'draft') hooks.draftsChanged();
   else if (ev.type === 'done') { void refreshBusy().then(() => { void readChats(); return hooks.afterTurn(); }); }
 }
@@ -511,7 +514,7 @@ async function refreshBusy() {
 }
 function setBusy(now) {
   if (now === busy) { paintWorking(); return; }
-  busy = now; paintWorking(); hooks.onBusy();
+  busy = now; if (!now) busyScope = null; paintWorking(); hooks.onBusy();
 }
 
 // ---------------------------------------------------------------- conversations

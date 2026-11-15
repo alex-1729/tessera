@@ -7,6 +7,7 @@
 import { h, link, plainFormula, fmtDate } from './util.js';
 import * as L from './logic.js';
 import { modelMap } from './maps.js';
+import { tileMap } from './tilemap.js';
 import * as agent from './agentlog.js';
 import { policiesSection, runsSection } from './real.js';
 
@@ -166,6 +167,46 @@ export function tileView(ctx, name) {
 
 // ---------------------------------------------------------------- module
 
+// Every tile's own tests, summed up for the module: one sentence, then a row per tile (status `tile_tests`; drawn as
+// "not reported" when the tooling does not send it).
+function tileTestsSection(S, mod, ms) {
+  const tt = ms && ms.tile_tests;
+  const order = L.tileGroups(S, mod).flatMap(g => g.tiles);
+  const sentence = L.tileTestsSentence(tt, order);
+  if (sentence === null) return [sec('Tile tests'), none(mod.tiles.length ? 'Tile test results are not reported by this version of the tooling.' : 'No tiles yet.')];
+  const names = [...order.filter(t => t in tt.tiles), ...Object.keys(tt.tiles).filter(t => !order.includes(t))];
+  const rows = names.map(t => {
+    const e = tt.tiles[t] || {};
+    const bad = e.tests === 'failed' || (e.hand_checks && (Number(e.hand_checks.agree) || 0) < (Number(e.hand_checks.in_sheet) || 0));
+    return h('tr', { 'data-tile': t, ...(bad ? { class: 'bad' } : {}) },
+      h('td', { class: 'mono' }, link(tileHref(t), t)),
+      h('td', {}, L.tileTestWord(e.tests)),
+      h('td', {}, L.handCheckWord(e.hand_checks)),
+      h('td', {}, e.case_check === true ? 'yes' : e.case_check === false ? 'no' : ''));
+  });
+  return [sec('Tile tests'), h('p', { id: 'tiletestsline' }, sentence),
+    h('table', { class: 'checks tiletests', id: 'tiletests' },
+      h('thead', {}, h('tr', {}, h('th', {}, 'Tile'), h('th', {}, 'Tests'), h('th', {}, 'In Excel'), h('th', {}, 'From a case'))),
+      h('tbody', {}, rows))];
+}
+
+const num = x => (typeof x === 'number' && Number.isFinite(x) ? String(Number(x.toPrecision(6))) : 'not available');
+
+// The module's reconciliation checks: status `reconciliations` when the tooling has run them, otherwise the checks
+// declared in graph (not run yet).
+function reconciliationsSection(mod, ms) {
+  const ran = ms && Array.isArray(ms.reconciliations) ? ms.reconciliations : null;
+  const declared = Array.isArray(mod.checks) ? mod.checks : [];
+  const list = ran || declared;
+  if (!list.length) return [sec('Reconciliations'), none(ran || Array.isArray(mod.checks) ? 'No reconciliation checks for this module.' : 'Reconciliations are not reported by this version of the tooling.')];
+  return [sec('Reconciliations'), h('table', { class: 'checks recon', id: 'reconciliations' }, h('tbody', {}, list.map(c => {
+    const word = !ran ? 'not checked yet' : c.pass ? 'holds' : `not zero (largest value ${num(c.max_abs_difference)})`;
+    return h('tr', { 'data-check': c.name || '', ...(ran && !c.pass ? { class: 'bad' } : {}) },
+      h('td', {}, h('div', {}, c.label || c.name || ''), h('div', { class: 'mono expr' }, c.expression || '')),
+      h('td', {}, word));
+  })))];
+}
+
 export function moduleView(ctx, id) {
   const { S } = ctx;
   const mod = L.moduleOf(S, id), ms = S.status.modules[id];
@@ -174,11 +215,16 @@ export function moduleView(ctx, id) {
   left.push(h('div', { class: 'ref' }, h('span', { id: 'moduleref' }, L.moduleRef(mod)), h('span', { class: 'sub' }, mod.layer)));
   left.push(h('h2', { class: 'title', id: 'title' }, mod.title));
   left.push(h('p', { class: 'lede', id: 'sentence' }, L.moduleSentence(S, id)));
+  // every link between the module's tiles, which the strip above cannot show
+  const map = mod.tiles.length > 1 ? tileMap(S, id, ctx.panelWidth()) : null;
+  if (map) left.push(sec('How the tiles link'), map);
   right.push(sec('Module checks'));
   right.push(checksTable(ms.checks));
   const blockers = L.moduleBlockers(S, id);
   const locked = ms.state === 'signed_off';
   if (!locked && blockers.length) right.push(h('div', { class: 'blockers' }, blockers.map(b => h('p', {}, b))));
+  right.push(...tileTestsSection(S, mod, ms));
+  right.push(...reconciliationsSection(mod, ms));
   right.push(...casesSection(ctx, 'Cases', null));
   right.push(...policiesSection(ctx));
   agent.mount({ level: 'module', id });

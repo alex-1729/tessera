@@ -66,7 +66,7 @@ function hasCycle(deps) {
 
 // `states` are the carried-forward states the draft's tiles need: [{name, from, initial, label, format}]. A state
 // takes next month's value from its `from` tile, which must be a tile in the draft or in the model already.
-function validateTileDraft(graph, moduleId, items, states = []) {
+function validateTileDraft(graph, moduleId, items, states = [], remove = [], { layoutOnly = false } = {}) {
   const problems = [];
   const warnings = [];
   const q = graph.quantities;
@@ -86,7 +86,23 @@ function validateTileDraft(graph, moduleId, items, states = []) {
     const fromTile = (items || []).some(it => it.name === from) || (q[from] && q[from].kind === 'tile');
     if (!fromTile) problems.push(`State ${n} takes its value from '${from}', which is not a tile in the model or in this draft. Propose that tile in the same draft.`);
   }
-  if (!Array.isArray(items) || !items.length) problems.push('The draft has no tiles.');
+  // a draft may also only set the module's sections and checks (layoutOnly): then it needs no tiles
+  if ((!Array.isArray(items) || !items.length) && !(remove || []).length && !layoutOnly) problems.push('The draft has no tiles.');
+  // Tiles to delete: each is a tile of this module that nothing left in the model reads, directly or as the source
+  // of a carried-forward state.
+  const gone = new Set((remove || []).map(r => (typeof r === 'string' ? r : r && r.name)));
+  for (const n of gone) {
+    const e = q[n];
+    if (!e || e.kind !== 'tile') { problems.push(`${n} is not a tile in the model, so it cannot be removed.`); continue; }
+    if (e.module !== moduleId) { problems.push(`${n} belongs to module ${e.module}, not ${moduleId}.`); continue; }
+    if ((items || []).some(it => it.name === n)) problems.push(`${n} is both proposed and removed in this draft.`);
+    const readers = (e.used_by || []).filter(u => !gone.has(u));
+    const proposedReaders = (items || []).filter(it => (it.args || []).includes(n)).map(it => it.name);
+    const all = [...new Set([...readers, ...proposedReaders])];
+    if (all.length) problems.push(`${n} cannot be removed: ${all.join(', ')} still read${all.length === 1 ? 's' : ''} it. Change ${all.length === 1 ? 'that tile' : 'those tiles'} first.`);
+    const fed = Object.entries(q).filter(([, x]) => x.kind === 'state' && x.from === n).map(([name]) => name);
+    if (fed.length) problems.push(`${n} cannot be removed: the carried-forward state ${fed.join(', ')} takes its value from it.`);
+  }
   for (const it of items || []) {
     const n = it.name;
     if (!SNAKE.test(n || '')) { problems.push(`'${n}' is not a snake_case name.`); continue; }
@@ -126,6 +142,140 @@ function validateTileDraft(graph, moduleId, items, states = []) {
     if (hasCycle(deps)) problems.push('The draft creates a loop between tiles; carry one of them forward with a state instead.');
   }
   return { problems, warnings };
+}
+
+// ---------------------------------------------------------------- module layout: sections and reconciliations
+
+// Problems with a reconciliation expression: only + - * /, parentheses, numbers and names in `known`.
+function expressionProblems(expr, known) {
+  const s = String(expr == null ? '' : expr);
+  if (!s.trim()) return ['it has no expression'];
+  const bad = s.replace(/[A-Za-z0-9_.+\-*/()\s]/g, '');
+  if (bad) return [`it uses ${[...new Set(bad)].map(c => `'${c}'`).join(', ')}; only + - * /, parentheses, numbers and quantity names are allowed`];
+  const toks = s.match(/[A-Za-z_][A-Za-z0-9_]*|\d+(?:\.\d+)?(?:[eE][-+]?\d+)?|\.\d+|[-+*/()]|\S/g) || [];
+  const problems = [];
+  // sum := term (('+'|'-') term)* ; term := factor (('*'|'/') factor)* ; factor := ('+'|'-') factor | number | name | '(' sum ')'
+  let i = 0, names = 0;
+  const peek = () => toks[i];
+  function factor() {
+    const t = toks[i];
+    if (t === '+' || t === '-') { i++; return factor(); }
+    if (t === '(') { i++; sum(); if (toks[i] !== ')') throw new Error('a parenthesis is not closed'); i++; return; }
+    if (t === undefined) throw new Error('it ends where a quantity or number is expected');
+    if (/^[A-Za-z_]/.test(t)) {
+      names++;
+      if (!known.has(t)) problems.push(`'${t}' is not a quantity in the model or in this draft`);
+      i++; return;
+    }
+    if (/^(\d|\.\d)/.test(t)) { i++; return; }
+    throw new Error(`'${t}' is out of place`);
+  }
+  function term() { factor(); while (peek() === '*' || peek() === '/') { i++; factor(); } }
+  function sum() { term(); while (peek() === '+' || peek() === '-') { i++; term(); } }
+  try {
+    sum();
+    if (i < toks.length) throw new Error(`'${toks[i]}' is out of place`);
+  } catch (e) { return [e.message]; }
+  if (!names) problems.push('it names no quantity');
+  return problems;
+}
+
+/**
+ * Sections and reconciliation checks of a tiles draft, for module `moduleId`. `sections`: [{title, tiles}] or
+ * undefined (not given); `checks`: [{name, label, expression}] or undefined. With `rules` on (when the agent proposes
+ * the draft) the house standards of app/standards/building-spreadsheets.md are enforced as well:
+ *   - a module that will have more than three tiles is laid out in sections covering every tile;
+ *   - a draft with carried-forward states gives a reconciliation check for each (naming the state and its tile).
+ * Returns {problems, warnings}.
+ */
+function validateLayout(graph, moduleId, items = [], states = [], remove = [], sections, checks, { rules = false } = {}) {
+  const problems = [];
+  const warnings = [];
+  const q = graph.quantities;
+  const mod = (graph.modules || []).find(m => m.id === moduleId) || { tiles: [] };
+  const gone = new Set((remove || []).map(r => (typeof r === 'string' ? r : r && r.name)));
+  const itemNames = (items || []).map(i => i && i.name).filter(Boolean);
+  const tilesAfter = [...new Set([...(mod.tiles || []).filter(t => !gone.has(t)), ...itemNames])];
+  const inModule = new Set(tilesAfter);
+
+  if (sections !== undefined && sections !== null) {
+    if (!Array.isArray(sections)) problems.push('sections must be a list of {title, tiles}.');
+    else {
+      const seen = new Map();
+      const titles = new Set();
+      sections.forEach((s, k) => {
+        const title = s && typeof s.title === 'string' ? s.title.trim() : '';
+        const label = title ? `Section '${title}'` : `Section ${k + 1}`;
+        if (!title) problems.push(`${label} needs a title that says what the block does (for example "Rates in the period").`);
+        else if (titles.has(title.toLowerCase())) problems.push(`Two sections are called '${title}'.`);
+        titles.add(title.toLowerCase());
+        const tiles = s && Array.isArray(s.tiles) ? s.tiles : [];
+        if (!tiles.length) problems.push(`${label} has no tiles.`);
+        for (const t of tiles) {
+          if (!inModule.has(t)) problems.push(gone.has(t) ? `${label} lists ${t}, which this draft removes.` : `${label} lists ${t}, which is not a tile of ${moduleId} or in this draft.`);
+          else if (seen.has(t)) problems.push(`${t} is in two sections ('${seen.get(t)}' and '${title || k + 1}'); a tile belongs to one section.`);
+          else seen.set(t, title || String(k + 1));
+        }
+      });
+      const left = tilesAfter.filter(t => !seen.has(t));
+      if (left.length && sections.length) {
+        (rules ? problems : warnings).push(`The sections leave out ${left.join(', ')}; every tile of ${moduleId} belongs to a section${rules ? '' : ' (they will show after the last section, untitled)'}.`);
+      }
+    }
+  }
+
+  if (checks !== undefined && checks !== null) {
+    if (!Array.isArray(checks)) problems.push('checks must be a list of {name, label, expression}.');
+    else {
+      const known = new Set([...Object.keys(q).filter(n => !gone.has(n)), ...itemNames, ...(states || []).map(s => s && s.name).filter(Boolean)]);
+      const names = new Set();
+      for (const c of checks) {
+        const n = c && c.name;
+        if (!SNAKE.test(n || '')) { problems.push(`'${n}' is not a snake_case name for a reconciliation check.`); continue; }
+        if (names.has(n)) problems.push(`The check ${n} appears twice in the draft.`);
+        names.add(n);
+        if (!c.label || !String(c.label).trim()) problems.push(`The check ${n} needs a plain-English label (for example "Units roll-forward reconciles").`);
+        for (const p of expressionProblems(c.expression, known)) problems.push(`The check ${n}: ${p}.`);
+      }
+    }
+  }
+
+  // a tile that goes must not be left in one of the module's current checks (a draft that gives checks replaces them)
+  if (gone.size && !Array.isArray(checks)) {
+    for (const c of Array.isArray(mod.checks) ? mod.checks : []) {
+      const uses = (String(c.expression || '').match(/[A-Za-z_]\w*/g) || []).filter(n => gone.has(n));
+      if (uses.length) problems.push(`The reconciliation check ${c.name} uses ${[...new Set(uses)].join(', ')}, which this draft removes. Give the module's checks again in \`checks\` (with propose_structure), without it.`);
+    }
+  }
+
+  if (rules && (items || []).length) {
+    const given = Array.isArray(sections) && sections.length;
+    if (tilesAfter.length > 3 && !given) {
+      const titled = (mod.sections || []).filter(s => s && s.title);
+      const covered = new Set(titled.flatMap(s => s.tiles || []));
+      if (!titled.length || tilesAfter.some(t => !covered.has(t))) {
+        problems.push(`${moduleId} will have ${tilesAfter.length} tiles, so the house standard asks for it to be laid out in named sections that read top to bottom as the calculation does (typically the rates or factors applying in the period, then the roll-forward or the cashflows, then results). Give \`sections\` in this draft: [{title, tiles}] covering every tile (${tilesAfter.join(', ')})` +
+          (titled.length ? `; the module's current sections are ${titled.map(s => `'${s.title}' (${(s.tiles || []).join(', ')})`).join(', ')}, so repeat them with the new tiles placed.` : '.'));
+      }
+    }
+    for (const st of states || []) {
+      if (!st || !st.name) continue;
+      const uses = c => { const toks = new Set(String((c && c.expression) || '').match(/[A-Za-z_]\w*/g) || []); return toks.has(st.name) && toks.has(st.from); };
+      if (!Array.isArray(checks) || !checks.length) {
+        problems.push(`The carried-forward state ${st.name} makes a roll-forward, so the house standard asks for a reconciliation check with it: give \`checks\` in this draft, for example {name: "${st.name.replace(/_bop$/, '')}_reconcile", label: "${String(st.label || st.name).replace(/^Opening /i, '')} roll-forward reconciles", expression: "${st.name} + <movements in> - <movements out> - ${st.from}"} (opening plus movements minus closing is zero).`);
+        break;
+      }
+      if (!checks.some(uses)) problems.push(`No reconciliation check uses both the opening value ${st.name} and the closing value ${st.from}; add one: opening plus movements minus closing is zero.`);
+    }
+  }
+  return { problems, warnings };
+}
+
+function layoutSummary(sections, checks) {
+  const parts = [];
+  if (Array.isArray(sections) && sections.length) parts.push(`in ${count(sections.length, 'section')}`);
+  if (Array.isArray(checks) && checks.length) parts.push(`with ${count(checks.length, 'reconciliation check')}`);
+  return parts.join(' ');
 }
 
 function tileDraftSummary(graph, items) {
@@ -205,4 +355,5 @@ function moduleDraftSummary(graph, items) {
 
 module.exports = {
   count, downstream, signoffImpact, validateTileDraft, tileDraftSummary, validateModuleDraft, moduleDraftSummary, hasCycle,
+  validateLayout, layoutSummary, expressionProblems,
 };
