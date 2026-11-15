@@ -5,7 +5,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const src = require('./source');
-const { signoffImpact, validateTileDraft, validateModuleDraft, validateLayout, count } = require('./validate');
+const { signoffImpact, sameTile, validateTileDraft, validateModuleDraft, validateLayout, count } = require('./validate');
 
 const read = f => fs.readFileSync(f, 'utf8');
 const exists = f => fs.existsSync(f);
@@ -348,6 +348,62 @@ async function whatIf(ctx, { name, code, params }) {
 
 // ---------------------------------------------------------------- accept drafts
 
+// A removed tile's record is kept, not deleted. Its review folder (sign-off, expected values, log, stored workbook
+// and sidecar) becomes review/removed/<tile>-<UTC time>/, its test file moves in beside them, and removed.json says
+// what was removed, when, by which draft, whether it was signed off, and the code as it was. Nothing reads
+// review/removed/: the tooling finds tiles from the model graph and looks only in review/tiles/<name>.
+// `tiles` is [{name, code}]. Returns {folders, undo}; if any step fails, everything already moved is put back
+// before the error is thrown.
+function archiveRemovedTiles(ctx, moduleId, tiles, draftId) {
+  const root = path.join(ctx.modelDir, 'review', 'removed');
+  const rootMade = !exists(root);
+  const now = new Date();
+  const stamp = now.toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');   // 20261115T051500Z
+  const steps = [];
+  const undo = () => {
+    for (const step of steps.reverse()) { try { step(); } catch { /* put back what can be */ } }
+    steps.length = 0;
+    if (rootMade) fs.rmSync(root, { recursive: true, force: true });
+  };
+  const folders = [];
+  try {
+    for (const { name, code } of tiles) {
+      const reviewDir = path.join(ctx.modelDir, 'review', 'tiles', name);
+      const testFile = path.join(ctx.modelDir, 'tests', 'tiles', `test_${name}.py`);
+      const hasReview = exists(reviewDir);
+      const hasTest = exists(testFile);
+      if (!hasReview && !hasTest && !code) continue;
+      fs.mkdirSync(root, { recursive: true });
+      // the kept tests are a record, not tests of the model: pytest run from the model folder must not collect them
+      const conftest = path.join(root, 'conftest.py');
+      if (!exists(conftest)) fs.writeFileSync(conftest, '# Records of removed tiles. Their kept test files are not tests of the model.\ncollect_ignore_glob = ["*"]\n');
+      let dir = path.join(root, `${name}-${stamp}`);
+      for (let k = 2; exists(dir); k++) dir = path.join(root, `${name}-${stamp}-${k}`);
+      let signoff = null;
+      try { signoff = JSON.parse(read(path.join(reviewDir, 'signoff.json'))); } catch { /* never signed off */ }
+      if (hasReview) { fs.renameSync(reviewDir, dir); steps.push(() => fs.renameSync(dir, reviewDir)); }
+      else { fs.mkdirSync(dir); steps.push(() => fs.rmSync(dir, { recursive: true, force: true })); }
+      if (hasTest) {
+        const kept = path.join(dir, `test_${name}.py`);
+        fs.renameSync(testFile, kept);
+        steps.push(() => fs.renameSync(kept, testFile));
+      }
+      const note = path.join(dir, 'removed.json');
+      fs.writeFileSync(note, JSON.stringify({
+        tile: name, module: moduleId, removed_at: now.toISOString(), was_signed_off: !!signoff,
+        signed_off: signoff ? { reviewer: signoff.reviewer === undefined ? null : signoff.reviewer, at: signoff.at === undefined ? null : signoff.at } : null,
+        draft: draftId || null, code: code || '',
+      }, null, 2) + '\n');
+      steps.push(() => fs.rmSync(note, { force: true }));
+      folders.push(path.relative(ctx.modelDir, dir).split(path.sep).join('/'));
+    }
+  } catch (e) {
+    undo();
+    throw e;
+  }
+  return { folders, undo };
+}
+
 async function acceptTileDraft(ctx, draft) {
   const tk = ctx.tilekit;
   const graph = await tk('graph');
@@ -363,17 +419,78 @@ async function acceptTileDraft(ctx, draft) {
   const file = moduleFile(ctx, graph, moduleId);
   const before = read(file);
   const q = graph.quantities;
-  const added = draft.items.filter(i => !q[i.name]);
-  const changed = draft.items.filter(i => q[i.name]);
 
-  if (changed.length || removed.length) {
+  // The model may have moved on since the draft was proposed. A tile the draft ADDS that is in the model now was
+  // added (and perhaps built) since: the draft is refused, never written over it. A tile the draft CHANGES that
+  // already is what the draft says is left alone, as it would have been left out when the draft was proposed.
+  // `new_tiles` / `changed_tiles` are recorded on the draft at proposal. A draft saved before they were recorded
+  // cannot say which it meant, so it never puts a placeholder over a tile that is built.
+  const recorded = Array.isArray(draft.new_tiles) && Array.isArray(draft.changed_tiles);
+  const wasNew = new Set(recorded ? draft.new_tiles : []);
+  const sinceAdded = [], builtNow = [], leftAlone = [], added = [], changed = [];
+  for (const it of draft.items) {
+    const cur = q[it.name];
+    if (!cur) added.push(it);
+    else if (wasNew.has(it.name)) sinceAdded.push(it.name);
+    else if (sameTile(cur, it, moduleId)) leftAlone.push(it.name);
+    else if (!recorded && cur.status !== 'not_built') builtNow.push(it.name);
+    else changed.push(it);
+  }
+  if (sinceAdded.length || builtNow.length) {
+    const reasons = [];
+    if (sinceAdded.length) reasons.push(`${sinceAdded.join(', ')} ${sinceAdded.length === 1 ? 'was' : 'were'} new when this draft was proposed and ${sinceAdded.length === 1 ? 'has' : 'have'} been added to the model since, so accepting it would put a not-built placeholder over ${sinceAdded.length === 1 ? 'the tile' : 'the tiles'} as ${sinceAdded.length === 1 ? 'it is' : 'they are'} now.`);
+    if (builtNow.length) reasons.push(`This draft was saved before the app recorded which of its tiles were new, and ${builtNow.join(', ')} ${builtNow.length === 1 ? 'is' : 'are'} built now, so accepting it would put a not-built placeholder over built code.`);
+    throw new Error(`The draft no longer fits the model: ${reasons.join(' ')} Nothing was changed. Discard this draft and ask for a new one if a change is still wanted.`);
+  }
+
+  // What the draft does to tilekit.toml is worked out before anything is written, so an edit that has to be
+  // refused (a section that cannot be read with certainty) leaves every file as it was.
+  const tomlFile = path.join(ctx.modelDir, 'tilekit.toml');
+  const tomlTouched = states.length || sections || checks || removed.length;
+  const tomlBefore = tomlTouched ? read(tomlFile) : null;
+  let toml = tomlBefore;
+  if (tomlTouched) {
+    try {
+      if (sections || checks) toml = src.setModuleLayout(toml, moduleId, { sections, checks });
+      // tiles that go are taken out of the module's sections (unless the draft gave the sections afresh)
+      if (removed.length && !sections) toml = src.dropTilesFromSections(toml, moduleId, removed);
+    } catch (e) {
+      throw new Error(`The draft was not applied: ${e.message} Nothing was changed.`);
+    }
+    if (states.length) {
+      const qs = x => JSON.stringify(String(x));
+      const blocks = states.flatMap(st => ['', `[state.${st.name}]`, `from = ${qs(st.from)}`, `initial = ${Number.isInteger(st.initial) ? st.initial.toFixed(1) : String(st.initial)}`, `label = ${qs(st.label)}`, `format = ${qs(st.format)}`]);
+      toml = toml.replace(/\s+$/, '') + '\n' + blocks.join('\n') + '\n';
+    }
+  }
+
+  // Sign-offs the draft would undo: asked about once, before anything is written. Changed and removed tiles un-tick
+  // themselves and what is downstream. Sections and checks are part of what a module sign-off and the model sign-off
+  // cover (the layout of the module sheet), so a draft that changes them makes those two sign-offs stale even when
+  // it touches no tile.
+  const mod = graph.modules.find(m => m.id === moduleId) || {};
+  const shape = (list, keys) => JSON.stringify((Array.isArray(list) ? list : [{ unknown: true }]).map(x => keys.map(k => (x && x[k] != null && x[k] !== '' ? x[k] : null))));
+  const sectionsChange = !!sections && shape(sections, ['title', 'tiles']) !== shape(mod.sections, ['title', 'tiles']);
+  const checksChange = !!checks && shape(checks, ['name', 'label', 'expression']) !== shape(mod.checks, ['name', 'label', 'expression']);
+  const layoutChanges = sectionsChange || checksChange;
+  if (changed.length || removed.length || layoutChanges) {
     const status = await tk('status');
     const impacts = [...changed.map(i => i.name), ...removed].map(n => signoffImpact(graph, status, n)).filter(Boolean);
-    if (impacts.length) {
-      const ok = await ctx.confirm({
-        title: 'Accept draft?', message: impacts.map(x => x.message).join(' ') + ' Accept the draft anyway?',
-        detail: impacts.map(x => x.detail).join('\n'),
-      });
+    const messages = impacts.map(x => x.message);
+    const details = impacts.map(x => x.detail);
+    if (layoutChanges) {
+      const signed = x => !!x && x.state === 'signed_off';
+      const lost = [];
+      if (signed((status.modules || {})[moduleId]) && !impacts.some(x => x.modules.includes(moduleId))) lost.push(`the module sign-off of \`${moduleId}\``);
+      if (signed(status.model) && !impacts.some(x => x.model)) lost.push('the model sign-off');
+      if (lost.length) {
+        const what = sectionsChange && checksChange ? 'sections and reconciliation checks' : sectionsChange ? 'sections' : 'reconciliation checks';
+        messages.push(`This changes the ${what} of ${moduleId}, which are part of what was signed off, so ${lost.join(' and ')} will need to be given again.`);
+        details.push(`The layout of the ${moduleId} sheet is part of what was signed off. No tile sign-off is affected by the layout.`);
+      }
+    }
+    if (messages.length) {
+      const ok = await ctx.confirm({ title: 'Accept draft?', message: messages.join(' ') + ' Accept the draft anyway?', detail: details.join('\n') });
       if (!ok) return { accepted: false, actions: ['Did not accept the draft: the sign-offs were kept.'] };
     }
   }
@@ -396,49 +513,58 @@ async function acceptTileDraft(ctx, draft) {
     text = src.spliceFunction(text, cur.source, src.skeleton(it, cur.expression));
     // later splices search by content, so positions shifting is fine
   }
-  // tiles to delete are cut out of the module file (nothing reads them: the draft was checked for that)
-  for (const n of removed) text = src.spliceFunction(text, q[n].source, '');
-  if (removed.length) text = text.replace(/\n{4,}/g, '\n\n\n').replace(/\n+$/, '\n');
+  // tiles to delete are cut out of the module file (nothing reads them: the draft was checked for that); the code
+  // as it was goes into the kept record. Blank lines are tidied only where each stood, so no other tile's text
+  // (a docstring with blank lines in it, say) changes and no other sign-off goes stale.
+  const removedCode = removed.map(n => ({ name: n, code: String(q[n].source.code) }));
+  for (const n of removed) text = src.removeFunction(text, q[n].source);
   if (ordered.length) text = src.appendFunctions(text, ordered.map(it => src.skeleton(it)));
-  fs.writeFileSync(file, text);
-  // the states the tiles read, and the module's sections and reconciliation checks, go into tilekit.toml in the same
-  // step, so the model loads with both files changed or neither
-  const tomlFile = path.join(ctx.modelDir, 'tilekit.toml');
-  const tomlTouched = states.length || sections || checks || removed.length;
-  const tomlBefore = tomlTouched ? read(tomlFile) : null;
-  try {
-    if (tomlTouched) {
-      let toml = tomlBefore;
-      if (sections || checks) toml = src.setModuleLayout(toml, moduleId, { sections, checks });
-      // tiles that go are taken out of the module's sections (unless the draft gave the sections afresh)
-      if (removed.length && !sections) toml = src.dropTilesFromSections(toml, moduleId, removed);
-      if (states.length) {
-        const qs = x => JSON.stringify(String(x));
-        const blocks = states.flatMap(st => ['', `[state.${st.name}]`, `from = ${qs(st.from)}`, `initial = ${Number.isInteger(st.initial) ? st.initial.toFixed(1) : String(st.initial)}`, `label = ${qs(st.label)}`, `format = ${qs(st.format)}`]);
-        toml = toml.replace(/\s+$/, '') + '\n' + blocks.join('\n') + '\n';
-      }
-      if (toml !== tomlBefore) fs.writeFileSync(tomlFile, toml);
-    }
-    await tk('graph');
-  } catch (e) {
+  const restore = () => {
     fs.writeFileSync(file, before);
     if (tomlBefore !== null) fs.writeFileSync(tomlFile, tomlBefore);
+  };
+  if (text !== before) fs.writeFileSync(file, text);
+  // the states the tiles read, and the module's sections and reconciliation checks, go into tilekit.toml in the same
+  // step, so the model loads with both files changed or neither
+  let graph2;
+  try {
+    if (tomlTouched && toml !== tomlBefore) fs.writeFileSync(tomlFile, toml);
+    graph2 = await tk('graph');
+  } catch (e) {
+    restore();
     throw new Error(`The model would not load with the draft (${e.message}); nothing was changed.`);
+  }
+  // every tile of the file that the draft does not change or remove must read exactly as it did
+  const touched = new Set([...changed.map(i => i.name), ...removed]);
+  const moved = Object.entries(q).filter(([n, e]) => e.kind === 'tile' && !touched.has(n) && e.source && path.join(ctx.modelDir, e.source.file) === file &&
+    (!graph2.quantities[n] || graph2.quantities[n].source.code !== e.source.code)).map(([n]) => n);
+  if (moved.length) {
+    restore();
+    throw new Error(`Accepting the draft would have changed the text of other tiles (${moved.join(', ')}); nothing was changed.`);
+  }
+  // With the model loading without them, the removed tiles' tests and review files leave the live folders. They are
+  // kept under review/removed/, never deleted. This comes after the load check, so a draft that is put back because
+  // the model would not load has archived nothing; if the archive itself fails, it and both files are put back.
+  if (removed.length) {
+    try {
+      archiveRemovedTiles(ctx, moduleId, removedCode, draft.id);
+    } catch (e) {
+      restore();
+      throw new Error(`The records of the removed tiles could not be kept (${e.message}); nothing was changed.`);
+    }
   }
   const actions = [];
   if (ordered.length) actions.push(`Added ${count(ordered.length, 'tile skeleton')} to ${moduleId}: ${ordered.map(i => i.name).join(', ')}.`);
   if (removed.length) {
-    // with the model loading without them, their tests and stored review files go too
-    for (const n of removed) {
-      fs.rmSync(path.join(ctx.modelDir, 'tests', 'tiles', `test_${n}.py`), { force: true });
-      fs.rmSync(path.join(ctx.modelDir, 'review', 'tiles', n), { recursive: true, force: true });
-    }
-    actions.push(`Removed ${count(removed.length, 'tile')} from ${moduleId}: ${removed.join(', ')} (code, test and stored workbook).`);
+    actions.push(`Removed ${count(removed.length, 'tile')} from ${moduleId}: ${removed.join(', ')}. ` + (removed.length === 1
+      ? 'Its code, test, sign-off record, log and stored workbook were kept under review/removed/.'
+      : 'Their code, tests, sign-off records, logs and stored workbooks were kept under review/removed/.'));
   }
   if (states.length) actions.push(`Added ${count(states.length, 'carried-forward state')}: ${states.map(x => `${x.name} (from ${x.from})`).join(', ')}.`);
   if (sections) actions.push(sections.length ? `Laid out ${moduleId} in ${count(sections.length, 'section')}: ${sections.map(s => s.title).join(', ')}.` : `Removed the sections of ${moduleId}.`);
   if (checks) actions.push(checks.length ? `Set ${count(checks.length, 'reconciliation check')} for ${moduleId}: ${checks.map(c => c.name).join(', ')}.` : `Removed the reconciliation checks of ${moduleId}.`);
   if (changed.length) actions.push(`Respecified ${changed.map(i => i.name).join(', ')}; ${changed.length === 1 ? 'it is' : 'they are'} now not built.`);
+  if (leftAlone.length) actions.push(`Left ${leftAlone.join(', ')} as ${leftAlone.length === 1 ? 'it is' : 'they are'}: ${leftAlone.length === 1 ? 'it already is' : 'they already are'} what the draft says.`);
   const related = await rebuildRelated(ctx, [moduleId]);
   if (related.sentence) actions.push(related.sentence);
   return { accepted: true, actions };

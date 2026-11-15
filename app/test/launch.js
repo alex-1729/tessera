@@ -332,7 +332,7 @@ function copyExample(dst) {
   check('git state on the tile: "2 files changed" (real-data is ignored)', dirty && dirty.git === 'main: 2 files changed', dirty && dirty.git);
   await clickBtn('Unit-linked pricing', 'commit');
   check('Commit dialog: lists the changed files with their state, message field, push ticked', await waitFor(`!!document.getElementById('changedfiles')`, 8000) && /modified\s+cases\/base\.json/.test(await ev(`document.getElementById('changedfiles').innerText`)) && /new\s+notes\.txt/.test(await ev(`document.getElementById('changedfiles').innerText`)) && !(await ev(`document.getElementById('f-message').placeholder === ''`)) && await ev(`document.getElementById('pushafter').checked`), await dialogText());
-  check('Commit dialog: placeholder is the example and Commit is disabled until there is a message', await ev(`document.getElementById('f-message').placeholder`) === 'Sign off the unit projection tiles' && await ev(`document.getElementById('confirm').disabled`));
+  check('Commit dialog: placeholder is the example and Commit is disabled until there is a message', await ev(`document.getElementById('f-message').placeholder`) === 'What changed, in a few words' && await ev(`document.getElementById('confirm').disabled`));
   await setVal('f-message', 'Add review notes');
   await shot('launch-commit-dialog');
   await ev(`document.getElementById('confirm').click()`);

@@ -98,8 +98,10 @@ export function createQueue(o) {
     go(next);
   }
 
-  // ---- the bulk action: rebuild the out-of-date workbooks of tiles with values-only drift, then `tilekit reconfirm`.
-  // `reconfirm` itself re-signs only tiles whose formula is unchanged and whose check rows pass, and lists the rest.
+  // ---- the bulk action: rebuild the out-of-date workbooks of tiles with values-only drift, run the model's tests
+  // when a listed tile's test has not been run on the changed model, then `tilekit reconfirm`.
+  // `reconfirm` itself re-signs only tiles whose formula is unchanged, whose check rows pass and whose own test
+  // passes, and lists the rest.
   async function bulk() {
     const listed = items().filter(i => i.level === 'tile' && i.reconfirm);
     if (!listed.length || o.busy()) return;
@@ -107,17 +109,20 @@ export function createQueue(o) {
     let did = false;
     await formDialog({
       title: 'Rebuild and re-confirm',
-      intro: [`${plural(names.length, 'tile')} went stale because upstream values changed; their own formulas did not. Their workbooks are rebuilt first. A tile is re-confirmed only if its formula is still the one signed off and every check row passes; the others stay in the queue.`],
+      intro: [`${plural(names.length, 'tile')} went stale because upstream values changed; their own formulas did not. Their workbooks are rebuilt first and the model's tests are run. A tile is re-confirmed only if its formula is still the one signed off, every check row passes and its own test passes; the others stay in the queue.`],
       sections: [h('div', { id: 'bulktiles' }, listed.map(i => h('div', { class: 'row' }, h('span', {}, i.id), h('span', { class: 'r' }, i.module_title || i.module))))],
       fields: [{ id: 'reviewer', label: 'Reviewed by', value: await o.reviewer() }],
       confirm: 'Rebuild and re-confirm',
       submit: async (v, say) => {
         const stale = listed.filter(i => i.reconfirm === 'after_rebuild');
         for (const i of stale) { say(`Rebuilding ${i.id}…`); await o.api.tk('build', ['--tile', i.id]); }
+        // a re-confirmation is a new sign-off: each tile's test must have passed on the model as it is now
+        const waiting = ((await o.api.tk('queue')).items || []).some(i => i.level === 'tile' && names.includes(i.id) && i.reconfirm === 'after_tests');
+        if (waiting) { say('Running the tests…'); await o.api.tk('test'); }
         // Re-confirm only what was listed: if anything else has become eligible meanwhile, stop and show the new list.
         const now = ((await o.api.tk('queue')).items || []).filter(i => i.level === 'tile' && i.reconfirm === 'ready').map(i => i.id);
         const extra = now.filter(t => !names.includes(t));
-        did = stale.length > 0;
+        did = stale.length > 0 || waiting;
         if (extra.length) return [`The model changed meanwhile (${extra.join(', ')}). Nothing was re-confirmed; close this and start again.`];
         if (!now.length) return { result: ['Nothing could be re-confirmed. The tiles stay in the queue for a full review.'] };
         const res = await o.api.tk('reconfirm', ['--reviewer', v.reviewer]);

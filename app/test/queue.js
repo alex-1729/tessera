@@ -153,6 +153,7 @@ const check = (name, ok, detail) => { summary.checks.push({ name, ok: !!ok, ...(
 
   // ---- a failing check row keeps a tile out of the bulk action
   await tk('build', ['--tile', 'units_allocated']);
+  await tk('test', ['--file', 'tests/tiles/test_units_allocated.py']);   // its test, run on the changed tile
   await tk('signoff', ['--tile', 'units_allocated', '--reviewer', 'Set-up']);
   fs.writeFileSync(src, fs.readFileSync(src, 'utf8').replace('return allocation_rate * premium / unit_price', 'return premium * allocation_rate / unit_price'));
   await sleep(300);
@@ -177,6 +178,7 @@ const check = (name, ok, detail) => { summary.checks.push({ name, ok: !!ok, ...(
   await tk('build', ['--tile', 'units_amc', '--force']);   // undo the tampered check row
   await tk('build');
   let st = await tk('status');
+  await tk('test');   // a tile's sign-off needs its test to have passed since the last change
   for (const [t, e] of Object.entries(st.tiles)) if (e.state !== 'signed_off') await tk('signoff', ['--tile', t, '--reviewer', 'Set-up']);
   for (const m of Object.keys(st.modules)) await tk('signoff', ['--module', m, '--reviewer', 'Set-up']);
   await reload(); await go('#/model');

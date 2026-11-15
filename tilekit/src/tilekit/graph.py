@@ -23,20 +23,22 @@ class Docstring:
     format: str | None = None
     assumed: tuple[str, ...] = ()
     status: str | None = None  # `Status:` line, e.g. "not built"
+    undefined: str | None = None  # `Undefined:` line: when the tile's value is expected not to be a number
 
     @property
     def not_built(self):
         return (self.status or "").strip().lower().rstrip(".") == "not built"
 
 
-_KEY_LINE = re.compile(r"^(Units|Timing|Format|Assumed|Status):\s*(.*)$")
+_KEY_LINE = re.compile(r"^(Units|Timing|Format|Assumed|Status|Undefined):\s*(.*)$")
 
 
 def parse_docstring(text):
     """Parse a tile docstring: label line, free-text spec, then `Key: value` lines.
 
-    Recognised keys are Units, Timing, Format, Status and (repeatable) Assumed. An indented
-    line directly after a key line continues that key's value.
+    Recognised keys are Units, Timing, Format, Status, Undefined and (repeatable) Assumed. An indented
+    line directly after a key line continues that key's value. `Undefined:` says when the tile's value is
+    expected not to be a number (an IRR with no root, a ratio to zero); without it such a value blocks sign-off.
     """
     if not text or not text.strip():
         return Docstring()
@@ -85,6 +87,7 @@ def parse_docstring(text):
         format=keys.get("Format"),
         assumed=tuple(assumed),
         status=keys.get("Status"),
+        undefined=keys.get("Undefined") or None,
     )
 
 
@@ -453,6 +456,7 @@ def graph_json(model):
             "timing": tile.doc.timing,
             "format": tile.doc.format,
             "assumed": list(tile.doc.assumed),
+            "undefined": tile.doc.undefined,
             "args": list(tile.args),
             "used_by": graph.used_by[name],
             "source": {"file": tile.file, "line": tile.line, "code": tile.code},

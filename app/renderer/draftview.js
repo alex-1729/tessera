@@ -58,7 +58,7 @@ function sections(d) {
       items.flatMap(it => pair([h('td', {}, it.label || it.name), name(it.name), h('td', { class: 'dv-name' }, (it.args || []).join(', ')), h('td', { class: 'grey' }, it.units || ''), h('td', { class: 'grey' }, it.timing || '')],
         [it.spec, ...(it.assumed || []).map(a => 'Assumed: ' + a)].filter(Boolean).join('\n')))));
     if ((d.remove || []).length) out.push(sec('Tiles to remove', d.remove.length),
-      h('p', { class: 'dv-note warn' }, 'Each tile\'s code, its test and its stored workbook are deleted. Nothing else in the model reads them.'),
+      h('p', { class: 'dv-note warn' }, 'Each tile\'s code and test are taken out of the model. Nothing else in the model reads them. Its sign-off record, log, test and stored workbook are kept under review/removed/.'),
       table(['Tile', 'Name'], d.remove.flatMap(r => pair([h('td', {}, r.label || r.name), name(r.name)]))));
     if ((d.states || []).length) out.push(sec('Carried-forward states', d.states.length),
       h('p', { class: 'dv-note' }, 'How a tile reads last month\'s value: each month the state takes the value its tile had at the end of the month before.'),

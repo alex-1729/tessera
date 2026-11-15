@@ -55,11 +55,11 @@ def profit_margin(pv_net_profit, pv_premium):
     """Profit margin.
 
     Present value of net profit as a proportion of the present value of premium.
-    Undefined (#DIV/0!) when no premium is paid.
 
     Units: proportion of premium
     Timing: at the start of the policy
     Format: percent
+    Undefined: when no premium is paid (#DIV/0! in Excel).
     """
     return pv_net_profit / pv_premium
 
@@ -68,12 +68,12 @@ def irr_pm(net_profit):
     """IRR per month.
 
     The monthly rate at which the present value of the net profit stream is zero,
-    with the first month's profit at time 0 (Excel's IRR convention). Undefined
-    (#NUM!) when the profit stream never changes sign.
+    with the first month's profit at time 0 (Excel's IRR convention).
 
     Units: rate per month
     Timing: per month
     Format: rate
+    Undefined: when the profit stream never changes sign (#NUM! in Excel).
     Assumed: the first month's net profit is treated as occurring at time 0
     """
     return tk.irr(net_profit)
@@ -87,5 +87,6 @@ def irr_pa(irr_pm, months_per_year):
     Units: rate per year
     Timing: per year
     Format: irr
+    Undefined: when the monthly IRR is.
     """
     return (1 + irr_pm) ** months_per_year - 1

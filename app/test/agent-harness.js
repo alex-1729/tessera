@@ -237,6 +237,7 @@ async function offline() {
 
     // Sign-off: sign units_allocated off, then try to change it with the human declining.
     let signed = null;
+    await e.tilekit('test', ['--file', 'tests/tiles/test_units_allocated.py']);   // a tile's sign-off needs its test to have passed since the last change
     try { signed = await e.tilekit('signoff', ['--tile', 'units_allocated', '--reviewer', 'Harness']); } catch (err) { signed = { error: err.message }; }
     if (signed && signed.signed_off) {
       const ha = createHandlers(svc, turn({ level: 'tile', id: 'units_allocated' }));
@@ -325,6 +326,7 @@ async function offline() {
   });
   await guard('git: status, commit, push requests', () => gitChecks(check));
   await guard('module layout, standing rules and module tests', () => layoutChecks(check));
+  await guard('drafts accepted later, layout sign-offs, toml splicing and tile removal', () => draftFaultChecks(check));
   return results;
 }
 
@@ -519,7 +521,57 @@ async function layoutChecks(check) {
   check('removing a tile that a reconciliation check uses is refused until the checks are given without it', !Array.isArray(gm.checks) || (rm0.isError && /net_change_agrees uses units_net_change/.test(rm0.text)), rm0.text);
   const rm = await hm.propose_structure({ summary: 'Removes net units.', remove: ['units_net_change'], checks: [recon[0]] });
   const rmDraft = (events.filter(x => x.type === 'draft').pop() || {}).draft || {};
+  // the removed tile's record is kept: a stand-in sign-off, log and test go in first, and must come out in the archive
+  const rmReview = path.join(dir, 'review', 'tiles', 'units_net_change');
+  const rmTest = path.join(dir, 'tests', 'tiles', 'test_units_net_change.py');
+  const rmArchive = path.join(dir, 'review', 'removed');
+  const standIn = { 'signoff.json': JSON.stringify({ reviewer: 'A Reviewer', at: '2026-11-14T10:00:00Z', comment: 'stand-in' }, null, 2) + '\n',
+    'log.jsonl': '{"type":"action","text":"Built units_net_change."}\n{"type":"signoff","reviewer":"A Reviewer"}\n' };
+  const standInTest = 'def test_units_net_change_by_hand():\n    """110.0 - 100.0 = 10.0"""\n    assert 110.0 - 100.0 == 10.0\n';
+  fs.mkdirSync(rmReview, { recursive: true });
+  for (const [n, t] of Object.entries(standIn)) fs.writeFileSync(path.join(rmReview, n), t);
+  fs.mkdirSync(path.dirname(rmTest), { recursive: true });
+  fs.writeFileSync(rmTest, standInTest);
+  const rmUnitsBefore = fs.readFileSync(unitsFile(dir), 'utf8');
+  const rmTomlBefore = fs.readFileSync(path.join(dir, 'tilekit.toml'), 'utf8');
+  const recordInPlace = () => !fs.existsSync(rmArchive) && fs.readFileSync(rmTest, 'utf8') === standInTest &&
+    Object.entries(standIn).every(([n, t]) => fs.readFileSync(path.join(rmReview, n), 'utf8') === t) &&
+    fs.readFileSync(unitsFile(dir), 'utf8') === rmUnitsBefore && fs.readFileSync(path.join(dir, 'tilekit.toml'), 'utf8') === rmTomlBefore;
+  if (!rm.isError) {
+    // the model does not load without the tile: nothing has been archived at that point
+    let rmGraphs = 0, rmThrew = null;
+    const rmFailing = (cmd, args) => (cmd === 'graph' && ++rmGraphs === 2 ? Promise.reject(new Error('simulated load failure')) : tk(cmd, args));
+    try { await edits.acceptTileDraft({ ...svc, tilekit: rmFailing, confirm: async () => true }, rmDraft); } catch (err) { rmThrew = err.message; }
+    check('a removal put back because the model would not load leaves no archive: the review folder, test, module file and tilekit.toml are as they were',
+      /would not load/.test(rmThrew || '') && recordInPlace(), rmThrew);
+    // the archive itself fails part-way (removed.json cannot be written over a folder of that name): all of it is undone
+    fs.mkdirSync(path.join(rmReview, 'removed.json'));
+    let rmThrew2 = null;
+    try { await edits.acceptTileDraft({ ...svc, confirm: async () => true }, rmDraft); } catch (err) { rmThrew2 = err.message; }
+    fs.rmSync(path.join(rmReview, 'removed.json'), { recursive: true, force: true });
+    check('a removal whose archive fails part-way is undone: the folder and test are moved back, the archive is gone and nothing was changed',
+      /could not be kept/.test(rmThrew2 || '') && /nothing was changed/.test(rmThrew2 || '') && recordInPlace(), rmThrew2);
+  }
   const rmAcc = !rm.isError ? await edits.acceptTileDraft({ ...svc, confirm: async () => true }, rmDraft) : { accepted: false };
+  const rmKept = fs.existsSync(rmArchive) ? fs.readdirSync(rmArchive).filter(n => /^units_net_change-\d{8}T\d{6}Z$/.test(n)) : [];
+  const rmDir = path.join(rmArchive, rmKept[0] || 'none');
+  let rmNote = {};
+  try { rmNote = JSON.parse(fs.readFileSync(path.join(rmDir, 'removed.json'), 'utf8')); } catch { /* reported by the check */ }
+  const keptText = n => { try { return fs.readFileSync(path.join(rmDir, n), 'utf8'); } catch { return null; } };
+  check('accepting a removal takes the tile out of the module file, review/tiles and tests/tiles',
+    rmAcc.accepted && !/def units_net_change\(/.test(fs.readFileSync(unitsFile(dir), 'utf8')) && !fs.existsSync(rmReview) && !fs.existsSync(rmTest) &&
+    !(await tk('graph')).quantities.units_net_change, rmAcc.actions);
+  check('the removed tile\'s record is kept under review/removed/<tile>-<time>/: sign-off and log byte for byte, and its test',
+    rmKept.length === 1 && keptText('signoff.json') === standIn['signoff.json'] && keptText('log.jsonl') === standIn['log.jsonl'] &&
+    keptText('test_units_net_change.py') === standInTest, { rmKept, files: fs.existsSync(rmDir) ? fs.readdirSync(rmDir) : null });
+  check('removed.json names the tile, module, draft and time, says it was signed off and by whom, and holds the code as it was',
+    rmNote.tile === 'units_net_change' && rmNote.module === 'unit_projection' && rmNote.draft === rmDraft.id && !!rmDraft.id &&
+    /^\d{4}-\d\d-\d\dT[\d:.]+Z$/.test(rmNote.removed_at || '') && rmNote.was_signed_off === true &&
+    rmNote.signed_off && rmNote.signed_off.reviewer === 'A Reviewer' && rmNote.signed_off.at === '2026-11-14T10:00:00Z' &&
+    /def units_net_change\(/.test(rmNote.code || ''), rmNote);
+  check('the action says the record was kept and where, and the tooling does not see the archive as a tile',
+    (rmAcc.actions || []).some(a => /Removed one tile from unit_projection: units_net_change\. Its code, test, sign-off record, log and stored workbook were kept under review\/removed\/\./.test(a)) &&
+    !Object.keys((await tk('status')).tiles).some(n => /units_net_change/.test(n)), rmAcc.actions);
   const afterRm = src.tomlModules(fs.readFileSync(path.join(dir, 'tilekit.toml'), 'utf8')).find(b => b.id === 'unit_projection');
   check('removing a tile takes it out of the module\'s sections', rmAcc.accepted && !afterRm.sections.some(x => x.tiles.includes('units_net_change')), { rm: rm.text, sections: afterRm.sections });
 
@@ -565,6 +617,263 @@ async function layoutChecks(check) {
 
 const storeMod = require('../src/agent/store');
 const { TOOL_NAMES } = require('../src/agent/tools');
+
+// ---------------------------------------------------------------- drafts accepted later, layout sign-offs, toml splicing, removal
+
+const NET_TILE = { name: 'units_net_change', label: 'Change in units', args: ['units_eop', 'units_bop'], units: 'units per policy', timing: 'end of month', format: 'units', spec: 'Closing units less opening units.' };
+const netCode = spec => `def units_net_change(units_eop, units_bop):
+    """Change in units.
+
+    ${spec}
+
+    Units: units per policy
+    Timing: end of month
+    Format: units
+    """
+    return units_eop - units_bop`;
+const NET_TEST = `"""units_net_change worked by hand."""
+
+import pytest
+
+from unit_linked.liability.units import units_net_change
+
+
+def test_units_net_change_by_hand():
+    """Closing units less opening units.
+
+    Case: base, month 1
+
+    Month 1: 193.87875 - 0.0 = 193.87875
+    Round numbers: 110.0 - 100.0 = 10.0
+    """
+    assert units_net_change(193.87875, 0.0) == pytest.approx(193.87875, rel=0, abs=1e-9)
+    assert units_net_change(110.0, 100.0) == pytest.approx(10.0, rel=0, abs=1e-9)
+`;
+
+// tilekit.toml content that is unusual but valid: a single-quoted label, a tolerance with an underscore, and a
+// comment with a quoted word after a tiles array.
+const ODD_CHECK = `[[module.check]]           # must be zero in every month of every case, in Excel and in Python
+name = "units_reconcile"
+label = 'Units roll-forward reconciles'
+expression = "units_bop + units_allocated - units_amc - units_eop"
+tolerance = 1_000`;
+const ODD_SECTIONS = `[[module.section]]
+title = "Units allocated in the month"
+tiles = ["units_allocated", "units_after_alloc"]
+
+[[module.section]]
+title = 'Charge and closing units'
+tiles = ["units_amc", "units_eop"]   # was "units_bonus" before the cap`;
+
+function oddToml(text) {
+  const a = text.indexOf('[[module.section]]');
+  const b = text.indexOf('[[module]]', a);
+  if (a < 0 || b < 0) throw new Error('the model\'s tilekit.toml is not laid out as the harness expects');
+  return text.slice(0, a) + ODD_SECTIONS + '\n\n' + ODD_CHECK + '\n\n' + text.slice(b);
+}
+
+async function draftFaultChecks(check) {
+  const turn = scope => ({ scope, batchModule: null, asked: false, approved: new Set(), writes: [], drafts: [] });
+  const modScope = { level: 'module', id: 'unit_projection' };
+  const ctxFor = (dir, answer) => {
+    const drafts = [], confirms = [];
+    const svc = { modelDir: dir, tilekit: runnerFor(dir), confirm: async r => { confirms.push(r); return answer; }, runPytest: pytestFor(dir),
+      emitEvent: () => {}, saveDraftEvent: d => { storeMod.saveDraft(dir, d); drafts.push(d); } };
+    return { svc, drafts, confirms, tk: svc.tilekit, hm: createHandlers(svc, turn(modScope)) };
+  };
+  const tomlOf = dir => fs.readFileSync(path.join(dir, 'tilekit.toml'), 'utf8');
+  const filesOf = dir => hashTree(path.join(dir, 'src')) + crypto.createHash('sha256').update(tomlOf(dir)).digest('hex');
+  const attempt = async fn => { try { return { result: await fn() }; } catch (err) { return { error: err.message }; } };
+
+  // ---- G: a draft accepted after the model moved on
+  {
+    const dir = copyModel();
+    const { svc, drafts, hm, tk } = ctxFor(dir, true);
+    const sections5 = UNIT_SECTIONS;
+    const p1 = await hm.propose_structure({ summary: 'Adds net units.', tiles: [NET_TILE], sections: sections5 });
+    const p2 = await hm.propose_structure({ summary: 'Adds net units, again.', tiles: [NET_TILE], sections: sections5 });
+    const [d1, d2] = drafts;
+    check('G: a tiles draft records which tiles were new and which were changes when it was proposed', !p1.isError && !p2.isError && !!d2 &&
+      JSON.stringify(d1.new_tiles) === '["units_net_change"]' && JSON.stringify(d1.changed_tiles) === '[]', { p1: p1.text, d1 });
+    const a1 = await edits.acceptTileDraft(svc, d1);
+    const built = await edits.applyTileCode(svc, { name: 'units_net_change', code: netCode(NET_TILE.spec), testCode: NET_TEST });
+    const gBuilt = await tk('graph');
+    check('G: the first draft is accepted and the tile is then built', a1.accepted && built.ok && gBuilt.quantities.units_net_change.status !== 'not_built' &&
+      !/Status: not built/.test(fnCode(gBuilt, 'units_net_change')), { a1, built: built.text });
+    const before = filesOf(dir);
+    const r2 = await attempt(() => edits.acceptTileDraft(svc, d2));
+    check('G: the second draft, which added the same tile, is refused once the tile is in the model: no placeholder goes over the built tile and no file changes',
+      /no longer fits the model/.test(r2.error || '') && /units_net_change was new when this draft was proposed and has been added to the model since/.test(r2.error || '') &&
+      filesOf(dir) === before && fnCode(await tk('graph'), 'units_net_change') === fnCode(gBuilt, 'units_net_change'), r2);
+    const old = { ...d2, items: [{ ...NET_TILE, spec: 'Closing units less opening units, as a movement.' }] };
+    delete old.new_tiles; delete old.changed_tiles;
+    const r3 = await attempt(() => edits.acceptTileDraft(svc, old));
+    check('G: a draft saved before the record was kept never puts a placeholder over a built tile', /no longer fits the model/.test(r3.error || '') &&
+      /saved before the app recorded which of its tiles were new, and units_net_change is built now/.test(r3.error || '') && filesOf(dir) === before, r3);
+    // a draft that changes the tile; the tile is then written to be exactly what the draft says; accepting leaves it alone
+    const spec2 = 'Closing units less opening units, for the month.';
+    const p3 = await hm.propose_structure({ summary: 'Respecifies net units.', tiles: [{ ...NET_TILE, spec: spec2 }], sections: sections5 });
+    const d3 = drafts[2];
+    const rewritten = await edits.applyTileCode(svc, { name: 'units_net_change', code: netCode(spec2), testCode: null });
+    const before3 = filesOf(dir);
+    const a3 = d3 ? await attempt(() => edits.acceptTileDraft(svc, d3)) : { error: p3.text };
+    const g3 = await tk('graph');
+    check('G: a changed tile that already is what the draft says is left alone and stays built',
+      !p3.isError && JSON.stringify(d3.changed_tiles) === '["units_net_change"]' && rewritten.ok && a3.result && a3.result.accepted &&
+      a3.result.actions.some(x => x === 'Left units_net_change as it is: it already is what the draft says.') && !a3.result.actions.some(x => /Respecified/.test(x)) &&
+      filesOf(dir) === before3 && g3.quantities.units_net_change.status !== 'not_built', { p3: p3.text, rewritten: rewritten.text, a3 });
+
+    // ---- I (through a draft): a section this app cannot read with certainty is not rewritten from a guess
+    fs.writeFileSync(path.join(dir, 'tilekit.toml'), tomlOf(dir).replace('title = "Charge and closing units"', 'title = """Charge and closing units"""'));
+    const pr = await hm.propose_structure({ summary: 'Removes net units.', remove: ['units_net_change'] });
+    const dr = drafts[3];
+    const beforeR = filesOf(dir);
+    const rr = dr ? await attempt(() => edits.acceptTileDraft(svc, dr)) : { error: pr.text };
+    check('I: removing a tile from sections that cannot be read with certainty is refused with the reason, and nothing changes',
+      !pr.isError && /The draft was not applied: a section of unit_projection in tilekit\.toml \(line \d+\) has `title` written in a way this app cannot read with certainty/.test(rr.error || '') &&
+      /Nothing was changed\.$/.test(rr.error || '') && filesOf(dir) === beforeR && !fs.existsSync(path.join(dir, 'review', 'removed')), { pr: pr.text, rr });
+  }
+
+  // ---- I: tilekit.toml is spliced, not rewritten
+  {
+    const dir = copyModel();
+    const tk = runnerFor(dir);
+    const odd = oddToml(tomlOf(dir));
+    const modOf = g => g.modules.find(m => m.id === 'unit_projection');
+    fs.writeFileSync(path.join(dir, 'tilekit.toml'), odd);
+    const g0 = modOf(await tk('graph'));
+    check('I: the unusual tilekit.toml is valid: the tooling reads the quoted label, the 1_000 tolerance and four tiles in two sections',
+      g0.checks[0].label === 'Units roll-forward reconciles' && g0.checks[0].tolerance === 1000 && g0.sections.map(s => s.tiles.join('+')).join('|') === 'units_allocated+units_after_alloc|units_amc+units_eop', g0);
+    const read = src.tomlModules(odd).find(b => b.id === 'unit_projection');
+    check('I: the scanner reads a single-quoted string, a number with an underscore, and ignores a quoted word in a comment after an array',
+      read.checks[0].label === 'Units roll-forward reconciles' && read.checks[0].tolerance === 1000 && read.sections[1].title === 'Charge and closing units' &&
+      read.sections[1].tiles.join() === 'units_amc,units_eop' && read.subs.every(s => s.unread.length === 0), read);
+    // sections replaced: the check table is not written again
+    const newSections = [{ title: 'Allocation', tiles: ['units_allocated', 'units_after_alloc'] }, { title: 'Charge', tiles: ['units_amc'] }, { title: 'Closing units', tiles: ['units_eop'] }];
+    const s1 = src.setModuleLayout(odd, 'unit_projection', { sections: newSections });
+    fs.writeFileSync(path.join(dir, 'tilekit.toml'), s1);
+    const g1 = modOf(await tk('graph'));
+    const sectionsBack = JSON.stringify(g1.sections.map(s => ({ title: s.title, tiles: s.tiles }))) === JSON.stringify(newSections);
+    const outside = (text, a, b) => text.slice(0, text.indexOf(a)) + '<<>>' + text.slice(text.indexOf(b) + b.length);
+    check('I: replacing only the sections leaves a single-quoted label as written (not "null"), and the tooling reads the label and the new sections back',
+      s1.includes(ODD_CHECK) && !/"null"/.test(s1) && g1.checks.length === 1 && g1.checks[0].label === 'Units roll-forward reconciles' && sectionsBack, s1);
+    check('I: replacing only the sections keeps `tolerance = 1_000`, and the tooling still reads 1000',
+      s1.includes('\ntolerance = 1_000\n') && g1.checks[0].tolerance === 1000 && g1.checks[0].expression === g0.checks[0].expression, { s1, checks: g1.checks });
+    check('I: replacing only the sections leaves every line outside the section tables byte for byte',
+      outside(s1, '[[module.section]]', 'tiles = ["units_eop"]') === outside(odd, '[[module.section]]', 'before the cap'), s1);
+    // checks replaced: the section tables are not written again
+    const newChecks = [{ name: 'units_roll', label: 'Units roll forward', expression: 'units_bop + units_allocated - units_amc - units_eop' }];
+    const s2 = src.setModuleLayout(odd, 'unit_projection', { checks: newChecks });
+    fs.writeFileSync(path.join(dir, 'tilekit.toml'), s2);
+    const g2 = modOf(await attempt(() => tk('graph')).then(r => r.result || { modules: [{ id: 'unit_projection', error: r.error, sections: [], checks: [] }] }));
+    check('I: replacing only the checks leaves the sections byte for byte: a quoted word in a comment after `tiles = [...]` does not become a tile, and the tooling reads the same four tiles and the new check',
+      s2.includes(ODD_SECTIONS) && !/"units_bonus"\]/.test(s2) && g2.sections.map(s => s.tiles.join('+')).join('|') === 'units_allocated+units_after_alloc|units_amc+units_eop' &&
+      g2.sections[1].title === 'Charge and closing units' && JSON.stringify(g2.checks.map(c => ({ name: c.name, label: c.label, expression: c.expression }))) === JSON.stringify(newChecks) &&
+      outside(s2, '[[module.check]]', newChecks[0].expression + '"') === outside(odd, '[[module.check]]', 'tolerance = 1_000'), { s2, g2 });
+    // taking a tile out of the sections writes only the section that held it
+    const s3 = src.dropTilesFromSections(odd, 'unit_projection', ['units_after_alloc']);
+    check('I: taking a tile out of the sections writes only the section that held it; the other section and the check stay byte for byte',
+      s3.includes('tiles = ["units_allocated"]\n') && s3.includes(ODD_SECTIONS.slice(ODD_SECTIONS.indexOf('[[module.section]]', 5))) && s3.includes(ODD_CHECK) &&
+      parseToml(s3).module[0].section.map(s => s.tiles.join('+')).join('|') === 'units_allocated|units_amc+units_eop', s3);
+    const unreadable = odd.replace('tiles = ["units_allocated", "units_after_alloc"]', 'tiles = ["units_allocated", "units_after_alloc", { also = "x" }]');
+    const r4 = await attempt(async () => src.dropTilesFromSections(unreadable, 'unit_projection', ['units_eop']));
+    check('I: a value that does not parse is refused in plain words, not guessed at', /has `tiles` written in a way this app cannot read with certainty/.test(r4.error || '') &&
+      src.setModuleLayout(unreadable, 'unit_projection', { checks: newChecks }).includes('{ also = "x" }]'), r4);
+  }
+
+  // ---- H and J need sign-offs: sign the whole model off once, then work on copies of that
+  const signedBase = copyModel();
+  {
+    const tk = runnerFor(signedBase);
+    const g = await tk('graph');
+    await tk('test');   // a tile's sign-off needs its test to have passed since the last change
+    for (const t of g.order) await tk('signoff', ['--tile', t, '--reviewer', 'Harness']);
+    for (const m of g.modules) await tk('signoff', ['--module', m.id, '--reviewer', 'Harness']);
+    await tk('signoff', ['--whole-model', '--reviewer', 'Harness']);
+  }
+  const signedCopy = () => { const dir = path.join(TMP_ROOT, `model-${++copies}`); fs.cpSync(signedBase, dir, { recursive: true }); return dir; };
+  const statesOf = st => ({ module: st.modules.unit_projection.state, model: st.model.state, tiles: ['units_allocated', 'units_after_alloc', 'units_amc', 'units_eop'].map(t => st.tiles[t].state).join() });
+
+  // ---- H: a layout-only draft on a signed-off module asks first
+  {
+    const dir = signedCopy();
+    const { svc, drafts, confirms, hm, tk } = ctxFor(dir, false);
+    const st0 = statesOf(await tk('status'));
+    check('H: the copy starts with the module, the model and the tiles signed off', st0.module === 'signed_off' && st0.model === 'signed_off' && /^(signed_off,?){4}$/.test(st0.tiles), st0);
+    const sameSections = [{ title: 'Units allocated in the month', tiles: ['units_allocated', 'units_after_alloc'] }, { title: 'Charge and closing units', tiles: ['units_amc', 'units_eop'] }];
+    const newSections = [{ title: 'Allocation', tiles: ['units_allocated', 'units_after_alloc'] }, { title: 'Charge and closing units', tiles: ['units_amc', 'units_eop'] }];
+    await hm.propose_structure({ summary: 'The same sections.', sections: sameSections });
+    const p = await hm.propose_structure({ summary: 'Renames a section.', sections: newSections });
+    const [dSame, dNew] = drafts;
+    const toml0 = tomlOf(dir);
+    const aSame = dSame ? await attempt(() => edits.acceptTileDraft(svc, dSame)) : { error: 'no draft' };
+    check('H: a layout draft that gives the sections the module already has does not ask and changes no sign-off',
+      aSame.result && aSame.result.accepted && confirms.length === 0 && tomlOf(dir) === toml0 && JSON.stringify(statesOf(await tk('status'))) === JSON.stringify(st0), { aSame, confirms });
+    const declined = dNew ? await attempt(() => edits.acceptTileDraft(svc, dNew)) : { error: p.text };
+    const st1 = statesOf(await tk('status'));
+    check('H: a layout-only draft on a signed-off module asks first, naming the module and model sign-offs',
+      confirms.length === 1 && confirms[0].message === 'This changes the sections of unit_projection, which are part of what was signed off, so the module sign-off of `unit_projection` and the model sign-off will need to be given again. Accept the draft anyway?', confirms);
+    check('H: declining leaves tilekit.toml and every sign-off as they were',
+      declined.result && declined.result.accepted === false && declined.result.actions[0] === 'Did not accept the draft: the sign-offs were kept.' && tomlOf(dir) === toml0 &&
+      JSON.stringify(st1) === JSON.stringify(st0), { declined, st1 });
+    const yes = ctxFor(dir, true);
+    const accepted = dNew ? await attempt(() => edits.acceptTileDraft(yes.svc, dNew)) : { error: p.text };
+    const st2 = statesOf(await tk('status'));
+    check('H: accepting after the question writes the sections; the module and model sign-offs then need giving again and the tile sign-offs are kept',
+      accepted.result && accepted.result.accepted && yes.confirms.length === 1 && /title = "Allocation"/.test(tomlOf(dir)) &&
+      st2.module !== 'signed_off' && st2.model !== 'signed_off' && st2.tiles === st0.tiles, { accepted, st2 });
+    // only the checks, with only the model sign-off left to lose
+    const p5 = await yes.hm.propose_structure({ summary: 'Renames the check.', checks: [{ name: 'units_roll', label: 'Units roll forward', expression: 'units_bop + units_allocated - units_amc - units_eop' }] });
+    const fakeModel = (cmd, args) => tk(cmd, args).then(r => (cmd === 'status' ? { ...r, model: { ...r.model, state: 'signed_off' } } : r));
+    const no = ctxFor(dir, false);
+    const toml5 = tomlOf(dir);
+    const d5 = yes.drafts[0];
+    const a5 = d5 ? await attempt(() => edits.acceptTileDraft({ ...no.svc, tilekit: fakeModel }, d5)) : { error: p5.text };
+    check('H: a checks-only draft names only the sign-offs that are there to lose',
+      no.confirms.length === 1 && no.confirms[0].message === 'This changes the reconciliation checks of unit_projection, which are part of what was signed off, so the model sign-off will need to be given again. Accept the draft anyway?' &&
+      a5.result && a5.result.accepted === false && tomlOf(dir) === toml5, { a5, confirms: no.confirms });
+  }
+
+  // ---- J: removing a tile leaves every other tile's text alone
+  {
+    const synthetic = 'import numpy as np\n\n\ndef a(x):\n    """A.\n\n\n\n    More.\n    """\n    return x\n\n\ndef b(x):\n    return x\n\n\ndef c(x):\n    return x\n';
+    const cut = src.removeFunction(synthetic, { line: 14, code: 'def b(x):\n    return x' });
+    const cutLast = src.removeFunction(synthetic, { line: 18, code: 'def c(x):\n    return x' });
+    check('J: cutting a function out tidies blank lines only where it stood (two between its neighbours, one newline at the end of the file)',
+      cut === synthetic.replace('def b(x):\n    return x\n\n\n', '') && cutLast === synthetic.replace('\n\n\ndef c(x):\n    return x\n', '\n'), { cut, cutLast });
+
+    const dir = signedCopy();
+    const { svc, drafts, hm, tk } = ctxFor(dir, true);
+    // a neighbour whose docstring has three blank lines in a row, signed off as it is
+    const uf = unitsFile(dir);
+    const marker = '"""Units after allocation.\n';
+    fs.writeFileSync(uf, fs.readFileSync(uf, 'utf8').replace(marker, marker + '\n\n'));
+    await tk('build', ['--tile', 'units_after_alloc']);
+    await tk('test', ['--file', 'tests/tiles/test_units_after_alloc.py']);
+    await tk('signoff', ['--tile', 'units_after_alloc', '--reviewer', 'Harness']);
+    const stampOf = () => JSON.stringify(JSON.parse(fs.readFileSync(path.join(dir, 'review', 'tiles', 'units_after_alloc', 'signoff.json'), 'utf8')).stamp);
+    const pa = await hm.propose_structure({ summary: 'Adds net units.', tiles: [NET_TILE], sections: UNIT_SECTIONS });
+    const fileBeforeAdd = fs.readFileSync(uf, 'utf8');
+    const added = drafts[0] ? await attempt(() => edits.acceptTileDraft(svc, drafts[0])) : { error: pa.text };
+    const g0 = await tk('graph');
+    const st0 = await tk('status');
+    const stamp0 = stampOf();
+    check('J: the neighbour has three blank lines in a row in its docstring and is signed off before the removal',
+      added.result && added.result.accepted && /"""Units after allocation\.\n\n\n\n/.test(fnCode(g0, 'units_after_alloc')) && st0.tiles.units_after_alloc.state === 'signed_off' && !!g0.quantities.units_net_change,
+      { pa: pa.text, added, state: st0.tiles.units_after_alloc.state });
+    const pr = await hm.propose_structure({ summary: 'Removes net units.', remove: ['units_net_change'] });
+    const removed = drafts[1] ? await attempt(() => edits.acceptTileDraft(svc, drafts[1])) : { error: pr.text };
+    const g1 = await tk('graph');
+    const st1 = await tk('status');
+    const others = Object.keys(g0.quantities).filter(n => g0.quantities[n].kind === 'tile' && n !== 'units_net_change');
+    check('J: after a tile is removed, every other tile\'s source text is byte-identical',
+      removed.result && removed.result.accepted && !g1.quantities.units_net_change && others.every(n => fnCode(g1, n) === fnCode(g0, n)) &&
+      fs.readFileSync(uf, 'utf8') === fileBeforeAdd, { pr: pr.text, removed, changed: others.filter(n => fnCode(g1, n) !== fnCode(g0, n)) });
+    check('J: the neighbour\'s sign-off does not go stale: same state, no drift, same stored stamp',
+      st1.tiles.units_after_alloc.state === 'signed_off' && st1.tiles.units_after_alloc.drift === st0.tiles.units_after_alloc.drift && !st1.tiles.units_after_alloc.drift && stampOf() === stamp0,
+      { state: st1.tiles.units_after_alloc.state, drift: st1.tiles.units_after_alloc.drift });
+  }
+}
 
 // A tilekit runner that records every command (to prove the tools never run signoff or reconfirm).
 function recording(tk) {
@@ -733,6 +1042,7 @@ async function chatChecks(check) {
   // Re-confirmation of values-only drift: restore units.py, sign units_eop off, change a parameter default, rebuild.
   await e.raw('build', ['--tile', 'units_after_alloc']);
   await e.raw('build', ['--tile', 'units_eop']);
+  await e.raw('test', ['--file', 'tests/tiles/test_units_eop.py']);   // a tile's sign-off needs its test to have passed since the last change
   await e.raw('signoff', ['--tile', 'units_eop', '--reviewer', 'Harness']);
   const pf = path.join(dir, 'src', 'unit_linked', 'params.py');
   fs.writeFileSync(pf, fs.readFileSync(pf, 'utf8').replace('_param(1.25, "Initial unit price"', '_param(1.3, "Initial unit price"'));
@@ -740,6 +1050,9 @@ async function chatChecks(check) {
   check('rebuild at module level rebuilds stale tiles, the module and the model workbook', !rb.isError && /Rebuilt/.test(rb.text) && /every difference is zero/.test(rb.text), rb.text);
   const rbOut = await hm.rebuild({ kind: 'tile', name: 'deaths' });
   check('rebuild refuses an item outside the selection', rbOut.isError, rbOut.text);
+  const rrEarly = await hm.request_reconfirm({});
+  check('request_reconfirm renews nothing until the tests have been run on the changed model, and says so', !rrEarly.isError && /nothing to re-confirm/.test(rrEarly.text) && /has not been run since the last change/.test(rrEarly.text) && (await e.raw('status')).tiles.units_eop.state === 'stale', rrEarly.text);
+  await e.raw('test');   // as the reviewer does with Run tests (the app's bulk re-confirm runs them itself)
   const rr = await hm.request_reconfirm({});
   const req5 = lastOf(e.events, 'signoff_request').request;
   check('request_reconfirm lists the tiles it would renew', !rr.isError && req5.kind === 'reconfirm' && req5.tiles.map(t => t.name).includes('units_amc') && req5.tiles.map(t => t.name).includes('units_eop'), { text: rr.text, req5 });
@@ -951,6 +1264,7 @@ async function scenario3() {
 async function scenario4() {
   const e = env(copyModel(), false);
   let signed;
+  await e.tilekit('test', ['--file', 'tests/tiles/test_units_allocated.py']);   // a tile's sign-off needs its test to have passed since the last change
   try { signed = await e.tilekit('signoff', ['--tile', 'units_allocated', '--reviewer', 'Harness']); } catch (err) { signed = { error: err.message }; }
   if (!signed.signed_off) {
     if (/not implemented/i.test(signed.error || '')) return { skipped: 'tilekit signoff is not implemented yet', e };

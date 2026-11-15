@@ -77,6 +77,18 @@ function defaultPytest({ modelDir, project }) {
   });
 }
 
+// One test file run through the tooling (`tilekit test --file`), which keeps the result of a tile's or a module's own
+// test in the model's test cache: a tile cannot be signed off until its test has passed since the last change, so the
+// run the agent's tools make when they write a tile or its tests is the one that counts.
+function tilekitPytest(tilekit) {
+  return async rel => {
+    try {
+      const d = await tilekit('test', ['--file', rel]);
+      return { passed: d.failed === 0 && d.passed > 0, output: String(d.output || '').trim().split('\n').slice(-40).join('\n') };
+    } catch (e) { return { passed: false, output: String(e && e.message || e) }; }
+  };
+}
+
 // Deny Read/Glob/Grep outside the model directory.
 function readGuard(modelDir) {
   const root = fs.realpathSync(modelDir);
@@ -141,8 +153,7 @@ function createAgentService(options) {
   const { modelDir, repoRoot, tilekit, emit = () => {}, confirm = async () => false } = options;
   if (!modelDir || !tilekit) throw new Error('createAgentService needs modelDir and tilekit.');
   const modelName = options.modelName || DEFAULT_MODEL;
-  const runPytest = options.runPytest === undefined
-    ? defaultPytest({ modelDir, project: options.pythonProject || defaultProject(repoRoot || path.resolve(__dirname, '..', '..', '..')) }) : options.runPytest;
+  const runPytest = options.runPytest === undefined ? tilekitPytest(tilekit) : options.runPytest;
   let active = null; // {controller, scope, started}
   let selection = null;   // what the window has selected now (terminal mode: the scope of the next message)
   let cliGreeted = false; // the first terminal message after the app starts carries a note that tools may have changed
@@ -627,4 +638,4 @@ function createAgentService(options) {
   };
 }
 
-module.exports = { createAgentService, defaultPytest, readGuard, publicRequest, publicPush, DEFAULT_MODEL, STRONG_MODEL, NOT_SIGNED_IN };
+module.exports = { createAgentService, defaultPytest, tilekitPytest, readGuard, publicRequest, publicPush, DEFAULT_MODEL, STRONG_MODEL, NOT_SIGNED_IN };

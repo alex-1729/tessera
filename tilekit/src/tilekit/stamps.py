@@ -223,7 +223,32 @@ def module_stamp(model, module_id):
     names = list(model.graph.modules[module_id].tiles)
     stamp = _group_stamp(model, names, json.dumps(module.identity(), sort_keys=True))
     stamp["layout"] = presentation_layout(module.presentation())
+    # A check may read a tile of another module, or a state carried forward from one: the module's reconciliation
+    # then moves when that tile does, so it and everything upstream of it are upstream of the module.
+    read = check_tiles(model, module) - set(names)
+    if read:
+        upstream = (upstream_tiles(model, names) | read | upstream_tiles(model, read)) - set(names)
+        stamp["upstream"] = _tiles_digest(model, upstream)
     return stamp
+
+
+def check_tiles(model, module):
+    """The tiles a module's checks read: a tile named in an expression, or the source tile of a state named in one
+    (names are matched as the checks themselves are, without regard to case)."""
+    from tilekit.reconcile import names as expression_names, parse_expression
+    graph = model.graph
+    folded = {name.lower(): name for name in graph.kinds}
+    states = {s.name: s.source for s in model.config.states}
+    found = set()
+    for check in module.checks:
+        for name in expression_names(parse_expression(check.expression, f"check '{check.name}'")):
+            name = folded.get(name.lower(), name)
+            kind = graph.kinds.get(name)
+            if kind == "state":
+                name, kind = states[name], "tile"
+            if kind == "tile":
+                found.add(name)
+    return found
 
 
 def model_stamp(model, case_id=None):

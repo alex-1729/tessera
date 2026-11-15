@@ -77,13 +77,59 @@ def _mapping(node, constants):
     return out
 
 
+def _bindings(tree):
+    """How many times each name is bound anywhere in the file: assigned (plain, augmented, annotated, unpacked,
+    walrus), a loop or `with` target, a function argument, an import, an `except ... as`, or a def or class."""
+    counts = {}
+
+    def add(name):
+        if name:
+            counts[name] = counts.get(name, 0) + 1
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+            add(node.id)
+        elif isinstance(node, ast.arg):
+            add(node.arg)
+        elif isinstance(node, ast.alias):
+            add((node.asname or node.name).split(".")[0])
+        elif isinstance(node, ast.ExceptHandler):
+            add(node.name)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            add(node.name)
+        elif isinstance(node, (ast.Global, ast.Nonlocal)):
+            for name in node.names:
+                add(name)
+        elif isinstance(node, (ast.MatchAs, ast.MatchStar)):
+            add(node.name)
+        elif isinstance(node, ast.MatchMapping):
+            add(node.rest)
+        elif isinstance(node, ast.Call) and (
+                (isinstance(node.func, ast.Name) and node.func.id == "setattr")
+                or (isinstance(node.func, ast.Attribute) and node.func.attr in ("setattr", "setitem"))):
+            for arg in node.args:  # setattr(module, "NAME", value), monkeypatch.setattr(module, "NAME", value)
+                if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                    add(arg.value.rsplit(".", 1)[-1])
+    return counts
+
+
 def _constants(tree):
-    """Module-level names bound once to a number or to a mapping of numbers."""
+    """Module-level names bound to a number or to a mapping of numbers, and bound exactly once in the whole file.
+
+    A name that is also a local of a test, an argument, a loop target, augmented or rebound anywhere may not hold in
+    a test what it holds at the top of the file, so it is no constant: a check that uses it is not laid out, and its
+    test is listed in `not_in_sheet`."""
     found, seen = {}, set()
+    if any(isinstance(n, ast.ImportFrom) and any(a.name == "*" for a in n.names) for n in ast.walk(tree)):
+        return found  # `from x import *` may bind any name: nothing can be taken as a constant
+    bound = _bindings(tree)
     for node in tree.body:
         if not (isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name)):
             continue
         name = node.targets[0].id
+        if bound.get(name, 0) != 1:
+            found.pop(name, None)
+            continue
         if name in seen:
             found.pop(name, None)
             continue

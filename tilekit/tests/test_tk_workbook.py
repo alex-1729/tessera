@@ -282,6 +282,11 @@ def test_untranslatable_tile_is_values_only(make_model, gridcraft_cli, capsys):
     assert check["counts"]["error"] == 0, check
     code, graph = run(capsys, "graph", "--model", str(root))
     assert graph["quantities"]["scaled_total"]["translatable"] is False
+    (root / "tests" / "tiles").mkdir(parents=True)  # a values-only tile needs a passing test like any other
+    for tile in ("doubled", "scaled_total"):
+        (root / "tests" / "tiles" / f"test_{tile}.py").write_text(f"def test_{tile}_by_hand():\n    assert 1 + 1 == 2\n")
+    code, doc = run(capsys, "test", "--model", str(root))
+    assert code == 0 and doc["failed"] == 0, doc
     code, doc = run(capsys, "build", "--model", str(root), "--tile", "scaled_total")
     assert code == 0
     assert doc["built"][0]["checks_pass"] is None and doc["built"][0]["max_abs_difference"] is None

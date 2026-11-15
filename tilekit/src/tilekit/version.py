@@ -8,7 +8,7 @@ import os
 import tomllib
 from pathlib import Path
 
-VERSION = "0.1.0"  # keep equal to `version` in tilekit/pyproject.toml (a test checks this)
+VERSION = "0.2.0"  # keep equal to `version` in tilekit/pyproject.toml (a test checks this)
 TAG_PREFIX = "tilekit-v"
 REPO = "https://github.com/alex-1729/tessera"
 SUBDIRECTORY = "tilekit"

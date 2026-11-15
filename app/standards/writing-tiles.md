@@ -35,6 +35,13 @@ Not like this (the formula is restated, then explained, then the assumption says
     monthly rate compound back to the annual survival probability.
 ```
 
+## Values that are not a number
+
+A tile whose value is not a number in some month of some case (a division by zero, an IRR with no root) cannot be signed off: Excel shows an error in that cell and the difference check does not check it.
+
+- Treat it as a mistake to correct first: guard the division, or fix what feeds it.
+- Only when it is truly expected, say when in one `Undefined:` line after `Format:`, for example `Undefined: when there are no premiums.` The reviewer confirms it at sign-off.
+
 ## Tests
 
 Every tile has a hand-calculation test file. A reviewer reads the working, not the code.

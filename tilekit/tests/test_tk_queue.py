@@ -2,7 +2,8 @@
 
 import json
 
-from test_tk_review import BRANCHY, MODULES, built, edit, rebuild, run, sign, sign_all, status  # noqa: F401
+from test_tk_review import (BRANCHY, MODULES, built, edit, pass_tile_tests, rebuild, run, run_tests, sign,  # noqa: F401
+                            sign_all, status)
 from test_tk_signoff_safety import add_case
 from test_tk_workbook import CASES, FIRST
 
@@ -63,7 +64,7 @@ def test_never_signed_off(make_model, gridcraft_cli, capsys):
     assert all(i["kind"] == "not_signed_off" for i in doc["items"])
     assert "workbook has not been built" in item(doc, "doubled")["reason"]
     assert doc["counts"]["kinds"]["not_signed_off"] == 4
-    rebuild(capsys, root)
+    pass_tile_tests(capsys, root)  # builds, and gives each tile a passing test: sign-off needs both
     doc = queue(capsys, root)
     assert item(doc, "doubled")["reason"] == "Not signed off yet."
     assert item(doc, "results", "module")["reason"] == "The module is not signed off yet. 2 of its tiles still to sign off first."

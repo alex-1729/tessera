@@ -66,6 +66,8 @@ async function acceptTestsDraft(ctx, draft) {
     const r = await ctx.runPytest(rel);
     if (!r.passed) {
       fs.writeFileSync(file, before);
+      // the failed run is in the model's test cache; run the file as it stands again so the cache says what is true of it
+      await ctx.runPytest(rel);
       const failed = [...String(r.output || '').matchAll(/^(?:FAILED \S+::|_{3,} )(\w+)/gm)].map(m => m[1]);
       const which = [...new Set(failed)].filter(n => draft.items.some(i => i.name === n));
       return { accepted: false, actions: [`The tests were not added: ${which.length ? which.join(', ') : 'the test file'} did not agree with ${tile}. Either the hand calculation or the tile is wrong; nothing was changed. ${String(r.output || '').split('\n').filter(l => /^E\s/.test(l)).slice(0, 4).join(' ')}`.trim()] };
@@ -173,6 +175,8 @@ async function acceptModuleTestDraft(ctx, draft, mod, { caseIds = [], months } =
     const r = await ctx.runPytest(rel);
     if (!r.passed) {
       putBack();
+      // the failed run is in the model's test cache; run the file as it stands again so the cache says what is true of it
+      if (before !== null) await ctx.runPytest(rel);
       const failed = [...new Set([...String(r.output || '').matchAll(/^(?:FAILED \S+::|_{3,} )(\w+)/gm)].map(m => m[1]))];
       return { accepted: false, actions: [`The module test was not saved: ${failed.length ? failed.join(', ') : 'the test file'} did not agree with the tiles of ${draft.module}. Either the hand calculation or a tile is wrong; nothing was changed. ${String(r.output || '').split('\n').filter(l => /^E\s/.test(l)).slice(0, 4).join(' ')}`.trim()] };
     }
