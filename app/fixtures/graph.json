@@ -30,7 +30,31 @@
         "units_bop"
       ],
       "feeds": [],
-      "fed_by": []
+      "fed_by": [],
+      "sections": [
+        {
+          "title": "Units allocated in the month",
+          "tiles": [
+            "units_allocated",
+            "units_after_alloc"
+          ]
+        },
+        {
+          "title": "Charge and closing units",
+          "tiles": [
+            "units_amc",
+            "units_eop"
+          ]
+        }
+      ],
+      "checks": [
+        {
+          "name": "units_reconcile",
+          "label": "Units roll-forward reconciles",
+          "expression": "units_bop + units_allocated - units_amc - units_eop",
+          "tolerance": 1e-09
+        }
+      ]
     }
   ],
   "quantities": {

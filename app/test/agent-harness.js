@@ -96,6 +96,9 @@ function env(modelDir, confirmAnswer = false) {
   return { modelDir, events, confirms, tilekit, service };
 }
 
+// The unit projection laid out in two named sections, with units_net_change in the second (house standard).
+const UNIT_SECTIONS = [{ title: 'Units allocated in the month', tiles: ['units_allocated', 'units_after_alloc'] },
+  { title: 'Charge and closing units', tiles: ['units_amc', 'units_eop', 'units_net_change'] }];
 const unitsFile = dir => path.join(dir, 'src', 'unit_linked', 'liability', 'units.py');
 const lines = events => events.filter(e => e.type !== 'done' || e.text).map(e => `${e.type}: ${e.text}`);
 const fnCode = (graph, name) => graph.quantities[name] && graph.quantities[name].source.code;
@@ -247,8 +250,11 @@ async function offline() {
 
     // Module-level draft and accept.
     const mh = createHandlers(svc, turn({ level: 'module', id: 'unit_projection' }));
-    const pd = await mh.propose_structure({ summary: 'Adds net units.', tiles: [
-      { name: 'units_net_change', label: 'Change in units', args: ['units_eop', 'units_bop'], units: 'units per policy', timing: 'end of month', format: 'units', spec: 'Closing units less opening units.' }] });
+    const netTile = { name: 'units_net_change', label: 'Change in units', args: ['units_eop', 'units_bop'], units: 'units per policy', timing: 'end of month', format: 'units', spec: 'Closing units less opening units.' };
+    // house standard: a module of more than three tiles is laid out in named sections covering every tile
+    const noSec = await mh.propose_structure({ summary: 'Adds net units.', tiles: [netTile] });
+    check('a tiles draft for a module of more than three tiles needs sections covering every tile', noSec.isError && /named sections/.test(noSec.text) && /units_net_change/.test(noSec.text), noSec.text);
+    const pd = await mh.propose_structure({ summary: 'Adds net units.', tiles: [netTile], sections: UNIT_SECTIONS });
     const draftEv = e.events.filter(x => x.type === 'draft').pop();
     check('propose_structure saves a draft and leaves the module file alone', !pd.isError && draftEv.draft.kind === 'tiles' && fs.readFileSync(unitsFile(dir), 'utf8') === afterGood, pd.text);
     check('propose_structure warns about naming', /_eop/.test(pd.text), pd.text);
@@ -318,7 +324,243 @@ async function offline() {
     check('read guard denies Glob with ..', denied(await g({ tool_name: 'Glob', tool_input: { pattern: '../**/*.py' } })));
   });
   await guard('git: status, commit, push requests', () => gitChecks(check));
+  await guard('module layout, standing rules and module tests', () => layoutChecks(check));
   return results;
+}
+
+// ---------------------------------------------------------------- module sheets: sections, reconciliations, module tests
+
+// TOML parsed by Python's tomllib (in the tooling's environment), to prove what tilekit will read.
+function parseToml(text) {
+  const { execFileSync } = require('child_process');
+  const out = execFileSync(findUv(), ['run', '--frozen', '--project', TILEKIT, 'python', '-c', 'import json,sys,tomllib; print(json.dumps(tomllib.loads(sys.stdin.read())))'],
+    { input: text, cwd: REPO, encoding: 'utf8' });
+  return JSON.parse(out);
+}
+
+const SMALL_TOML = `[model]
+name = "T"
+package = "p"
+
+[[module]]
+id = "a"
+title = "Module A"
+layer = "L"
+python = "p.a"
+
+# a comment above the sections
+[[module.section]]
+title = "First block"
+tiles = ["t1", "t2"]
+
+[[module.section]]
+title = "Second block"
+tiles = [
+  "t3",
+  "t4",
+]
+
+[[module.check]]   # zero when right
+name = "t_reconcile"
+label = "T reconciles"
+expression = "t1 - t2"
+
+[[module]]
+id = "b"
+title = "Module B"
+layer = "L"
+python = "p.b"
+
+# ---- states
+
+[state.t1_bop]
+from = "t4"
+initial = 0.0
+`;
+
+const MODULE_TEST = `"""Unit projection walked by hand for month 1 of the base case.
+
+Base case: premium 250 a month, allocation rate 97%, unit price 1.25 in month 1, AMC 0.0625% a month capped at 25 units.
+"""
+
+import pytest
+
+from unit_linked.liability.units import units_after_alloc, units_allocated, units_amc, units_eop
+
+TOL = dict(rel=0, abs=1e-9)
+
+
+def test_unit_projection_month_1():
+    """Month 1 of the base case, tile by tile.
+
+    Case: base, month 1
+    Allocated 250 * 0.97 / 1.25 = 194.0; after allocation 0 + 194.0 = 194.0;
+    AMC 194.0 * 0.000625 = 0.12125; closing 194.0 - 0.12125 = 193.87875
+    """
+    assert units_allocated(250.0, 0.97, 1.25) == pytest.approx(194.0, **TOL)
+    assert units_after_alloc(0.0, 194.0) == pytest.approx(194.0, **TOL)
+    assert units_amc(194.0, 0.000625, 25.0) == pytest.approx(0.12125, **TOL)
+    assert units_eop(194.0, 0.12125) == pytest.approx(193.87875, **TOL)
+`;
+
+async function layoutChecks(check) {
+  const testsMod = require('../src/agent/tests');
+  // ---- the line-based toml helpers see sub-tables as part of their [[module]]
+  const blocks = src.tomlModules(SMALL_TOML);
+  check('tomlModules keeps [[module.section]] and [[module.check]] inside their module, without taking their keys as the module\'s',
+    blocks.length === 2 && blocks[0].title === 'Module A' && blocks[0].sections.length === 2 && blocks[0].sections[1].tiles.join() === 't3,t4' &&
+    blocks[0].checks.length === 1 && blocks[0].checks[0].expression === 't1 - t2' && blocks[1].start > blocks[0].checks[0].start, blocks);
+  const laid = src.setModuleLayout(SMALL_TOML, 'a', { sections: [{ title: 'Rates in the period', tiles: ['t1'] }, { title: 'Roll-forward', tiles: ['t2', 't3', 't4'] }] });
+  const p1 = parseToml(laid);
+  check('setModuleLayout replaces the sections, keeps the checks, and TOML still attaches both to the module',
+    p1.module.length === 2 && p1.module[0].section.map(x => x.title).join('|') === 'Rates in the period|Roll-forward' && p1.module[0].check[0].name === 't_reconcile' &&
+    !p1.module[1].section && p1.state.t1_bop.from === 't4' && /# a comment above the sections\n\n?\[\[module\.section\]\]\ntitle = "Rates in the period"/.test(laid), laid);
+  const checked = src.setModuleLayout(laid, 'b', { checks: [{ name: 'b_zero', label: 'B is zero', expression: 't1 * 2 - (t2 + t2)' }] });
+  const p2 = parseToml(checked);
+  check('setModuleLayout adds checks to a module that had none, leaving the other module alone',
+    p2.module[1].check.length === 1 && p2.module[1].check[0].expression === 't1 * 2 - (t2 + t2)' && p2.module[0].section.length === 2 && p2.module[0].check.length === 1, checked);
+  const added = src.insertModuleToml(SMALL_TOML, { id: 'c', title: 'C', layer: 'L', python: 'p.c' });
+  const p3 = parseToml(added);
+  check('insertModuleToml puts a new module after the last module\'s sub-tables, so they stay with their module',
+    p3.module.map(m => m.id).join() === 'a,b,c' && p3.module[0].section.length === 2 && !p3.module[2].section, added);
+  const withChecks = src.setModuleLayout(SMALL_TOML, 'b', { checks: [{ name: 'k', label: 'K', expression: 't1' }] });
+  const appended = require('../src/agent/scaffold').editToml(withChecks, [{ type: 'input', name: 'extra', label: 'Extra', format: 'amount' }]);
+  const p4 = parseToml(appended);
+  check('editToml appends inputs after a [[module.check]] without moving the check', p4.module[1].check[0].name === 'k' && p4.input.extra.label === 'Extra', appended);
+  const dropped = src.dropTilesFromSections(SMALL_TOML, 'a', ['t1', 't2']);
+  check('dropTilesFromSections takes deleted tiles out and drops an emptied section', src.tomlModules(dropped)[0].sections.map(x => `${x.title}:${x.tiles.join('+')}`).join() === 'Second block:t3+t4', dropped);
+
+  // ---- reconciliation expressions and the layout rules
+  const known = new Set(['units_bop', 'units_eop', 'units_amc']);
+  check('a reconciliation expression may use + - * /, parentheses, numbers and quantity names only',
+    val.expressionProblems('units_bop - (units_amc * 2) / 1.5 - units_eop', known).length === 0 && /'\*' is out of place/.test(val.expressionProblems('units_bop ** 2', known)[0]) &&
+    /out of place/.test(val.expressionProblems('np.abs(units_bop)', known).join(' ')) && val.expressionProblems('units_bop - nope', known).some(x => /'nope' is not a quantity/.test(x)) &&
+    /not closed/.test(val.expressionProblems('(units_bop - units_eop', known)[0]) && /names no quantity/.test(val.expressionProblems('1 + 2', known)[0]) &&
+    /uses '='/.test(val.expressionProblems('units_bop == units_eop', known)[0]), [val.expressionProblems('np.abs(units_bop)', known), val.expressionProblems('units_bop == units_eop', known)]);
+  const dir = copyModel();
+  const tk = runnerFor(dir);
+  const g = await tk('graph');
+  const items = [{ name: 'units_net_change', label: 'Change in units', args: ['units_eop', 'units_bop'], units: 'u', timing: 'during month', format: 'units', spec: 'Closing units less opening units.' }];
+  const L1 = val.validateLayout(g, 'unit_projection', items, [], [], [{ title: 'A', tiles: ['units_allocated', 'units_amc'] }, { title: 'B', tiles: ['units_amc', 'deaths', 'nope'] }], undefined, { rules: true });
+  check('sections: a tile in two sections, a tile of another module and an unknown name are each reported, and leaving tiles out is a problem',
+    L1.problems.some(x => /units_amc is in two sections/.test(x)) && L1.problems.some(x => /deaths, which is not a tile of unit_projection/.test(x)) &&
+    L1.problems.some(x => /nope/.test(x)) && L1.problems.some(x => /leave out .*units_net_change/.test(x)), L1.problems);
+  const states = [{ name: 'net_bop', from: 'units_net_change', initial: 0, label: 'Opening net', format: 'units' }];
+  const L2 = val.validateLayout(g, 'unit_projection', items, states, [], UNIT_SECTIONS, undefined, { rules: true });
+  check('a tiles draft with a carried-forward state must give a reconciliation check', L2.problems.some(x => /net_bop makes a roll-forward/.test(x)), L2.problems);
+  const L3 = val.validateLayout(g, 'unit_projection', items, states, [], UNIT_SECTIONS, [{ name: 'other', label: 'Other', expression: 'units_bop - units_eop' }], { rules: true });
+  check('the check must use both the opening state and its closing tile', L3.problems.some(x => /both the opening value net_bop and the closing value units_net_change/.test(x)), L3.problems);
+  const L4 = val.validateLayout(g, 'unit_projection', items, states, [], UNIT_SECTIONS, [{ name: 'net_reconcile', label: 'Net reconciles', expression: 'net_bop + units_net_change - units_net_change' }, { name: 'Bad Name', label: '', expression: 'x' }], { rules: true });
+  check('a good check passes; a bad name is reported', !L4.problems.some(x => /net_reconcile/.test(x)) && L4.problems.some(x => /Bad Name/.test(x)), L4.problems);
+  const L5 = val.validateLayout(g, 'unit_projection', items, [], [], undefined, undefined, { rules: false });
+  check('on accept the standing rules are not re-applied (an older draft still fits)', L5.problems.length === 0, L5.problems);
+
+  // ---- one step per tile
+  const both = `def lapse_rate_pm(policy_year, lapse_rate_year1_pa, lapse_rate_later_pa, months_per_year):
+    """Monthly lapse rate.
+
+    The lapse rate for the policy year, as a monthly rate.
+
+    Units: per month
+    Timing: during month
+    Format: rate
+    """
+    return 1 - (1 - np.where(policy_year == 1, lapse_rate_year1_pa, lapse_rate_later_pa)) ** (1 / months_per_year)`;
+  check('one step per tile: choosing with np.where and converting with a power over a period is caught',
+    src.chooseConvertProblems(both).length === 1 && /split it into two tiles/.test(src.chooseConvertProblems(both)[0]));
+  check('one step per tile is narrow: a choice alone, a conversion alone, a square inside a choice and a cap with a power pass',
+    !src.chooseConvertProblems('def f(a, b):\n    return np.where(a > 1, a, b)').length &&
+    !src.chooseConvertProblems('def f(q, months_per_year):\n    return 1 - (1 - q) ** (1 / months_per_year)').length &&
+    !src.chooseConvertProblems('def f(a, b):\n    return np.where(a > 1, a ** 2, b)').length &&
+    !src.chooseConvertProblems('def f(a, b, m):\n    return np.minimum(a, b) ** (1 / m)').length &&
+    src.chooseConvertProblems('def f(a, b, r):\n    return np.where(a > 1, np.exp(np.log(1 + r) / 12), b)').length === 1);
+  const events = [];
+  const svc = { modelDir: dir, tilekit: tk, confirm: async () => false, runPytest: pytestFor(dir), emitEvent: (scope, ev) => events.push({ scope, ...ev }),
+    saveDraftEvent: d => { require('../src/agent/store').saveDraft(dir, d); events.push({ type: 'draft', draft: d }); } };
+  const turn = scope => ({ scope, batchModule: null, asked: false, approved: new Set(), writes: [], drafts: [] });
+  const ht = createHandlers(svc, turn({ level: 'tile', id: 'units_amc' }));
+  const unitsBefore = fs.readFileSync(unitsFile(dir), 'utf8');
+  const two = await ht.write_tile({ name: 'units_amc', code: both.replace(/lapse_rate_pm/g, 'units_amc'), test_code: '' });
+  check('write_tile refuses a tile that chooses and converts, and writes nothing', two.isError && /two tiles/.test(two.text) && fs.readFileSync(unitsFile(dir), 'utf8') === unitsBefore, two.text);
+
+  // ---- a tiles draft with sections and a reconciliation check, accepted into tilekit.toml
+  const hm = createHandlers(svc, turn({ level: 'module', id: 'unit_projection' }));
+  const recon = [{ name: 'units_reconcile', label: 'Units roll-forward reconciles', expression: 'units_bop + units_allocated - units_amc - units_eop' },
+    { name: 'net_change_agrees', label: 'Net change agrees', expression: 'units_net_change - (units_eop - units_bop)' }];
+  const pd = await hm.propose_structure({ summary: 'Adds net units.', tiles: items, sections: UNIT_SECTIONS, checks: recon });
+  const draft = (events.filter(x => x.type === 'draft').pop() || {}).draft || {};
+  check('a tiles draft carries its sections and checks, and the summary says so', !pd.isError && draft.sections && draft.sections.length === 2 && draft.checks.length === 2 &&
+    /in two sections with two reconciliation checks/.test(draft.summary), pd.text);
+  const bad = await hm.propose_structure({ summary: 'x', tiles: items, sections: UNIT_SECTIONS, checks: [{ name: 'c1', label: 'C', expression: 'units_bop - np.abs(units_eop)' }] });
+  check('a check expression with a function call is refused', bad.isError && /c1/.test(bad.text), bad.text);
+  const tomlBefore = fs.readFileSync(path.join(dir, 'tilekit.toml'), 'utf8');
+  // the model does not load afterwards: both the module file and tilekit.toml are put back
+  let graphs = 0;
+  const failing = (cmd, args) => (cmd === 'graph' && ++graphs === 2 ? Promise.reject(new Error('simulated load failure')) : tk(cmd, args));
+  let threw = null;
+  try { await edits.acceptTileDraft({ ...svc, tilekit: failing }, draft); } catch (err) { threw = err.message; }
+  check('if the model does not load after a tiles draft, the module file and tilekit.toml are both restored',
+    /would not load/.test(threw || '') && fs.readFileSync(unitsFile(dir), 'utf8') === unitsBefore && fs.readFileSync(path.join(dir, 'tilekit.toml'), 'utf8') === tomlBefore, threw);
+  const acc = await edits.acceptTileDraft({ ...svc, confirm: async () => true }, draft);
+  const toml = fs.readFileSync(path.join(dir, 'tilekit.toml'), 'utf8');
+  const block = src.tomlModules(toml).find(b => b.id === 'unit_projection');
+  const g2 = await tk('graph');
+  const gm = g2.modules.find(m => m.id === 'unit_projection');
+  check('accepting writes the sections and checks under the module in tilekit.toml and the model loads',
+    acc.accepted && block.sections.map(x => x.tiles.join('+')).join('|') === 'units_allocated+units_after_alloc|units_amc+units_eop+units_net_change' &&
+    block.checks.map(c => c.name).join() === 'units_reconcile,net_change_agrees' && !!g2.quantities.units_net_change &&
+    acc.actions.some(a => /Laid out unit_projection in two sections/.test(a)) && acc.actions.some(a => /two reconciliation checks/.test(a)), { actions: acc.actions, block });
+  check('the tooling reads the same sections and checks back (when it reports them)', !Array.isArray(gm.sections) ||
+    (gm.sections.filter(x => x.title).map(x => x.title).join('|') === UNIT_SECTIONS.map(x => x.title).join('|') && (gm.checks || []).length === 2), { sections: gm.sections, checks: gm.checks });
+  const parsed = parseToml(toml);
+  check('tilekit.toml stays valid TOML with one set of sections for the module', parsed.module.find(m => m.id === 'unit_projection').section.length === 2, null);
+  // removing a tile that a check uses needs the checks given again; then it is also taken out of the module's sections
+  const rm0 = await hm.remove_tiles({ tiles: ['units_net_change'] });
+  check('removing a tile that a reconciliation check uses is refused until the checks are given without it', !Array.isArray(gm.checks) || (rm0.isError && /net_change_agrees uses units_net_change/.test(rm0.text)), rm0.text);
+  const rm = await hm.propose_structure({ summary: 'Removes net units.', remove: ['units_net_change'], checks: [recon[0]] });
+  const rmDraft = (events.filter(x => x.type === 'draft').pop() || {}).draft || {};
+  const rmAcc = !rm.isError ? await edits.acceptTileDraft({ ...svc, confirm: async () => true }, rmDraft) : { accepted: false };
+  const afterRm = src.tomlModules(fs.readFileSync(path.join(dir, 'tilekit.toml'), 'utf8')).find(b => b.id === 'unit_projection');
+  check('removing a tile takes it out of the module\'s sections', rmAcc.accepted && !afterRm.sections.some(x => x.tiles.includes('units_net_change')), { rm: rm.text, sections: afterRm.sections });
+
+  // ---- the module's own test
+  const rel = testsMod.moduleTestRel('unit_projection');
+  fs.rmSync(path.join(dir, rel), { force: true });
+  const hModel = createHandlers(svc, turn({ level: 'model', id: 'model' }));
+  const noMod = await hModel.propose_module_test({ summary: 'x', code: MODULE_TEST });
+  check('at model level the module test needs a module', noMod.isError && /Name the module/.test(noMod.text), noMod.text);
+  const hOther = createHandlers(svc, turn({ level: 'tile', id: 'deaths' }));
+  const out = await hOther.propose_module_test({ summary: 'x', module: 'unit_projection', code: MODULE_TEST });
+  check('the module test is refused from a tile of another module', out.isError && /proposed with that module/.test(out.text), out.text);
+  const asTests = await hm.propose_module_test({ summary: 'x', tests: [{ name: 'test_a', code: 'def test_a():\n    """A."""\n    assert units_eop(1.0, 0.0) == 1.0' }] });
+  check('with no module test yet, the whole file is asked for', asTests.isError && /whole file/.test(asTests.text), asTests.text);
+  const noCase = await hm.propose_module_test({ summary: 'x', code: MODULE_TEST.replace('    Case: base, month 1\n', '') });
+  check('a module test must name the case it walks (Case: id, month n)', noCase.isError && /Case: base, month 1/.test(noCase.text), noCase.text);
+  const ht2 = createHandlers(svc, turn({ level: 'tile', id: 'units_amc' }));
+  const pm = await ht2.propose_module_test({ summary: 'Walks month 1 of the base case.', code: MODULE_TEST });
+  const mtDraft = (events.filter(x => x.type === 'draft').pop() || {}).draft || {};
+  check('propose_module_test from a tile of the module saves a draft and writes nothing', !pm.isError && mtDraft.kind === 'module_test' && mtDraft.module === 'unit_projection' &&
+    mtDraft.file === rel && !fs.existsSync(path.join(dir, rel)), pm.text);
+  const caseIds = (await tk('cases')).cases.map(c => c.id);
+  const mtAcc = await testsMod.acceptModuleTestDraft(svc, mtDraft, g.modules.find(m => m.id === 'unit_projection'), { caseIds });
+  check('accepting the module test writes it and runs it: every check agrees', mtAcc.accepted && fs.readFileSync(path.join(dir, rel), 'utf8') === MODULE_TEST && /every check agrees/.test(mtAcc.actions[0]), mtAcc.actions);
+  const pm2 = await hm.propose_module_test({ summary: 'A wrong figure.', tests: [{ name: 'test_wrong_closing', code: 'def test_wrong_closing():\n    """A closing figure worked wrongly.\n\n    194.0 - 0.12125 = 193.9 (wrong on purpose)\n    """\n    assert units_eop(194.0, 0.12125) == pytest.approx(193.9, **TOL)' }] });
+  const mt2 = (events.filter(x => x.type === 'draft').pop() || {}).draft || {};
+  const mtAcc2 = !pm2.isError ? await testsMod.acceptModuleTestDraft(svc, mt2, g.modules.find(m => m.id === 'unit_projection'), { caseIds }) : { accepted: true, actions: [pm2.text] };
+  check('a module test that does not agree with the tiles is not saved, and says which test', !pm2.isError && !mtAcc2.accepted && /test_wrong_closing/.test(mtAcc2.actions[0]) &&
+    fs.readFileSync(path.join(dir, rel), 'utf8') === MODULE_TEST, mtAcc2.actions);
+
+  // ---- the terminal's tool list
+  const { createAgentService } = require('../src/agent');
+  const svcCli = createAgentService({ modelDir: dir, repoRoot: REPO, tilekit: tk, runPytest: null });
+  const tools = await svcCli.cliTools();
+  const ps = tools.find(t => t.name === 'propose_structure');
+  const pmt = tools.find(t => t.name === 'propose_module_test');
+  check('the terminal gets propose_module_test, and propose_structure takes sections and checks', !!pmt && /tests\/modules\/test_<module>\.py/.test(pmt.description) &&
+    !!(ps && ps.inputSchema.properties.sections && ps.inputSchema.properties.checks), tools.map(t => t.name));
+  const prompt = require('../src/agent/prompt').systemPrompt({ modelDir: dir });
+  check('the standing rules reach the agent: the standards file and the layout step in the prompt', /One step per tile/.test(prompt) && /Named sections/.test(prompt) &&
+    /A reconciliation for every roll-forward/.test(prompt) && /lay out the module sheet: sections/.test(prompt) && /propose_module_test/.test(prompt));
 }
 
 const storeMod = require('../src/agent/store');
@@ -596,7 +838,7 @@ async function chatChecks(check) {
   check('only one draft per agreed request', again2.isError, again2.text);
 
   // Model-level tile draft names its module; accepting rebuilds the module and model workbooks.
-  const md = await hmodel.propose_structure({ summary: 'Adds net units.', module: 'unit_projection', tiles: [
+  const md = await hmodel.propose_structure({ summary: 'Adds net units.', module: 'unit_projection', sections: UNIT_SECTIONS, tiles: [
     { name: 'units_net_change', label: 'Change in units', args: ['units_eop', 'units_bop'], units: 'units per policy', timing: 'during month', format: 'units', spec: 'Closing units less opening units.' }] });
   const am = await e.service.acceptDraft(draftIdOf(md.text));
   check('a tile draft made at model level is accepted into its module, with rebuilds reported', am.accepted &&
@@ -749,7 +991,7 @@ async function scenario6() {
   const svc = { modelDir: e.modelDir, tilekit: e.tilekit, confirm: async () => false, runPytest: null,
     emitEvent: () => {}, saveDraftEvent: d => store.saveDraft(e.modelDir, d) };
   const h = createHandlers(svc, { scope: { level: 'module', id: 'unit_projection' }, asked: false, approved: new Set(), writes: [], drafts: [] });
-  const pd = await h.propose_structure({ summary: 'Adds the monthly change in units.', tiles: [
+  const pd = await h.propose_structure({ summary: 'Adds the monthly change in units.', sections: [UNIT_SECTIONS[0], { title: UNIT_SECTIONS[1].title, tiles: ['units_amc', 'units_eop', 'units_change'] }], tiles: [
     { name: 'units_change', label: 'Change in units', args: ['units_eop', 'units_bop'], units: 'units per policy', timing: 'end of month', format: 'units',
       spec: 'Closing units less opening units: the net number of units added to the policy this month.' }] });
   const id = (pd.text.match(/draft (d\d{14}-[0-9a-f]{6})/) || [])[1];

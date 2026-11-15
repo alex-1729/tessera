@@ -18,12 +18,46 @@ TIMINGS = ("step", "summary")
 
 
 @dataclass(frozen=True)
+class SectionConfig:
+    """A named group of a module's tiles on the module sheet (`[[module.section]]`): presentation only."""
+    title: str
+    tiles: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class CheckConfig:
+    """A reconciliation (`[[module.check]]`): an expression over step quantities that must be zero every month."""
+    name: str
+    label: str
+    expression: str
+    tolerance: float = 1e-9
+
+
+# How a module is presented (its sections) and the reconciliations shown on its sheet. They are not part of any
+# tile's formula, so they are kept out of the module's identity in the stamps' `code` (see `stamps.py`).
+PRESENTATION_FIELDS = ("sections", "checks")
+
+
+@dataclass(frozen=True)
 class ModuleConfig:
     id: str
     title: str
     layer: str
     python: str
     timing: str = "step"
+    sections: tuple[SectionConfig, ...] = ()
+    checks: tuple[CheckConfig, ...] = ()
+
+    def identity(self):
+        """The module's config without its presentation (sections and checks): what the stamps' `code` holds."""
+        return {k: v for k, v in dataclasses.asdict(self).items() if k not in PRESENTATION_FIELDS}
+
+    def presentation(self):
+        """The sections and checks as plain data, or None when the module has neither."""
+        if not self.sections and not self.checks:
+            return None
+        return {"sections": [dataclasses.asdict(s) for s in self.sections],
+                "checks": [dataclasses.asdict(c) for c in self.checks]}
 
 
 @dataclass(frozen=True)
@@ -152,6 +186,8 @@ def load_config(model_dir):
             layer=_require(table, "layer", where),
             python=_require(table, "python", where),
             timing=table.get("timing", "step"),
+            sections=_load_sections(table, where),
+            checks=_load_checks(table, where),
         )
         if module.layer not in layers:
             raise TilekitError(f"tilekit.toml: module '{module.id}' has unknown layer '{module.layer}'", {"layers": list(layers)})
@@ -199,6 +235,66 @@ def load_config(model_dir):
         input_series=tuple(input_series),
         tables=tuple(tables),
     )
+
+
+SNAKE_CASE = re.compile(r"[a-z][a-z0-9]*(_[a-z0-9]+)*")
+
+
+def _load_sections(table, where):
+    """`[[module.section]]` entries: {title, tiles}. Whether the tiles belong to the module is checked by the graph."""
+    raw = table.get("section", [])
+    if not isinstance(raw, list):
+        raise TilekitError(f"tilekit.toml: {where}: write sections as [[module.section]] tables")
+    sections = []
+    for i, item in enumerate(raw):
+        at = f"{where} section #{i + 1}"
+        if not isinstance(item, dict):
+            raise TilekitError(f"tilekit.toml: {at} is not a table")
+        title = item.get("title")
+        if not isinstance(title, str) or not title.strip():
+            raise TilekitError(f"tilekit.toml: {at} needs a title")
+        tiles = item.get("tiles")
+        if not isinstance(tiles, list) or not tiles or not all(isinstance(t, str) and t for t in tiles):
+            raise TilekitError(f"tilekit.toml: {at} ('{title}') needs `tiles`, a list of tile names")
+        if len(set(tiles)) != len(tiles):
+            raise TilekitError(f"tilekit.toml: {at} ('{title}') lists a tile twice", {"tiles": tiles})
+        sections.append(SectionConfig(title=title.strip(), tiles=tuple(tiles)))
+    return tuple(sections)
+
+
+def _load_checks(table, where):
+    """`[[module.check]]` entries: {name, label, expression, tolerance}. The names the expression reads are checked
+    against the model's quantities by the graph."""
+    from tilekit.reconcile import parse_expression
+    raw = table.get("check", [])
+    if not isinstance(raw, list):
+        raise TilekitError(f"tilekit.toml: {where}: write checks as [[module.check]] tables")
+    checks = []
+    for i, item in enumerate(raw):
+        at = f"{where} check #{i + 1}"
+        if not isinstance(item, dict):
+            raise TilekitError(f"tilekit.toml: {at} is not a table")
+        name = item.get("name")
+        if not isinstance(name, str) or not SNAKE_CASE.fullmatch(name):
+            raise TilekitError(f"tilekit.toml: {at} needs a snake_case `name`, got {name!r}")
+        expression = item.get("expression")
+        if not isinstance(expression, str) or not expression.strip():
+            raise TilekitError(f"tilekit.toml: check '{name}' in {where} needs an `expression`")
+        parse_expression(expression, f"check '{name}'")  # raises when it is not plain arithmetic on names
+        label = item.get("label", name)
+        if not isinstance(label, str) or not label.strip():
+            raise TilekitError(f"tilekit.toml: check '{name}' in {where} has an empty label")
+        tolerance = item.get("tolerance", 1e-9)
+        if isinstance(tolerance, bool) or not isinstance(tolerance, (int, float)) or not tolerance >= 0 \
+                or tolerance != tolerance or tolerance == float("inf"):
+            raise TilekitError(f"tilekit.toml: check '{name}' in {where} has tolerance {tolerance!r}; "
+                               "use a number at least 0")
+        checks.append(CheckConfig(name=name, label=label.strip(), expression=expression.strip(),
+                                  tolerance=float(tolerance)))
+    names = [c.name for c in checks]
+    if len(set(names)) != len(names):
+        raise TilekitError(f"tilekit.toml: {where} has two checks with the same name", {"checks": names})
+    return tuple(checks)
 
 
 def _load_table(root, name, table):

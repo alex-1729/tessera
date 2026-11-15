@@ -121,6 +121,20 @@ python = "unit_linked.liability.units"
 # timing = "summary"   (optional; default "step")
 # unknown keys (purpose, feeds, ...) are allowed and ignored
 
+[[module.section]]         # optional: how the module sheet groups its tiles (presentation only)
+title = "Units allocated in the month"
+tiles = ["units_allocated", "units_after_alloc"]
+
+[[module.section]]
+title = "Charge and closing units"
+tiles = ["units_amc", "units_eop"]
+
+[[module.check]]           # optional: a reconciliation that must be zero every month of every case
+name = "units_reconcile"
+label = "Units roll-forward reconciles"
+expression = "units_bop + units_allocated - units_amc - units_eop"
+# tolerance = 1e-9         (optional; absolute, at least 0)
+
 [state.units_bop]          # carried forward: next month's units_bop is this month's units_eop
 from = "units_eop"
 initial = 0.0
@@ -145,6 +159,8 @@ excel = "=INDEX({table:mortality.qx},MATCH({attained_age},{table:mortality.age},
 headline = ["in_force_eop"] # step quantities shown (at the last month) in `policies`
 ```
 
+- **Sections** (`[[module.section]]`, after the module's `[[module]]` table): `title` (text) and `tiles` (a non-empty list). Every listed name must be a tile of that module, listed once; a tile in two sections is an error. Sections come in the order written, tiles in the order listed; the tiles no section lists form one final untitled section in dependency order. A module with no sections is laid out exactly as before. Sections are not part of any tile's formula, so they never touch a tile's stamp (see stamps).
+- **Checks** (`[[module.check]]`): `name` (snake_case, unique within the module and not the name of any quantity, ignoring case), `label` (defaults to the name), `expression` and optional `tolerance` (default `1e-9`). The expression may use the names of the model's step quantities (tiles of step modules, input series, states, parameters; not summary tiles), numbers, `+ - * /`, unary minus and parentheses; it is parsed with `ast` and never run as Python (`tilekit/reconcile.py`). A summary module cannot have checks. A check passes when `|value| <= tolerance` in every month of every case, both in the Excel formula on the module sheet and in Python (the same expression evaluated on each case's results); a non-finite value or an Excel error never passes. These are graph errors, so every command reports them.
 - `Params` is a frozen dataclass. Each field carries `metadata={"label": ..., "format": ..., "units": ...}`.
 - `build_inputs(model_points, params, months) -> dict[str, np.ndarray]`: the I/O and assumptions layers. `model_points` is a dict of 1-D arrays of length `n_pol` (one key per model-point field). Each returned series has shape `(months, 1, n_pol)`. This is the only place that reads tables or does lookups, and it runs once, before the loop.
 - `excel` on an input is an Excel template that replicates the series live on the model workbook's "Inputs" sheet: `{name}` is another input's cell in the same month (the defined name of a per-policy constant, see "Workbooks and the house style"), `{table:T.col}` the absolute range of a table column, and a bare identifier a parameter. Templates may read each other but not in a cycle. Inputs without `excel` are pasted values.
@@ -163,6 +179,8 @@ headline = ["in_force_eop"] # step quantities shown (at the last month) in `poli
 - `model/tests/tiles/test_<tile>.py` holds one tile's hand calculation: `test_<tile>_by_hand`, with the working in its docstring. There is one file per tile. Hand checks that are not about one tile live in `model/tests/test_inputs_by_hand.py`.
 - Tests that run over cases take a `case_id` argument and are parametrised over whatever `cases/*.json` exist; a test that needs a particular case uses the `named_case("<id>")` fixture, which skips with a reason when that case is absent.
 - `model/tests/test_signed_off.py` compares each signed-off tile's `expected.json` with Python.
+- A tile test may say which case and month its figures were worked from with a line `Case: <case id>, month <n>` in a docstring (module, class or test function); `status` reports it as `case_check`.
+- A module may have its own hand-worked test, `tests/modules/test_<module id>.py`: a walk through the module for one case written with the tile functions (the example model has `tests/modules/test_unit_projection.py`). It is optional; when present it must pass for the module to be signed off.
 
 ## `tilekit` command line
 
@@ -182,7 +200,7 @@ Run from the repo root as `uv run --project tilekit tilekit <command> --model mo
 | `signoff (--tile T \| --module M \| --whole-model) --reviewer NAME [--comment TEXT] [--values-only REASON]` | Record a sign-off. `--values-only` is the acknowledgement a values-only tile needs; refused for any other target |
 | `reconfirm --reviewer NAME [--module M] [--comment TEXT]` | Bulk re-confirm tiles with values-only drift whose checks pass |
 | `export --out FILE [--case ID]` | Copy a model workbook out |
-| `test [--file PATH]` | Run the model's tests (pytest) and cache the result in `review/model/tests.json`. With `--file`, run that one file (relative to the model or the working directory) and return its results without touching the cache |
+| `test [--file PATH]` | Run the model's tests (pytest, with the model as rootdir) and cache the result in `review/model/tests.json`: `{at, stamp, passed, failed, tests: [{id, name, file, path, outcome}], files: {<path>: {sha256, passed, failed, skipped}}}`, where `path` is relative to the model (`tests/tiles/test_units_amc.py`) and `files` has every `tests/**/test_*.py` with the digest of the bytes that ran. With `--file`, run that one file (relative to the model or the working directory) and return its results without touching the cache (no `files`) |
 | `run --model-points FILE.csv --name RUN [--id-column COL]` | Project real model points (default id column `policy_id`) |
 | `runs` | Stored real-data runs, newest first, each with `current` (made with the current model stamp) |
 | `policies --run RUN [--sort KEY] [--desc] [--limit N] [--offset N] [--search TEXT] [--flag uncovered\|nan\|undefined]` | List policies in a run. Sort keys: `id`, `index`, a model-point field, a summary quantity or a `[runs] headline` quantity; NaN and infinities sort last |
@@ -205,7 +223,11 @@ Run from the repo root as `uv run --project tilekit tilekit <command> --model mo
      "python": "unit_linked.liability.units", "file": "src/unit_linked/liability/units.py",
      "tiles": ["units_allocated", "units_after_alloc", "units_amc", "units_eop"],
      "inputs": ["premium", "unit_price", "allocation_rate", "amc_pm", "amc_cap_units", "units_bop"],
-     "feeds": ["cashflows"], "fed_by": []}
+     "feeds": ["cashflows"], "fed_by": [],
+     "sections": [{"title": "Units allocated in the month", "tiles": ["units_allocated", "units_after_alloc"]},
+                  {"title": "Charge and closing units", "tiles": ["units_amc", "units_eop"]}],
+     "checks": [{"name": "units_reconcile", "label": "Units roll-forward reconciles",
+                 "expression": "units_bop + units_allocated - units_amc - units_eop", "tolerance": 1e-9}]}
   ],
   "quantities": {
     "units_amc": {
@@ -227,6 +249,8 @@ Run from the repo root as `uv run --project tilekit tilekit <command> --model mo
   "edges": [{"from": "units_after_alloc", "to": "units_amc"}]
 }
 ```
+
+`sections` is always present and complete: every tile of the module once, the configured sections in order and then, when any tile is not listed, `{"title": null, "tiles": [...]}`; a module with no sections configured has one section with `title: null` holding all its tiles. `checks` is `[]` when the module has none.
 
 In `formula`, `{name}` marks a row quantity (replaced by a cell reference when a sheet is laid out, or by the defined name of a per-policy constant, which is one named cell) and a bare name is a parameter (a defined name in the workbook). `formula` is the same whatever the layout. `kind` is one of `tile`, `input`, `param`, `state`. `status` is `"not_built"` or null. `edges` lists argument edges only.
 
@@ -285,6 +309,13 @@ A tile can be signed off only when its workbook is built, current and unedited, 
  "modules": {"unit_projection": {"state": "...", "drift": null, "workbook_current": true,
      "tiles_signed_off": 3, "tiles_total": 4, "stale": 1, "unbuilt": 0,
      "checks": [{"name": "Sheet agrees with Python", "pass": true}], "new_cases": [], "signed_off": null,
+     "reconciliations": [{"name": "units_reconcile", "label": "Units roll-forward reconciles",
+                          "expression": "units_bop + units_allocated - units_amc - units_eop",
+                          "max_abs_difference": 0.0, "pass": true}],
+     "tile_tests": {"total": 4, "passed": 4, "failed": 0, "not_run": 0, "none": 0,
+                    "tiles": {"units_amc": {"tests": "passed", "hand_checks": {"in_sheet": 3, "agree": 3},
+                                            "case_check": false}}},
+     "module_test": {"file": "tests/modules/test_unit_projection.py", "status": "passed"},
      "workbook": "review/modules/unit_projection/workbook.xlsx", "can_sign_off": false, "blockers": ["…"]}},
  "model": {"state": "...", "drift": null, "workbook_current": true, "case": "base", "workbook_case": "base",
      "modules_signed_off": 0, "modules_total": 5, "stale": 0, "checks": [...], "new_cases": [], "signed_off": null,
@@ -298,8 +329,11 @@ A tile can be signed off only when its workbook is built, current and unedited, 
 - `checks_pass` / `max_abs_difference` are `null` when unbuilt and for a values-only tile; `case_results[*].pass` likewise.
 - `workbook_current` is false when the stored stamp differs from the current one or the workbook's content digest no longer matches (edited outside a build). For the model it is also false when the stored workbook shows a case other than the default (`workbook_case` vs `case`).
 - `near_ties` is `{case: [{"comparison", "month"}]}` from the stored sidecar.
-- Module checks: "Sheet agrees with Python", "Tile formulas match the tile workbooks" (values-only and not-built tiles excluded), "Every tile signed off", "No rule violations". Model checks: "Workbook agrees with Python", "Every module signed off", "No rule violations", then the cached model-test checks (one per `test_invariants*` test and "Model tests pass (P of T)"; all marked `"stale": true` and failing when the cache's model stamp is out of date).
-- Blockers, as written: "The tile's workbook has not been built; build it first." / "… is out of date; rebuild it first." / "The stored workbook was changed outside a build. Rebuild it." / "The difference check fails in case X (largest difference D)." / "Rule violation (rule) at line N: message" / "No case takes the branch 'L'; add a case that does." / "A comparison is within rounding of a tie in case X, month N: Excel and Python may take different branches." / "This tile cannot be written as an Excel formula. Sign-off needs a values-only acknowledgement." / "This tile has not been built yet." Modules and the model add failed checks, near-ties of their tiles (prefixed with the tile name), pending sign-offs, rule-violation counts, failed model-test checks and, for the model, "The model workbook shows case 'X', not the default case 'Y'; rebuild it first."
+- Module `reconciliations`: one entry per `[[module.check]]` in order, read from the module sidecar; `null` when the stored module workbook is not current (checks are part of its stamp, so a sidecar from before a check was added or changed never counts), `[]` when the module has no checks. `max_abs_difference` is the largest |value| in Excel and in Python over every month of every case (null when one is not finite or Excel returned an error); `pass` is both within the tolerance everywhere.
+- Module `tile_tests`: per tile (every tile of the module, not-built ones included) `tests` is the cached result of `tests/tiles/test_<tile>.py`: `"passed"` (no test failed; all-skipped counts as passed), `"failed"`, `"not_run"` (no cache, the cache's model stamp is stale, the cache predates per-file results, the file is not in it, its bytes differ from those that ran, or none of its tests ran) or `"none"` (no test file). `hand_checks` is `{in_sheet, agree}` from the tile's `hand_checks` (null when the tile has no test file or no stored workbook built for its current test). `case_check` is whether a docstring of the test file has a line matching `^\s*Case:\s*([A-Za-z0-9_]+)\s*,\s*month\s+(\d+)\s*$`. `total` counts the built tiles (not `not_built`) and `passed`/`failed`/`not_run`/`none` split them. "Tile tests pass (n of m)" passes when every built tile's tests passed.
+- Module `module_test`: `{file: "tests/modules/test_<module>.py", status}` with the same statuses; absent (`"none"`) never blocks.
+- Module checks: "Sheet agrees with Python", "Tile formulas match the tile workbooks" (values-only and not-built tiles excluded), "Every tile signed off", "No rule violations", then "Reconciliations hold" (only when the module has checks), "Tile tests pass (n of m)" and "Module test passes" (only when `tests/modules/test_<module>.py` exists). Model checks: "Workbook agrees with Python", "Every module signed off", "No rule violations", then the cached model-test checks (one per `test_invariants*` test and "Model tests pass (P of T)"; all marked `"stale": true` and failing when the cache's model stamp is out of date).
+- Blockers, as written: "The tile's workbook has not been built; build it first." / "… is out of date; rebuild it first." / "The stored workbook was changed outside a build. Rebuild it." / "The difference check fails in case X (largest difference D)." / "Rule violation (rule) at line N: message" / "No case takes the branch 'L'; add a case that does." / "A comparison is within rounding of a tie in case X, month N: Excel and Python may take different branches." / "This tile cannot be written as an Excel formula. Sign-off needs a values-only acknowledgement." / "This tile has not been built yet." Modules and the model add failed checks, near-ties of their tiles (prefixed with the tile name), pending sign-offs, rule-violation counts, failed model-test checks; modules also "The check '<label>' is not zero (largest value X)." per failing reconciliation (instead of a "Check failed" line), "Tile tests do not all pass: failed for a, b; not run since the last change for c (run `tilekit test`); no test file for d." (only the parts that apply), "The module test tests/modules/test_<m>.py fails." / "… has not been run since the last change; run `tilekit test`."; and, for the model, "The model workbook shows case 'X', not the default case 'Y'; rebuild it first."
 
 ### `queue` output
 
@@ -373,7 +407,7 @@ Sidecar `workbook.json` for a tile:
 
 For a values-only tile `formula` is null and every `checks_pass` / `max_abs_difference` is null. A case entry has `"error": "#VALUE!"` when Excel returned an error Python does not agree with.
 
-Module and model sidecars have `"kind": "module"` / `"model"`, `"tiles": {tile: {"module", "formula", "translatable", "max_abs_difference", "checks_pass", "near_ties"}}` (null checks for values-only tiles) and per-case `"tiles"` entries with `branches` and `near_ties`; modules add `"outputs"`; the model adds `"case"`, `"sheets"` and `"inputs": {input: {"excel", "max_abs_difference", "checks_pass"}}`.
+Module and model sidecars have `"kind": "module"` / `"model"`, `"tiles": {tile: {"module", "formula", "translatable", "max_abs_difference", "checks_pass", "near_ties"}}` (null checks for values-only tiles) and per-case `"tiles"` entries with `branches` and `near_ties`; modules add `"outputs"`; the model adds `"case"`, `"sheets"` and `"inputs": {input: {"excel", "max_abs_difference", "checks_pass"}}`. A module with checks adds `"reconciliations": [{name, label, expression, tolerance, excel_max_abs, python_max_abs, max_abs_difference, pass, cases: {case: {excel_max_abs, python_max_abs, pass, error?}}}]`, and the model sidecar `"reconciliations": {module: [...]}` for every module with checks; per-case entries carry them under `"reconciliations"` keyed `<module>:<name>`. Reconciliations are not part of `checks_pass` (the sheet agreeing with Python).
 
 `content_digest` is the SHA-256 of every generated sheet's cells (formula text and cached value), the sheet order and the defined names, read from the xlsx itself; the "Scratch" sheet and names scoped to it or pointing only at it are excluded, so the app's autosave of Scratch edits does not change it. `content_stat` is the file's mtime and size at build; `status` recomputes the digest only when they differ (and caches it in `review/.cache/content.json` by mtime and size). `build` rebuilds a workbook whose digest no longer matches.
 
@@ -388,7 +422,7 @@ A **stamp** is `{code, spec, upstream, cases, params, translator, layout}`, each
 - `translator`: the translator version and the formula layout version (`stamps.FORMULA_LAYOUT_VERSION`, bumped only for a layout change that changes what a formula means; it has stayed `tilekit-workbook 4`).
 - `layout`: the workbook layout version (`stamps.LAYOUT_VERSION`, now `tilekit-workbook 5`), bumped for any other change to how workbooks are laid out.
 
-Module stamps combine their tiles' `code` (with the module's config) and `spec`; the model stamp combines every tile's with the model name and module config. `code`/`spec`/`translator` changing is formula drift; the rest, `layout` included, is values drift. A stamp written before `layout` existed has no such key, so it differs from a current one in `layout`: its workbook is out of date, a sign-off on it is stale with values drift and (its formula being unchanged) `reconfirm` re-signs a tile once it is rebuilt; a module or model sign-off is given again. `expected.json` is not held to `layout` (it records Python values).
+Module stamps combine their tiles' `code` (with the module's config) and `spec`; the model stamp combines every tile's with the model name and module config. The module config in `code` leaves out its sections and checks (`ModuleConfig.identity()`: id, title, layer, python, timing, exactly the keys stamped before sections existed). Sections and checks are part of `layout` instead: a module workbook's `layout` is the digest of the layout version with the module's sections and checks, and the model workbook's (`model_stamp(model, case)`) the same with every module's; with none it is exactly the plain layout digest, so a model without sections or checks keeps its stamps and builds byte-identical workbooks. The plain `model_stamp(model)` that the test cache and real-data runs are held to never includes them. So adding, changing or removing a section or check: no tile stamp, tile sign-off, `expected.json` or test cache changes; the module workbook (and the model workbook) goes out of date with values drift (a module's drift is `formula` only when one of its tiles has formula drift); a module or model sign-off goes `stale` (values) and, after a rebuild, is given again (modules and the model are not re-confirmed in bulk). `code`/`spec`/`translator` changing is formula drift; the rest, `layout` included, is values drift. A stamp written before `layout` existed has no such key, so it differs from a current one in `layout`: its workbook is out of date, a sign-off on it is stale with values drift and (its formula being unchanged) `reconfirm` re-signs a tile once it is rebuilt; a module or model sign-off is given again. `expected.json` is not held to `layout` (it records Python values).
 
 ## Workbooks and the house style
 
@@ -410,7 +444,7 @@ House style (the user's own; follow it exactly):
 - One formula per row, copied across. Classic functions: `INDEX`/`MATCH` (never `VLOOKUP`/`XLOOKUP`), `SUMPRODUCT`, `IF`, `MIN`, `MAX`, `SUM`, `NPV`, `IRR`. No `LET`, `LAMBDA` or spilling arrays.
 - Below the block, in grey (128,128,128): "Python <label>" (pasted values) and "Difference" (formula minus Python), difference to 4 dp.
 - Number formats by `Format` as listed under Tiles. Column B is wide enough for every label and for the B2/B3 title lines.
-- A tile workbook has one sheet per case (named after the case) plus "Scratch". A module workbook has the module's tiles as one linked block per case sheet. The model workbook has, for one case, an "Inputs" sheet first (every parameter and per-policy constant as a defined name, pasted inputs, then inputs with an `excel` template as live formula rows checked against Python), an "Assumptions" sheet when the model has tables (each table: bold label, header row with a thin bottom border, values in bold blue, the table name in maroon), then one sheet per module in dependency order (left to right) with cross-sheet references (dark green link rows), then "Scratch".
+- A tile workbook has one sheet per case (named after the case) plus "Scratch". A module workbook has the module's tiles as one linked block per case sheet: rows from other modules, then the module's tiles (with carried-forward state rows first), then the grey Python/Difference rows of the module's outputs. With sections, each section starts with a bold heading row (the title in B, nothing else), sections separated by a blank row, in the order configured; a state row sits in the section of the first tile (in sheet order) that reads it; untitled tiles come after the titled sections without a heading. With checks, a final bold "Checks" heading after the grey rows, then one grey row per check: label in B, a live formula copied across the months over the sheet's own rows and names (for example `=C14+C15-C19-C20`), number format `0.0000`, the check name in maroon after the last month (not a defined name). Anything a check reads that no tile of the module reads (another module's tile, an input, a parameter, a state) is laid out on the sheet like the tiles' own arguments, so the formula never reaches off the sheet. The model workbook's module sheets are laid out the same way (their check rows read the sheet's link rows). The model workbook has, for one case, an "Inputs" sheet first (every parameter and per-policy constant as a defined name, pasted inputs, then inputs with an `excel` template as live formula rows checked against Python), an "Assumptions" sheet when the model has tables (each table: bold label, header row with a thin bottom border, values in bold blue, the table name in maroon), then one sheet per module in dependency order (left to right) with cross-sheet references (dark green link rows), then "Scratch".
 - A values-only tile's row holds its pasted Python values (bold blue, like an input); its grey Python and Difference rows are then zero by construction and are not a check.
 - Error agreement: a Python NaN agrees with an Excel `#NUM!` and a Python infinity with `#DIV/0!` (pasted Python values that are NaN or infinite are written as those errors). Any other Excel error, or an error against a finite Python value, fails the check.
 - Defined names: a Python name that Excel would read as a cell reference (`A1`, `R`, `C`, `R1C1`), a boolean or a function name (`true`, `false`, `sum`, `if`, `min`, `max`, `and`, `or`, `not`, `irr`, `npv`, `index`, `match`, `round`, `int` and similar, in any case) is defined with a trailing underscore (`sum_`).
@@ -466,6 +500,14 @@ A tile's hand-calculation test (`tests/tiles/test_<tile>.py`) is also run by the
 - **Blocks a new sign-off.** A check that does not agree adds the blocker "The spreadsheet formula does not agree with the hand calculation in <tests>." The cases' own difference check (`checks_pass`) is separate and unchanged.
 - **Status.** Each tile in `status` has `hand_checks` (null when the tile has no stored workbook built for its current test): `{sheet, checks_pass, max_abs_difference, not_in_sheet, checks}`.
 - **In the app.** The Test view shows, for each test, the inputs, the hand figure and the Excel formula's figure for every check on the sheet, and says which tests Excel does not see. The house standards ask for checks in the plain form so they reach the sheet.
+
+## Module sheets in the app, and the standing rules for them
+
+**Views.** The tile strip groups a module's boxes by its `sections`, each section's title a small plain label before its group (one untitled section, or none, draws as a single run). The strip marks only a tile that reads the one just before it, so the module view's left bar also has "How the tiles link" (`app/renderer/tilemap.js`): a map of the module's tiles with every link drawn, a solid arrow from a tile to each tile that reads it, a dashed arrow for a value carried forward to the next month, a light box for what the module reads from outside, and the sections as bands. After Module checks the left bar has "Tile tests" (one sentence from `status.modules[id].tile_tests`, then per tile: tests pass, fail, not run or no test; hand checks agreeing in Excel as "n of m" or "Python only"; and whether a check is taken from a case) and "Reconciliations" (each check's label, its expression and "holds" or "not zero (largest value X)"; "not checked yet" when `reconciliations` is null). The centre's Test segment exists at module level too: it shows `tests/modules/test_<module>.py` laid out like a tile's test, with Run (`tilekit test --file`), or a "No module test yet" panel whose button asks the agent to propose one. Missing tooling fields draw as "not reported".
+
+**Standing rules.** House standards for module sheets are in `app/standards/building-spreadsheets.md`: one step per tile; named sections for a module of more than three tiles; a reconciliation for every roll-forward; a hand-worked module test for every roll-forward. They are enforced where the work is done. `propose_structure` takes `sections` (`[{title, tiles}]`) and `checks` (`[{name, label, expression}]`) with a module's tiles; given, they replace the module's sections or checks in `tilekit.toml` when the draft is accepted, written in the same step as states and restored with the module file if the model does not load. When proposing, `validateLayout` (`app/src/agent/validate.js`) sends back a draft that leaves a module of more than three tiles without sections covering every tile, or that carries a carried-forward state without a check naming both the state and its source tile. `write_tile` refuses a tile whose body chooses with `np.where` and also converts a rate (a power whose exponent divides or names a period, or `np.exp` with `np.log`), asking for two tiles (`chooseConvertProblems` in `app/src/agent/source.js`). `propose_module_test` drafts `tests/modules/test_<module>.py`: the whole file when there is none, otherwise functions to add; allowed with the module, one of its tiles or the whole model selected. On accept the file is written and run, and nothing is saved if a check fails. `remove_tiles` (a tiles draft with only removals) deletes tiles nothing reads: code, test and stored review files. The app's line-based toml editing (`tomlModules`, `setModuleLayout`, `dropTilesFromSections`, `insertModuleToml` in `app/src/agent/source.js`) treats every `module.*` sub-table as part of the `[[module]]` above it.
+
+**Drafts.** `drafts/<id>.json` kinds include `tests` (functions added to a tile's test file) and `module_test` (`module`, `file`, `items`, and `code` when it writes the whole file). Tiles drafts may carry `states`, `remove`, `sections`, `checks` and `replaces`.
 
 ## The spreadsheet engine's patches
 

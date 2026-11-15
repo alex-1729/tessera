@@ -54,13 +54,42 @@ function sections(d) {
     out.push(sec('Modules', items.length), table(['Module', 'Id', 'Layer', 'Feeds'],
       items.flatMap(it => pair([h('td', {}, it.title || it.id), name(it.id), h('td', { class: 'grey' }, it.layer || ''), h('td', { class: 'dv-name' }, (it.feeds || []).join(', '))], it.purpose))));
   } else if (d.kind === 'tiles') {
-    out.push(sec(`Tiles${d.module ? ' in ' + d.module : ''}`, items.length), table(['Tile', 'Name', 'Uses', 'Units', 'Timing'],
+    if (items.length) out.push(sec(`Tiles${d.module ? ' in ' + d.module : ''}`, items.length), table(['Tile', 'Name', 'Uses', 'Units', 'Timing'],
       items.flatMap(it => pair([h('td', {}, it.label || it.name), name(it.name), h('td', { class: 'dv-name' }, (it.args || []).join(', ')), h('td', { class: 'grey' }, it.units || ''), h('td', { class: 'grey' }, it.timing || '')],
         [it.spec, ...(it.assumed || []).map(a => 'Assumed: ' + a)].filter(Boolean).join('\n')))));
+    if ((d.remove || []).length) out.push(sec('Tiles to remove', d.remove.length),
+      h('p', { class: 'dv-note warn' }, 'Each tile\'s code, its test and its stored workbook are deleted. Nothing else in the model reads them.'),
+      table(['Tile', 'Name'], d.remove.flatMap(r => pair([h('td', {}, r.label || r.name), name(r.name)]))));
     if ((d.states || []).length) out.push(sec('Carried-forward states', d.states.length),
       h('p', { class: 'dv-note' }, 'How a tile reads last month\'s value: each month the state takes the value its tile had at the end of the month before.'),
       table(['State', 'Name', 'Takes its value from', { t: 'In month 1', cls: 'r' }],
         d.states.flatMap(st => pair([h('td', {}, st.label || st.name), name(st.name), name(st.from), h('td', { class: 'r dv-val' }, value(st.initial, st.format))]))));
+    const replaces = d.replaces || {};
+    if (Array.isArray(d.sections)) out.push(sec('Sections', d.sections.length),
+      h('p', { class: 'dv-note' }, 'The module sheet\'s blocks, top to bottom as the calculation reads.' +
+        (replaces.sections ? ` They replace the module's current sections (${replaces.sections.join(', ')}).` : '')),
+      d.sections.length ? table(['Section', 'Tiles'], d.sections.flatMap(s => pair([h('td', {}, s.title || ''), h('td', { class: 'dv-name' }, (s.tiles || []).join(', '))])))
+        : h('p', { class: 'dv-note' }, 'No sections: the module sheet is one block.'));
+    if (Array.isArray(d.checks)) out.push(sec('Reconciliations', d.checks.length),
+      h('p', { class: 'dv-note' }, 'Each must come to zero in every month of every case, in the spreadsheet and in Python.' +
+        (replaces.checks ? ` They replace the module's current checks (${replaces.checks.join(', ')}).` : '')),
+      d.checks.length ? table(['Check', 'Name', 'Expression'], d.checks.flatMap(c => pair([h('td', {}, c.label || c.name), name(c.name), h('td', { class: 'mono dv-expr' }, c.expression || '')])))
+        : h('p', { class: 'dv-note' }, 'No reconciliation checks.'));
+  } else if (d.kind === 'module_test') {
+    const whole = typeof d.code === 'string';
+    const cases = whole ? testCases(d.code) : items.map(it => testCases(String(it.code || ''))[0] || { name: it.name, title: it.name, lead: '', working: '', checks: [] });
+    out.push(sec(whole ? `Module test for ${d.module || 'the module'}` : `Tests to add to the module test for ${d.module || 'the module'}`, cases.length),
+      h('p', { class: 'dv-note' }, `${whole ? 'Written to' : 'Added to'} ${d.file || 'the module\'s test file'} on accept, then run. If a check does not agree with the tiles, nothing is saved and you are told which.`));
+    if (whole && cases.intro) out.push(h('p', { class: 'testintro' }, cases.intro));
+    for (const c of cases) {
+      out.push(h('section', { class: 'testcase', 'data-test': c.name || '' },
+        h('div', { class: 'testhead' }, h('span', { class: 'testname' }, c.title)),
+        c.lead ? h('p', { class: 'testlead' }, c.lead) : null,
+        c.caseCheck ? h('p', { class: 'dv-note' }, `Walks case ${c.caseCheck.case}, up to month ${c.caseCheck.month}.`) : null,
+        c.working ? h('div', { class: 'testwork' }, h('div', { class: 'srclab' }, 'Worked by hand'), h('pre', {}, c.working)) : null,
+        c.checks.length ? h('div', { class: 'testchecks' }, h('div', { class: 'srclab' }, 'Will be checked against the tiles'), c.checks.map(k => h('pre', { class: 'testcheck' }, k))) : null));
+    }
+    if (whole) out.push(h('details', { class: 'testfile' }, h('summary', {}, 'The whole file'), h('pre', { class: 'dv-code' }, d.code)));
   } else if (d.kind === 'tests') {
     out.push(sec(`Tests to add to ${d.tile || 'the tile'}`, items.length), h('p', { class: 'dv-note' }, 'On accept they are added to the tile\'s test file and run. If one does not agree with the tile, nothing is saved and you are told which.'));
     for (const it of items) {

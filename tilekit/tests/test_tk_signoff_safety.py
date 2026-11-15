@@ -284,3 +284,56 @@ def test_helper_module_change_makes_a_signed_tile_stale(built, capsys):
     (package / "rates.py").write_text("RATE = 1\n")
     t = status(capsys, built)["tiles"]["doubled"]
     assert t["state"] == "stale" and t["drift"] == "values"
+
+
+# ---------------------------------------------------------------- a tile that reads something not built
+
+LOOP = '''
+import numpy as np
+
+
+def interest(balance_bop, growth_pm):
+    """Interest.
+
+    Opening balance times the growth rate.
+
+    Format: amount
+    """
+    return balance_bop * growth_pm
+
+
+def balance_eop(balance_bop, interest):
+    """Closing balance.
+
+    Opening balance plus interest.
+
+    Timing: end of month
+    Format: amount
+    Status: not built
+    """
+    return np.nan * balance_bop
+'''
+
+LOOP_STATE = {"balance_bop": {"from": "balance_eop", "initial": 100.0, "label": "Opening balance", "format": "amount"}}
+
+
+def test_a_tile_waiting_on_an_unbuilt_tile_cannot_be_signed_off(make_model, gridcraft_cli, capsys):
+    """`interest` reads the state `balance_bop`, carried forward from `balance_eop`, which is not built: from month 2
+    its values are NaN in Python and #NUM! in Excel, which agree, so the difference check passes on nothing."""
+    root = make_model(modules={"first": {"source": LOOP, "layer": "A"}}, states=LOOP_STATE)
+    code, doc = run(capsys, root, "build")
+    assert code == 0, doc
+    t = status(capsys, root)["tiles"]["interest"]
+    assert t["state"] == "built" and t["checks_pass"] is True  # the hole: the check itself passes
+    assert t["waiting_on"] == ["balance_eop"] and not t["can_sign_off"]
+    assert any("depends on balance_eop, which is not built yet" in b for b in t["blockers"])
+    code, doc = sign(capsys, root, "--tile", "interest")
+    assert code != 0, doc
+    # once the loop is closed the blocker goes
+    source = root / "src" / root.name / "first.py"
+    source.write_text(source.read_text().replace("    Status: not built\n", "").replace(
+        "return np.nan * balance_bop", "return balance_bop + interest"))
+    code, doc = run(capsys, root, "build")
+    assert code == 0, doc
+    t = status(capsys, root)["tiles"]["interest"]
+    assert t["waiting_on"] == [] and t["can_sign_off"], t["blockers"]

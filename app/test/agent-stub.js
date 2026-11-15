@@ -36,6 +36,8 @@ module.exports = function makeStub({ emit }) {
     // no argument: the whole conversation; a scope: only that selection's events
     history(scope) { if (!scope && stub.onlyScoped) throw new Error('Invalid scope.'); return scope ? log.filter(e => e.scope && e.scope.level === scope.level && e.scope.id === scope.id) : log.slice(); },
     drafts() { return drafts.map(d => ({ ...d })); },
+    // a draft as the real backend would have saved it (the approval view reads drafts())
+    addDraft(d) { drafts.push({ status: 'proposed', ...d }); },
     // conversations: the log on show plus earlier ones kept in memory
     conversations() { const sum = (id, l, current) => ({ id, current, title: (l.find(e => e.type === 'user') || l[0] || {}).text || 'Conversation', started: null, last: null, messages: l.filter(e => ['user', 'agent', 'question'].includes(e.type)).length });
       return (log.length ? [sum('current', log, true)] : []).concat(old.map(o => sum(o.id, o.log, false))); },

@@ -11,7 +11,7 @@ const scaffold = require('./scaffold');
 const signoff = require('./signoff');
 const testsMod = require('./tests');
 const { systemPrompt, turnPreamble } = require('./prompt');
-const { createHandlers, sdkTools } = require('./tools');
+const { createHandlers, sdkTools, TOOL_NAMES } = require('./tools');
 const { findUv, defaultProject } = require('../tilekit');
 const gitMod = require('../git');
 
@@ -192,7 +192,8 @@ function createAgentService(options) {
     },
     saveDraftEvent(draft) {
       store.saveDraft(modelDir, draft);
-      emitEvent(draft.scope, { type: 'draft', text: draft.summary, draft: { id: draft.id, kind: draft.kind, items: draft.items, warnings: draft.warnings || [], result: draft.result, ...(draft.module ? { module: draft.module } : {}) } });
+      emitEvent(draft.scope, { type: 'draft', text: draft.summary, draft: { id: draft.id, kind: draft.kind, items: draft.items, warnings: draft.warnings || [], result: draft.result, ...(draft.module ? { module: draft.module } : {}),
+        ...(draft.sections ? { sections: draft.sections } : {}), ...(draft.checks ? { checks: draft.checks } : {}), ...(draft.file ? { file: draft.file } : {}) } });
     },
     saveRequestEvent(req) {
       for (const old of store.listRequests(modelDir)) {
@@ -387,7 +388,7 @@ function createAgentService(options) {
       // changed ("I can only do that at model level"). Say so once, on the first message after each start.
       if (!cliGreeted) {
         cliGreeted = true;
-        notes.unshift('The app has been restarted and its tools and rules may have changed. Anything said earlier in this conversation about what a tool allows or refuses may be out of date: do not repeat an earlier refusal from memory, call the tool again and go by what it says now.');
+        notes.unshift(`The app has been restarted and its tools and rules may have changed. Anything said earlier in this conversation about what a tool allows or refuses, or about a tool not existing, may be out of date: do not repeat it from memory. Your tools now are: ${TOOL_NAMES.filter(n => !CLI_HIDDEN.has(n)).join(', ')}. Read their descriptions again before saying something cannot be done.`);
       }
       try { emit({ type: 'turn_start', scope, at: store.now() }); } catch { /* listener errors are theirs */ }
       return turnPreamble(scope, { notes: notes.splice(0) });
@@ -457,6 +458,12 @@ function createAgentService(options) {
         }
       } else if (draft.kind === 'tests') {
         r = await testsMod.acceptTestsDraft(svc, draft);
+      } else if (draft.kind === 'module_test') {
+        const [graph, casesDoc] = await Promise.all([tilekit('graph'), tilekit('cases').catch(() => ({ cases: [] }))]);
+        const mod = graph.modules.find(m => m.id === draft.module);
+        if (!mod) throw new Error(`There is no module ${draft.module} any more.`);
+        const caseIds = (Array.isArray(casesDoc) ? casesDoc : (casesDoc.cases || [])).map(c => c.id);
+        r = await testsMod.acceptModuleTestDraft(svc, draft, mod, { caseIds, months: graph.model && graph.model.months });
       } else if (draft.kind === 'what_if') {
         const it = draft.items[0];
         if (!it.code) throw new Error('This what-if changes parameters; it is for information only and cannot be applied from here.');

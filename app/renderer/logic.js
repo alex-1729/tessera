@@ -208,6 +208,58 @@ export function orderedTiles(S, mod) {
   return [...mod.tiles].sort((a, b) => order.indexOf(a) - order.indexOf(b));
 }
 
+// The module's tiles grouped by its sections (graph `sections`, possibly missing): [{title|null, tiles}]. A tile no
+// section lists goes in a trailing untitled group, so every tile shows once. With no titled section the result is one
+// untitled group in dependency order (`ordered`), the strip as it always was.
+export function tileGroups(S, mod, ordered = orderedTiles(S, mod)) {
+  const secs = Array.isArray(mod.sections) ? mod.sections.filter(s => s && Array.isArray(s.tiles)) : [];
+  if (!secs.some(s => s.title)) return [{ title: null, tiles: ordered }];
+  const inMod = new Set(mod.tiles), seen = new Set(), out = [];
+  for (const s of secs) {
+    const tiles = s.tiles.filter(t => inMod.has(t) && !seen.has(t));
+    tiles.forEach(t => seen.add(t));
+    if (tiles.length) out.push({ title: s.title ? String(s.title) : null, tiles });
+  }
+  const rest = ordered.filter(t => !seen.has(t));
+  if (rest.length) {
+    const last = out[out.length - 1];
+    if (last && last.title === null) last.tiles.push(...rest); else out.push({ title: null, tiles: rest });
+  }
+  return out;
+}
+
+const TEST_WORD = { passed: 'pass', failed: 'fail', not_run: 'not run', none: 'no test' };
+export const tileTestWord = w => TEST_WORD[w] || (w ? String(w) : 'not reported');
+// "3 of 3", "Python only" (no check is in the sheet), or "" when the tile has no workbook for its current test.
+export function handCheckWord(hc) {
+  if (!hc || typeof hc !== 'object') return '';
+  const n = Number(hc.in_sheet) || 0;
+  return n ? `${Number(hc.agree) || 0} of ${n}` : 'Python only';
+}
+// One sentence on the module's tile tests (status.modules[id].tile_tests), or null when the tooling did not report them.
+export function tileTestsSentence(tt, order = []) {
+  if (!tt || typeof tt !== 'object' || !tt.tiles || typeof tt.tiles !== 'object') return null;
+  const names = [...order.filter(t => t in tt.tiles), ...Object.keys(tt.tiles).filter(t => !order.includes(t))];
+  const n = names.length;
+  if (!n) return 'This module has no tiles with tests yet.';
+  const of = w => names.filter(t => (tt.tiles[t] || {}).tests === w);
+  const passed = of('passed'), failed = of('failed'), notRun = of('not_run'), none = names.filter(t => !['passed', 'failed', 'not_run'].includes((tt.tiles[t] || {}).tests));
+  const disagree = names.filter(t => { const h = (tt.tiles[t] || {}).hand_checks; return h && (Number(h.agree) || 0) < (Number(h.in_sheet) || 0); });
+  const noSheet = names.filter(t => (tt.tiles[t] || {}).hand_checks == null && (tt.tiles[t] || {}).tests !== 'none');
+  const noCase = names.filter(t => (tt.tiles[t] || {}).case_check === false);
+  const tilesWord = k => `${k} tile${k === 1 ? '\'s' : 's\''}`;
+  if (passed.length === n && !disagree.length && !noSheet.length && !noCase.length) return `All ${tilesWord(n)} tests pass and agree in the spreadsheet.`;
+  const list = a => a.join(', ');
+  const parts = [`${passed.length} of ${tilesWord(n)} tests pass.`];
+  if (failed.length) parts.push(`Failing: ${list(failed)}.`);
+  if (notRun.length) parts.push(`Not run: ${list(notRun)}.`);
+  if (none.length) parts.push(`No test: ${list(none)}.`);
+  if (disagree.length) parts.push(`The spreadsheet does not agree with the hand figures in ${list(disagree)}.`);
+  if (noSheet.length) parts.push(`Not yet in a workbook: ${list(noSheet)}.`);
+  if (noCase.length) parts.push(`No check taken from a case: ${list(noCase)}.`);
+  return parts.join(' ');
+}
+
 // Two or more words: their initials (unit_projection is UP). One word: its first two letters.
 export function moduleRef(mod) {
   const words = String(mod.id).split(/[^A-Za-z0-9]+/).filter(Boolean);

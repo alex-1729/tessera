@@ -209,6 +209,38 @@ function moreTests(id, info) {
 
 const isPy = f => /\.py$/.test(f);
 const testRuns = new Map();      // test file -> {running, passed, text}
+const failedTests = text => new Set([...String(text || '').matchAll(/^(?:FAILED \S+::|_{3,} )(\w+)/gm)].map(m => m[1]));
+
+// The Run button and the result line beside it, for a test file (a tile's or a module's).
+function testBar(host, info, file, run, cases, missing) {
+  const { api } = info;
+  const btn = h('button', { type: 'button', id: 'runtest', disabled: !!((run && run.running) || missing || info.busy()), onclick: async () => {
+    testRuns.set(file, { running: true });
+    await paintSource(host, info);
+    try {
+      const res = await api.tk('test', ['--file', file]);
+      const text = [res && res.output, res && res.stdout, res && res.report].filter(x => typeof x === 'string' && x.trim()).join('\n');
+      testRuns.set(file, { passed: !(res && (res.passed === false || res.failed > 0 || res.ok === false)), text });
+    } catch (e) { testRuns.set(file, { passed: false, text: String(e && e.message || e) }); }
+    await info.repaint();
+  } }, 'Run this test');
+  const failed = run && !run.running && !run.passed ? failedTests(run.text) : new Set();
+  const resultWord = !run ? '' : run.running ? 'Running…' : run.passed ? `Passed. ${cases.length ? `${cases.length} of ${cases.length} checks agree.` : ''}`
+    : `Failed.${failed.size && cases.length ? ` ${failed.size} of ${cases.length} checks do not agree.` : ''}`;
+  return h('div', { class: 'testbar' }, btn,
+    run ? h('span', { class: 'testword ' + (run.running ? 'grey' : run.passed ? 'ok' : 'bad'), id: 'testresult' }, h('strong', {}, resultWord)) : h('span', { class: 'grey' }, 'Not run in this session.'));
+}
+
+// One test as the reviewer reads it: its name in words, what it checks, the working and the checks.
+function testBlock(c, state, checksLabel, ...more) {
+  return h('section', { class: 'testcase', 'data-test': c.name },
+    h('div', { class: 'testhead' }, h('span', { class: 'testname' }, c.title), state ? h('span', { class: 'teststate ' + (state === 'agrees' ? 'ok' : 'bad') }, state) : null),
+    c.lead ? h('p', { class: 'testlead' }, c.lead) : null,
+    c.caseCheck && !more.some(Boolean) ? h('p', { class: 'grey' }, `Taken from case ${c.caseCheck.case}, month ${c.caseCheck.month}.`) : null,
+    c.working ? h('div', { class: 'testwork' }, h('div', { class: 'srclab' }, 'Worked by hand'), h('pre', {}, c.working)) : null,
+    c.checks.length ? h('div', { class: 'testchecks' }, h('div', { class: 'srclab' }, checksLabel), c.checks.map(k => h('pre', { class: 'testcheck' }, k))) : null,
+    ...more);
+}
 
 // Draws the Code or Test segment into `host`. info = {seg, level, id, S, api, changed: Map tile -> {code, line}, busy(), repaint()}
 export async function paintSource(host, info) {
@@ -235,7 +267,8 @@ export async function paintSource(host, info) {
         h('p', {}, info.build ? 'There is no code for this tile yet.' : 'There is no code for this tile yet. Select it and ask the agent to build it.'),
         // asks the agent, in the chat, to write this tile and its test; what it writes still needs your review
         info.build ? h('p', {}, h('button', { type: 'button', class: 'primary', id: 'buildtile', disabled: info.busy(), onclick: e => { e.target.disabled = true; info.build(id); } }, 'Build this tile'),
-          h('span', { class: 'grey nb-hint' }, info.busy() ? 'The agent is busy.' : 'The agent writes the code and its hand-calculation test.')) : null,
+          info.working && info.working(id) ? h('span', { class: 'nb-hint nb-working', id: 'nb-working' }, 'In progress: the agent is building this tile…')
+            : h('span', { class: 'grey nb-hint' }, info.busy() ? 'The agent is busy with something else.' : 'The agent writes the code and its hand-calculation test.')) : null,
         h('table', { class: 'nb-plan' }, h('tbody', {},
           [['Will be', x.label || id], ['Reads', (x.args || []).join(', ')], ['Units', x.units || ''], ['Timing', x.timing || ''], ...assumed.map(a => ['Assumed', a])]
             .filter(r => r[1]).map(r => h('tr', {}, h('td', { class: 'grey' }, r[0]), h('td', { class: r[0] === 'Reads' ? 'mono' : '' }, r[1]))))),
@@ -261,30 +294,48 @@ export async function paintSource(host, info) {
       nodes.push(path(file));
       nodes.push(r.err ? fail(file, r.err) : sourceBlock(r.text, 1, isPy(file)));
     }
+  } else if (seg === 'test' && level === 'module') {
+    // The module's own hand-worked test: the same layout as a tile's test, without the per-tile spreadsheet checks.
+    const ms = (S.status && S.status.modules && S.status.modules[id]) || {};
+    const mt = ms.module_test && typeof ms.module_test === 'object' ? ms.module_test : null;
+    file = (mt && mt.file) || `tests/modules/test_${id}.py`;
+    const r = await readFile(file);
+    nodes.push(path(file));
+    if (r.err) {
+      nodes.push(h('div', { class: 'notbuilt', id: 'nomoduletest' },
+        h('div', { class: 'nb-title' }, 'No module test yet'),
+        h('p', {}, 'A module test walks one case through the module\'s tiles by hand: the first months and the month where behaviour changes, each figure worked out and checked against the tiles in order.'),
+        info.askModuleTest
+          ? h('p', {}, h('button', { type: 'button', class: 'primary', id: 'askmoduletest', disabled: info.busy(), onclick: e => { e.target.disabled = true; info.askModuleTest(id, false); } }, 'Ask the agent to propose one'),
+            h('span', { class: 'grey nb-hint' }, info.busy() ? 'The agent is busy with something else.' : 'It is proposed as a draft for you to accept; nothing is written until then.'))
+          : h('p', { class: 'grey' }, 'Ask the agent in the chat to propose one.')));
+    } else {
+      const cases = testCases(r.text);
+      const run = testRuns.get(file);
+      const ran = run && !run.running;
+      const failed = ran && !run.passed ? failedTests(run.text) : new Set();
+      nodes.push(testBar(host, info, file, run, cases, !!r.err));
+      // what the tooling last found when it ran the model's tests (status `module_test`)
+      const last = mt && mt.status ? { passed: 'passes', failed: 'fails', not_run: 'has not been run since it last changed', none: '' }[mt.status] : '';
+      if (last) nodes.push(h('p', { class: 'grey', id: 'moduletestlast' }, `The tooling's last run: the module test ${last}.`));
+      if (ran && !run.passed && run.text) nodes.push(h('pre', { class: 'testout', id: 'testout' }, run.text));
+      if (cases.intro) nodes.push(h('p', { class: 'testintro' }, cases.intro));
+      for (const c of cases) nodes.push(testBlock(c, !ran ? '' : failed.has(c.name) ? 'does not agree' : (run.passed || failed.size) ? 'agrees' : '', 'Checked against the tiles'));
+      if (!cases.some(c => c.caseCheck)) nodes.push(h('p', { class: 'warn', id: 'nocasecheck' }, 'No test here names the case it walks through (a line "Case: base, month 1" in its docstring).'));
+      if (info.askModuleTest) nodes.push(h('p', {}, h('button', { type: 'button', id: 'askmoduletest', disabled: info.busy(), onclick: e => { e.target.disabled = true; info.askModuleTest(id, true); } }, 'Ask the agent to add tests')));
+      nodes.push(h('details', { class: 'testfile', id: 'testfile' }, h('summary', {}, 'The test file'), sourceBlock(r.text, 1, true)));
+    }
   } else if (seg === 'test') {
     file = `tests/tiles/test_${id}.py`;
     const r = await readFile(file);
     const run = testRuns.get(file);
-    const btn = h('button', { type: 'button', id: 'runtest', disabled: !!((run && run.running) || r.err || info.busy()), onclick: async () => {
-      testRuns.set(file, { running: true });
-      await paintSource(host, info);
-      try {
-        const res = await api.tk('test', ['--file', file]);
-        const text = [res && res.output, res && res.stdout, res && res.report].filter(x => typeof x === 'string' && x.trim()).join('\n');
-        testRuns.set(file, { passed: !(res && (res.passed === false || res.failed > 0 || res.ok === false)), text });
-      } catch (e) { testRuns.set(file, { passed: false, text: String(e && e.message || e) }); }
-      await info.repaint();
-    } }, 'Run this test');
     // The reviewer reads the hand calculations, not pytest: one block per test with its working and what it checks.
     // The result line sits beside the Run button; pytest's own output shows only when something failed, and the
     // file itself is one click away at the bottom.
     const cases = r.err ? [] : testCases(r.text);
-    const failed = run && !run.running && !run.passed ? new Set([...String(run.text || '').matchAll(/^(?:FAILED \S+::|_{3,} )(\w+)/gm)].map(m => m[1])) : new Set();
+    const failed = run && !run.running && !run.passed ? failedTests(run.text) : new Set();
     const ran = run && !run.running;
-    const resultWord = !run ? '' : run.running ? 'Running…' : run.passed ? `Passed. ${cases.length ? `${cases.length} of ${cases.length} checks agree.` : ''}`
-      : `Failed.${failed.size && cases.length ? ` ${failed.size} of ${cases.length} checks do not agree.` : ''}`;
-    nodes.push(path(file), h('div', { class: 'testbar' }, btn,
-      run ? h('span', { class: 'testword ' + (run.running ? 'grey' : run.passed ? 'ok' : 'bad'), id: 'testresult' }, h('strong', {}, resultWord)) : h('span', { class: 'grey' }, 'Not run in this session.')));
+    nodes.push(path(file), testBar(host, info, file, run, cases, !!r.err));
     if (ran && !run.passed && run.text) nodes.push(h('pre', { class: 'testout', id: 'testout' }, run.text));
     if (r.err) nodes.push(h('p', { class: 'grey', id: 'srcnone' }, 'There is no test file for this tile.'));
     else {
@@ -307,13 +358,7 @@ export async function paintSource(host, info) {
       for (const c of cases) {
         const three = await threeWay(c, id, tileSt, api, traces);
         const state = !ran ? '' : failed.has(c.name) ? 'does not agree' : (run.passed || failed.size) ? 'agrees' : '';
-        nodes.push(h('section', { class: 'testcase', 'data-test': c.name },
-          h('div', { class: 'testhead' }, h('span', { class: 'testname' }, c.title), state ? h('span', { class: 'teststate ' + (state === 'agrees' ? 'ok' : 'bad') }, state) : null),
-          c.lead ? h('p', { class: 'testlead' }, c.lead) : null,
-          c.working ? h('div', { class: 'testwork' }, h('div', { class: 'srclab' }, 'Worked by hand'), h('pre', {}, c.working)) : null,
-          c.checks.length ? h('div', { class: 'testchecks' }, h('div', { class: 'srclab' }, 'Checked against the tile'), c.checks.map(k => h('pre', { class: 'testcheck' }, k))) : null,
-          sheetChecks(c, tileSt.hand_checks),
-          three));
+        nodes.push(testBlock(c, state, 'Checked against the tile', sheetChecks(c, tileSt.hand_checks), three));
       }
       if (!cases.some(c => c.caseCheck)) nodes.push(h('p', { class: 'warn', id: 'nocasecheck' }, 'No test here is taken from a case of the model, so the hand figures are not yet set beside the spreadsheet. Ask the agent to add one.'));
       if (info.askTests) nodes.push(moreTests(id, info));

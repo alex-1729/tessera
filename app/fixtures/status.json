@@ -72,9 +72,72 @@
         {
           "name": "Every tile signed off",
           "pass": false
+        },
+        {
+          "name": "Reconciliations hold",
+          "pass": true
+        },
+        {
+          "name": "Tile tests pass (3 of 4)",
+          "pass": false
+        },
+        {
+          "name": "Module test passes",
+          "pass": true
         }
       ],
-      "workbook": "review/modules/unit_projection/workbook.xlsx"
+      "workbook": "review/modules/unit_projection/workbook.xlsx",
+      "reconciliations": [
+        {
+          "name": "units_reconcile",
+          "label": "Units roll-forward reconciles",
+          "expression": "units_bop + units_allocated - units_amc - units_eop",
+          "max_abs_difference": 0.0,
+          "pass": true
+        }
+      ],
+      "tile_tests": {
+        "total": 4,
+        "passed": 3,
+        "failed": 0,
+        "not_run": 1,
+        "none": 0,
+        "tiles": {
+          "units_allocated": {
+            "tests": "passed",
+            "hand_checks": {
+              "in_sheet": 4,
+              "agree": 4
+            },
+            "case_check": true
+          },
+          "units_after_alloc": {
+            "tests": "passed",
+            "hand_checks": {
+              "in_sheet": 3,
+              "agree": 3
+            },
+            "case_check": true
+          },
+          "units_amc": {
+            "tests": "passed",
+            "hand_checks": {
+              "in_sheet": 0,
+              "agree": 0
+            },
+            "case_check": true
+          },
+          "units_eop": {
+            "tests": "not_run",
+            "hand_checks": null,
+            "case_check": false
+          }
+        }
+      },
+      "module_test": {
+        "file": "tests/modules/test_unit_projection.py",
+        "status": "passed"
+      }
     }
   },
   "model": {

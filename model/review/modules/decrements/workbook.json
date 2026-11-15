@@ -1,7 +1,7 @@
 {
   "kind": "module",
   "name": "decrements",
-  "built_at": "2026-11-15T03:56:50+00:00",
+  "built_at": "2026-11-15T04:57:45+00:00",
   "stamp": {
     "code": "c0c62df324d0f2ab7ed1940943c8a175328f0893572f8fef553905221b4f04f1",
     "spec": "91635f0f309e1492dd2310d5b0bdd3ee95f0cf740d0ed53b3e157baf9faa175f",
@@ -9,7 +9,7 @@
     "cases": "a42493b46f4e2e1d7ec9309bfd93f977df0cf13535b4eaf45c63ac35f8dc13dc",
     "params": "05fab2750280bae719ccdeae45603fce740d04232cbcda23e56fa79d7c849932",
     "translator": "85ca37244a9a88223a28309b6eb53ed0af322f2884af42ac6efc6eabe05d2f36",
-    "layout": "3eba926eed01be4ba94187d8dc967dd2b34a47fb0aa19af038f02254b718cd79"
+    "layout": "7465953b3d5dd5c0d6d72ce496f18c06ab0c1339074d23d2b8f90428e17657f8"
   },
   "workbook": "workbook.xlsx",
   "tolerance": 1e-09,
@@ -65,6 +65,13 @@
           "near_ties": []
         }
       },
+      "reconciliations": {
+        "decrements:in_force_reconciles": {
+          "excel_max_abs": 0.0,
+          "python_max_abs": 0.0,
+          "pass": true
+        }
+      },
       "max_abs_difference": 0.0,
       "checks_pass": true
     },
@@ -88,6 +95,13 @@
           "checks_pass": true,
           "branches": {},
           "near_ties": []
+        }
+      },
+      "reconciliations": {
+        "decrements:in_force_reconciles": {
+          "excel_max_abs": 0.0,
+          "python_max_abs": 0.0,
+          "pass": true
         }
       },
       "max_abs_difference": 0.0,
@@ -115,6 +129,13 @@
           "near_ties": []
         }
       },
+      "reconciliations": {
+        "decrements:in_force_reconciles": {
+          "excel_max_abs": 0.0,
+          "python_max_abs": 0.0,
+          "pass": true
+        }
+      },
       "max_abs_difference": 0.0,
       "checks_pass": true
     },
@@ -138,6 +159,13 @@
           "checks_pass": true,
           "branches": {},
           "near_ties": []
+        }
+      },
+      "reconciliations": {
+        "decrements:in_force_reconciles": {
+          "excel_max_abs": 0.0,
+          "python_max_abs": 0.0,
+          "pass": true
         }
       },
       "max_abs_difference": 0.0,
@@ -165,6 +193,13 @@
           "near_ties": []
         }
       },
+      "reconciliations": {
+        "decrements:in_force_reconciles": {
+          "excel_max_abs": 0.0,
+          "python_max_abs": 0.0,
+          "pass": true
+        }
+      },
       "max_abs_difference": 0.0,
       "checks_pass": true
     }
@@ -173,9 +208,48 @@
     "deaths",
     "in_force_eop"
   ],
-  "content_digest": "083d52bde4ec4702a273a1613e4aa592ca2e875123cc08cd6b180753b91ae78f",
+  "reconciliations": [
+    {
+      "name": "in_force_reconciles",
+      "label": "In-force roll-forward reconciles",
+      "expression": "in_force_bop - deaths - lapses - in_force_eop",
+      "tolerance": 1e-09,
+      "excel_max_abs": 0.0,
+      "python_max_abs": 0.0,
+      "max_abs_difference": 0.0,
+      "pass": true,
+      "cases": {
+        "base": {
+          "excel_max_abs": 0.0,
+          "python_max_abs": 0.0,
+          "pass": true
+        },
+        "fund_overtakes": {
+          "excel_max_abs": 0.0,
+          "python_max_abs": 0.0,
+          "pass": true
+        },
+        "high_charge": {
+          "excel_max_abs": 0.0,
+          "python_max_abs": 0.0,
+          "pass": true
+        },
+        "older_short_term": {
+          "excel_max_abs": 0.0,
+          "python_max_abs": 0.0,
+          "pass": true
+        },
+        "zero_premium": {
+          "excel_max_abs": 0.0,
+          "python_max_abs": 0.0,
+          "pass": true
+        }
+      }
+    }
+  ],
+  "content_digest": "78bb97ac2e3a2f7e108850d08ca1873cc8bff70e0bdec64a6d4671af48adbf28",
   "content_stat": {
-    "mtime_ns": 1794715010518502361,
-    "size": 85931
+    "mtime_ns": 1794718665775050897,
+    "size": 101324
   }
 }
