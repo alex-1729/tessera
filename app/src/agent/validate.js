@@ -64,6 +64,16 @@ function hasCycle(deps) {
   return Object.keys(deps).some(visit);
 }
 
+// Is the proposed tile `t` exactly what the model's quantity `cur` already is (in module `moduleId`)? Such a tile
+// changes nothing, so it is left out of a draft when it is proposed and left alone when the draft is accepted:
+// writing its placeholder again would send a built (even signed-off) tile back to not built.
+function sameTile(cur, t, moduleId) {
+  const norm = x => String(x == null ? '' : x).replace(/\s+/g, ' ').trim().replace(/\.$/, '');
+  return !!cur && cur.kind === 'tile' && cur.module === moduleId && JSON.stringify(cur.args || []) === JSON.stringify(t.args || [])
+    && ['label', 'spec', 'units', 'timing'].every(k => norm(cur[k]) === norm(t[k])) && (cur.format || 'number') === (t.format || 'number')
+    && JSON.stringify((cur.assumed || []).map(norm)) === JSON.stringify((t.assumed || []).map(norm));
+}
+
 // `states` are the carried-forward states the draft's tiles need: [{name, from, initial, label, format}]. A state
 // takes next month's value from its `from` tile, which must be a tile in the draft or in the model already.
 function validateTileDraft(graph, moduleId, items, states = [], remove = [], { layoutOnly = false } = {}) {
@@ -354,6 +364,6 @@ function moduleDraftSummary(graph, items) {
 }
 
 module.exports = {
-  count, downstream, signoffImpact, validateTileDraft, tileDraftSummary, validateModuleDraft, moduleDraftSummary, hasCycle,
+  count, downstream, signoffImpact, sameTile, validateTileDraft, tileDraftSummary, validateModuleDraft, moduleDraftSummary, hasCycle,
   validateLayout, layoutSummary, expressionProblems,
 };

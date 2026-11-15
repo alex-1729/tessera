@@ -83,6 +83,8 @@ function listFiles(dir) {   // path -> mtime, for "nothing was written here"
   // Sign-off is inline in the side bar: tick every assumption, add a comment, press Sign off.
   async function signoffTile(name) {
     await go('#/tile/' + name);
+    // the tile's own test must have passed since the last change: the button beside Rebuild runs it
+    if (await ev('!!document.getElementById("runtiletest")')) { await click('runtiletest'); await idle(); await waitFor('!document.getElementById("runtiletest")', 60000); }
     await ev('document.querySelectorAll("#panel input.assume").forEach(c => c.click())');
     const ready = await waitFor('!!document.getElementById("signoff") && !document.getElementById("signoff").disabled', 3000);
     if (!ready) { check('sign off ' + name, false, await ev('document.getElementById("signoff") ? document.getElementById("signoff").title + " | " + window.__both().slice(0,600) : "no button"')); return false; }

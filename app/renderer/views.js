@@ -136,7 +136,9 @@ export function tileView(ctx, name) {
   left.push(...(x.args.length ? x.args.map(a => row(linkOr(a), L.argWord(S, a))) : [none('None.')]));
   left.push(...collapsible(ctx, 'feeds', 'Feeds into', (x.used_by || []).length ? x.used_by.map(a => row(linkOr(a), L.argWord(S, a))) : [none('Nothing.')]));
 
-  const locked = st.state === 'signed_off' && !(st.new_cases || []).length;
+  // a test changed after sign-off leaves the sign-off standing but asks for another look, so the form opens again
+  const testChanged = !!(st.test && st.test.changed_since_signoff);
+  const locked = st.state === 'signed_off' && !(st.new_cases || []).length && !testChanged;
   const assumed = x.assumed || [];
   const ab = assumptionBoxes(key, assumed, locked);
   right.push(sec('Assumptions to confirm'));
@@ -151,6 +153,9 @@ export function tileView(ctx, name) {
   const lines = L.tileCheckLines(S, name);
   const shown = [...blockers];
   for (const l of lines) if (!shown.some(b => b.includes(l) || l.includes(b))) shown.push(l);
+  if (testChanged && st.signed_off) shown.push(st.test.result === 'none'
+    ? 'Its test was removed after sign-off. The sign-off stands; it needs a test before it can be signed off again.'
+    : 'Its test changed after sign-off. The sign-off stands; look at the test, then sign the tile off again.');
   right.push(sec('Checks'));
   right.push(...(shown.length ? shown.map(l => h('p', {}, l)) : [h('p', {}, 'All checks pass.')]));
 
@@ -159,7 +164,10 @@ export function tileView(ctx, name) {
 
   const pin = signature(ctx, {
     key, record: st.signed_off, locked, prepared: '', valuesOnly: valuesOnly && !locked, boxes: ab.boxes, blockers: locked ? [] : blockers,
-    buttons: [h('button', { type: 'button', id: 'rebuild', disabled: busy || notBuilt, onclick: () => ctx.act(() => window.api.tk('build', ['--tile', name, '--force'])) }, 'Rebuild')],
+    buttons: [h('button', { type: 'button', id: 'rebuild', disabled: busy || notBuilt, onclick: () => ctx.act(() => window.api.tk('build', ['--tile', name, '--force'])) }, 'Rebuild'),
+      // a tile's own test must have passed since the last change before it can be signed off: one click to run it here
+      ...(!notBuilt && st.test && (st.test.result === 'not_run' || st.test.result === 'failed')
+        ? [h('button', { type: 'button', id: 'runtiletest', disabled: busy, title: 'Runs ' + st.test.file, onclick: () => ctx.act(() => window.api.tk('test', ['--file', st.test.file])) }, 'Run its test')] : [])],
     run: v => ctx.act(() => window.api.tk('signoff', ['--tile', name, '--reviewer', v.reviewer, '--comment', v.comment, ...(valuesOnly ? ['--values-only', v.reason] : [])])),
   });
   return { left, right, pin, blocked: !locked && blockers.length > 0 };
@@ -242,6 +250,8 @@ export function moduleView(ctx, id) {
       h('button', { type: 'button', id: 'reconfirm', disabled: busy || !reconf.length, onclick: async () => {
         const r = form('module/' + id).reviewer || ctx.reviewerName();
         ctx.act(async () => {
+          // a re-confirmation is a new sign-off, so each tile's test must have passed on the model as it is now
+          if (reconf.some(t => ((S.status.tiles[t] || {}).test || {}).result === 'not_run')) await window.api.tk('test');
           const res = await window.api.tk('reconfirm', ['--reviewer', r, '--module', id]);
           const skipped = (res && res.skipped) || [];
           const lines = (Array.isArray(skipped) ? skipped : Object.entries(skipped).map(([tile, reason]) => ({ tile, reason })))

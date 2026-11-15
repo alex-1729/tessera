@@ -1,6 +1,6 @@
 [project]
 name = "tilekit"
-version = "0.1.0"
+version = "0.2.0"
 description = "Tile graph, engine, trace and rule checks for reviewable actuarial models"
 requires-python = ">=3.12"
 dependencies = [

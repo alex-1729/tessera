@@ -27,7 +27,9 @@ def built(make_model, gridcraft_cli, capsys):
 def write_test(root, tile, body):
     path = root / "tests" / "tiles" / f"test_{tile}.py"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(textwrap.dedent(body))
+    # the import goes last so the file's own docstring stays first; the tests are really run now (`tilekit test`)
+    module = load_model(root).graph.tiles[tile].module
+    path.write_text(textwrap.dedent(body) + f"\n\nfrom {root.name}.{module} import {tile}  # noqa: E402\n")
     return path
 
 
@@ -104,6 +106,9 @@ def test_build_lays_the_checks_out_and_excel_agrees(built, capsys):
     assert any("before its test last changed" in b for b in s["blockers"]) and not s["can_sign_off"]
     code, built_now = run(capsys, built, "build")
     assert code == 0 and any(b["kind"] == "tile" and b["name"] == "balance_eop" for b in built_now["built"])
+    s = status(capsys, built)["tiles"]["balance_eop"]
+    assert any("has not been run since the last change" in b for b in s["blockers"]) and not s["can_sign_off"]
+    assert run(capsys, built, "test")[1]["failed"] == 0
     s = status(capsys, built)["tiles"]["balance_eop"]
     hand = s["hand_checks"]
     assert s["workbook_current"] is True and s["can_sign_off"], s["blockers"]

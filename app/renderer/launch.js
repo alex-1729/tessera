@@ -173,7 +173,7 @@ export async function commitDialog(id, then) {
   await formDialog({
     title: `Commit and push: ${info.name}`, confirm: noChanges ? 'Push' : 'Commit',
     sections: [...list, h('label', { class: 'ck pushck' }, push, h('span', {}, hasRemote ? 'Push to GitHub after committing' : 'Push to GitHub after committing (this model has no remote)'))],
-    fields: noChanges ? [] : [{ id: 'message', label: 'Message', value: '', multiline: true, placeholder: 'Sign off the unit projection tiles' }],
+    fields: noChanges ? [] : [{ id: 'message', label: 'Message', value: '', multiline: true, placeholder: 'What changed, in a few words' }],
     canSubmit: () => !noChanges || canPushOnly,
     submit: async v => {
       const wantPush = push.checked && !push.disabled;

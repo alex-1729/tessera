@@ -129,11 +129,14 @@ def model_dir(make_model):
 def built(model_dir, gridcraft_cli, capsys):
     tests = model_dir / "tests" / "tiles"
     tests.mkdir(parents=True)
-    (tests / "test_scaled.py").write_text(textwrap.dedent(HAND))
+    (tests / "test_scaled.py").write_text(  # the import goes last: the test is really run now (`tilekit test`)
+        textwrap.dedent(HAND) + f"\n\nfrom {model_dir.name}.first import scaled  # noqa: E402\n")
     code, doc = run(capsys, model_dir, "build")
     assert code == 0, doc
     for item in doc["built"]:
         assert item["checks_pass"], item
+    code, doc = run(capsys, model_dir, "test")  # a tile's sign-off needs its test to have passed since the last change
+    assert code == 0 and doc["failed"] == 0, doc
     return model_dir
 
 

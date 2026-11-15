@@ -176,10 +176,11 @@ function createFixtureRunner(dir) {
         if (s.state === 'not_built') continue;
         const values = s.state === 'stale' && s.drift === 'values' && !!s.signed_off;
         if (!s.signed_off) reasons.push({ kind: 'not_signed_off', text: 'Not signed off yet.' });
-        else if (values) reasons.push({ kind: 'values_drift', text: 'Only upstream values changed since sign-off: rebuild and re-confirm.' });
+        else if (values) reasons.push({ kind: 'values_drift', text: 'Only values or the layout changed since sign-off, not the formula: rebuild and re-confirm.' });
         else if (s.state === 'stale') reasons.push({ kind: 'formula_drift', text: 'Changed since sign-off: needs a full review again.' });
         else if ((s.new_cases || []).length) reasons.push({ kind: 'new_case', text: `New case to review: ${s.new_cases.join(', ')}.` });
         for (const b of s.uncovered_branches || []) reasons.push({ kind: 'unexercised_branch', text: `No case takes the branch '${b}', which blocks sign-off.` });
+        if (s.signed_off && s.test && s.test.changed_since_signoff) reasons.push({ kind: 'test_changed', text: `Its test ${s.test.result === 'none' ? 'was removed' : 'changed'} after sign-off: the sign-off stands, but look at the test and sign the tile off again.` });
         add('tile', t, m, (graph.quantities[t] || {}).label || t, reasons, values && s.checks_pass ? 'ready' : null);
       }
       if (status.modules[m.id]) add('module', m.id, m, m.title, group(status.modules[m.id], 'module'));
@@ -187,7 +188,7 @@ function createFixtureRunner(dir) {
     add('model', null, null, graph.model.name, group(status.model, 'model'));
     const tiles = items.filter(i => i.level === 'tile');
     const kinds = {};
-    for (const k of ['not_signed_off', 'formula_drift', 'values_drift', 'new_case', 'unexercised_branch']) kinds[k] = tiles.filter(i => i.reasons.some(r => r.kind === k)).length;
+    for (const k of ['not_signed_off', 'formula_drift', 'values_drift', 'new_case', 'unexercised_branch', 'test_changed']) kinds[k] = tiles.filter(i => i.reasons.some(r => r.kind === k)).length;
     return { items, counts: { total: items.length, tiles: tiles.length, modules: items.filter(i => i.level === 'module').length,
       model: items.filter(i => i.level === 'model').length, kinds, reconfirm: tiles.filter(i => i.reconfirm).length } };
   }

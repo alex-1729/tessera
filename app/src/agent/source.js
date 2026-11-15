@@ -22,7 +22,7 @@ function tileDescription(code) {
   if (!m) return '';
   const lines = m[2].split('\n').map(l => l.trim());
   const rest = lines.slice(1);
-  const key = rest.findIndex(l => /^(Units|Timing|Format|Assumed|Status)\s*:/.test(l));
+  const key = rest.findIndex(l => /^(Units|Timing|Format|Assumed|Status|Undefined)\s*:/.test(l));
   return (key < 0 ? rest : rest.slice(0, key)).join(' ').replace(/\s+/g, ' ').trim();
 }
 
@@ -89,10 +89,8 @@ function chooseConvertProblems(code) {
     ') in one formula. The house standard is one step per tile: split it into two tiles, one that chooses the rate that applies (for example the annual rate in force this month) and one that converts it (the monthly rate), and propose the second tile with propose_structure before writing it.'];
 }
 
-// Replace the function at `source` ({line, code} from `tilekit graph`) in `fileText` with `newCode`.
-function spliceFunction(fileText, source, newCode) {
-  const text = String(fileText).replace(/\r\n?/g, '\n');
-  const lines = text.split('\n');
+// Where the function at `source` ({line, code} from `tilekit graph`) stands in `lines`: its first line's index.
+function locateFunction(lines, source) {
   const old = String(source.code).split('\n');
   const matchesAt = start => {
     for (let k = 0; k < old.length; k++) {
@@ -109,8 +107,28 @@ function spliceFunction(fileText, source, newCode) {
     if (candidates.length !== 1) throw new Error('The function in the file does not match the model graph; reload and try again.');
     start = candidates[0];
   }
-  const out = [...lines.slice(0, start), ...normaliseCode(newCode).split('\n'), ...lines.slice(start + old.length)];
-  return out.join('\n');
+  return { start, length: old.length };
+}
+
+// Replace the function at `source` ({line, code} from `tilekit graph`) in `fileText` with `newCode`.
+function spliceFunction(fileText, source, newCode) {
+  const lines = String(fileText).replace(/\r\n?/g, '\n').split('\n');
+  const { start, length } = locateFunction(lines, source);
+  return [...lines.slice(0, start), ...normaliseCode(newCode).split('\n'), ...lines.slice(start + length)].join('\n');
+}
+
+// Cut the function at `source` out of `fileText`. Blank lines are tidied only where it stood: the blank lines above
+// and below it become one gap (the larger of the two), or none when it was the last thing in the file. Every other
+// line of the file, blank lines inside another function's docstring included, is left exactly as it is.
+function removeFunction(fileText, source) {
+  const lines = String(fileText).replace(/\r\n?/g, '\n').split('\n');
+  const { start, length } = locateFunction(lines, source);
+  let a = start;
+  while (a > 0 && !lines[a - 1].trim()) a--;
+  let b = start + length;
+  while (b < lines.length && !lines[b].trim()) b++;
+  const gap = b >= lines.length ? (a > 0 ? [''] : []) : a === 0 ? [] : Array(Math.max(start - a, b - start - length)).fill('');
+  return [...lines.slice(0, a), ...gap, ...lines.slice(b)].join('\n');
 }
 
 function wrap(text, width, indent) {
@@ -171,28 +189,108 @@ function appendFunctions(fileText, codes) {
 
 // ---------------------------------------------------------------- tilekit.toml
 
-// A TOML basic string's value ("..." with JSON-style escapes), or null.
-function tomlStr(v) {
-  const m = /^"((?:[^"\\]|\\.)*)"/.exec(String(v).trim());
-  if (!m) return null;
-  try { return JSON.parse(`"${m[1]}"`); } catch { return m[1]; }
+// ---- strict readers for the few TOML values the layout tables hold. Each returns {value} when the text is exactly
+// one such value followed by nothing but spaces and an optional `# comment`, and null when it is anything else (a
+// multi-line string, an inline table, a date ...). Nothing here guesses.
+
+const restIsComment = s => /^\s*(#.*)?$/.test(s);
+
+// One string starting at s[i]: a basic string ("...", with escapes) or a literal string ('...', taken as written).
+// Returns {value, end} or null. Multi-line strings (""" and ''') are not read.
+function readTomlString(s, i) {
+  const q = s[i];
+  if (q === "'") {
+    if (s.startsWith("'''", i)) return null;
+    const j = s.indexOf("'", i + 1);
+    if (j < 0 || s.slice(i + 1, j).includes('\n')) return null;
+    return { value: s.slice(i + 1, j), end: j + 1 };
+  }
+  if (q !== '"' || s.startsWith('"""', i)) return null;
+  let j = i + 1;
+  while (j < s.length && s[j] !== '"') {
+    if (s[j] === '\n') return null;
+    j += s[j] === '\\' ? 2 : 1;
+  }
+  if (j >= s.length) return null;
+  const body = s.slice(i + 1, j);
+  // TOML's escapes are JSON's (without \/) plus \e and \UXXXXXXXX; anything JSON cannot read is not guessed at
+  if (/\\[^btnfr"\\u]/.test(body.replace(/\\\\/g, ''))) return null;
+  try { return { value: JSON.parse(`"${body}"`), end: j + 1 }; } catch { return null; }
 }
 
-// [[module]] blocks: [{id, python, title, layer, start, end, sections, checks}] with line ranges, from a small line
-// scanner. A `[[module.section]]` or `[[module.check]]` table (or any other `module.` sub-table) belongs to the
+function tomlStringValue(raw) {
+  const s = String(raw).replace(/^\s+/, '');
+  const r = readTomlString(s, 0);
+  return r && restIsComment(s.slice(r.end)) ? { value: r.value } : null;
+}
+
+// An array of strings, which may run over several lines and hold comments and a trailing comma. Returns {value},
+// 'open' when the text ends before the closing bracket (the caller adds the next line), or null.
+function tomlStringArray(raw) {
+  const s = String(raw);
+  let i = 0;
+  const skip = () => {
+    for (;;) {
+      while (i < s.length && /\s/.test(s[i])) i++;
+      if (s[i] !== '#') return;
+      while (i < s.length && s[i] !== '\n') i++;
+    }
+  };
+  skip();
+  if (s[i] !== '[') return null;
+  i++;
+  const value = [];
+  for (;;) {
+    skip();
+    if (i >= s.length) return 'open';
+    if (s[i] === ']') { i++; break; }
+    const r = readTomlString(s, i);
+    if (!r) return null;
+    value.push(r.value);
+    i = r.end;
+    skip();
+    if (i >= s.length) return 'open';
+    if (s[i] === ',') { i++; continue; }
+    if (s[i] === ']') { i++; break; }
+    return null;
+  }
+  const lineEnd = s.indexOf('\n', i);
+  return lineEnd < 0 && restIsComment(s.slice(i)) ? { value } : null;
+}
+
+// A decimal number: an integer or float, with TOML's underscores between digits (1_000). Not inf, nan, hex or dates.
+function tomlNumberValue(raw) {
+  const m = /^\s*([+-]?\d+(?:_\d+)*(?:\.\d+(?:_\d+)*)?(?:[eE][+-]?\d+(?:_\d+)*)?)\s*(#.*)?$/.exec(String(raw));
+  if (!m) return null;
+  const n = Number(m[1].replace(/_/g, ''));
+  return Number.isFinite(n) ? { value: n } : null;
+}
+
+const SUB_KEYS = { section: ['title', 'tiles'], check: ['name', 'label', 'expression', 'tolerance'] };
+
+// [[module]] blocks: [{id, python, title, layer, start, end, sections, checks, subs}] with line ranges, from a small
+// line scanner. A `[[module.section]]` or `[[module.check]]` table (or any other `module.` sub-table) belongs to the
 // `[[module]]` above it, so it stays inside that block's range; each is listed with its own range
 // ({start, end, title, tiles} / {start, end, name, label, expression, tolerance}). `end` is the line of the next
-// table header that is not the module's (or the number of lines).
+// table header that is not the module's (or the number of lines). A value that is not read with certainty is left
+// out and named in the table's `unread` list (so is a key this app does not write): such a table can be kept where
+// it stands, untouched, but must never be written again from what was read.
 function tomlModules(tomlText) {
-  const lines = tomlText.split('\n');
+  const lines = String(tomlText).split('\n');
   const blocks = [];
-  let cur = null, sub = null, arrayKey = null, arrayText = '';
+  let cur = null, sub = null, open = null;
   const close = i => { if (sub) { sub.end = i; sub = null; } };
+  const setTiles = (text, target) => {
+    const r = tomlStringArray(text);
+    if (r === 'open') return false;
+    if (r) target.tiles = r.value; else target.unread.push('tiles');
+    return true;
+  };
   lines.forEach((l, i) => {
     const t = l.trim();
-    if (arrayKey) {            // a value written over several lines: `tiles = [` ... `]`
-      arrayText += ' ' + t.replace(/#.*$/, '');
-      if (/\]\s*$/.test(arrayText)) { sub[arrayKey] = [...arrayText.matchAll(/"((?:[^"\\]|\\.)*)"/g)].map(x => tomlStr(`"${x[1]}"`)); arrayKey = null; }
+    if (open) {            // a value written over several lines: `tiles = [` ... `]`
+      open.text += '\n' + t;
+      if (setTiles(open.text, open.sub)) open = null;
       return;
     }
     const head = /^\[\[?\s*([^\]]+?)\s*\]\]?/.exec(t);
@@ -201,10 +299,11 @@ function tomlModules(tomlText) {
       const name = head[1];
       if (t.startsWith('[[') && name === 'module') {
         if (cur) cur.end = i;
-        cur = { start: i, end: lines.length, sections: [], checks: [] };
+        cur = { start: i, end: lines.length, sections: [], checks: [], subs: [] };
         blocks.push(cur);
       } else if (cur && name.startsWith('module.')) {
-        sub = { start: i, end: lines.length, kind: name.slice(7) };
+        sub = { start: i, end: lines.length, kind: name.slice(7), unread: [] };
+        cur.subs.push(sub);
         if (sub.kind === 'section') { sub.title = null; sub.tiles = []; cur.sections.push(sub); }
         else if (sub.kind === 'check') cur.checks.push(sub);
       } else if (cur) { cur.end = i; cur = null; }
@@ -216,73 +315,172 @@ function tomlModules(tomlText) {
       if (m) cur[m[1]] = m[2];
       return;
     }
+    if (!t || t.startsWith('#')) return;
     const kv = /^([A-Za-z_][\w-]*)\s*=\s*(.*)$/.exec(t);
-    if (!kv) return;
+    if (!kv) { sub.unread.push(t.slice(0, 30)); return; }
     const [, key, raw] = kv;
+    if (!(SUB_KEYS[sub.kind] || []).includes(key)) { sub.unread.push(key); return; }
     if (key === 'tiles') {
-      if (/^\[/.test(raw) && !/\]\s*(#.*)?$/.test(raw)) { arrayKey = 'tiles'; arrayText = raw.replace(/#.*$/, ''); return; }
-      sub.tiles = [...raw.replace(/#[^"]*$/, '').matchAll(/"((?:[^"\\]|\\.)*)"/g)].map(x => tomlStr(`"${x[1]}"`));
-    } else if (['title', 'name', 'label', 'expression'].includes(key)) sub[key] = tomlStr(raw);
-    else if (key === 'tolerance') { const n = Number(raw.replace(/#.*$/, '').trim()); if (Number.isFinite(n)) sub.tolerance = n; }
+      if (!setTiles(raw, sub)) open = { sub, text: raw };
+    } else {
+      const r = key === 'tolerance' ? tomlNumberValue(raw) : tomlStringValue(raw);
+      if (r) sub[key] = r.value; else sub.unread.push(key);
+    }
   });
+  if (open) open.sub.unread.push('tiles');   // the array never closed
   close(lines.length);
   if (cur) cur.end = Math.max(cur.end, cur.start + 1);
   return blocks;
 }
 
-// The `[[module.section]]` and `[[module.check]]` tables written for a module, in the format tilekit reads.
+// One `[[module.section]]` or `[[module.check]]` table, in the format tilekit reads (no blank line around it).
+function sectionTable(s) {
+  const out = ['[[module.section]]'];
+  if (s.title !== null && s.title !== undefined && String(s.title).trim()) out.push(`title = ${tomlString(String(s.title).trim())}`);
+  out.push(`tiles = [${(s.tiles || []).map(tomlString).join(', ')}]`);
+  return out;
+}
+
+function checkTable(c) {
+  const out = ['[[module.check]]', `name = ${tomlString(c.name)}`, `label = ${tomlString(String(c.label).trim())}`,
+    `expression = ${tomlString(String(c.expression).replace(/\s+/g, ' ').trim())}`];
+  if (typeof c.tolerance === 'number' && Number.isFinite(c.tolerance)) out.push(`tolerance = ${c.tolerance}`);
+  return out;
+}
+
+// The `[[module.section]]` and `[[module.check]]` tables written for a module, each after a blank line.
 function layoutLines({ sections, checks } = {}) {
   const out = [];
-  for (const s of sections || []) {
-    out.push('', '[[module.section]]');
-    if (s.title !== null && s.title !== undefined && String(s.title).trim()) out.push(`title = ${tomlString(String(s.title).trim())}`);
-    out.push(`tiles = [${(s.tiles || []).map(tomlString).join(', ')}]`);
-  }
-  for (const c of checks || []) {
-    out.push('', '[[module.check]]', `name = ${tomlString(c.name)}`, `label = ${tomlString(String(c.label).trim())}`,
-      `expression = ${tomlString(String(c.expression).replace(/\s+/g, ' ').trim())}`);
-    if (typeof c.tolerance === 'number' && Number.isFinite(c.tolerance)) out.push(`tolerance = ${c.tolerance}`);
+  for (const s of sections || []) out.push('', ...sectionTable(s));
+  for (const c of checks || []) out.push('', ...checkTable(c));
+  return out;
+}
+
+const looseLine = l => !l.trim() || l.trim().startsWith('#');
+
+// A sub-table runs to the next header; its trailing blank and comment lines belong to whatever comes next.
+function subRange(lines, s) {
+  let e = s.end;
+  while (e > s.start + 1 && looseLine(lines[e - 1])) e--;
+  return [s.start, e];
+}
+
+// Cut the line ranges `cuts` ([a, b), in order) out of `lines` and put `tables` (arrays of lines) in at line `at`.
+// Every line outside the cuts is kept exactly as it is, in its place. Blank lines are managed only where something
+// was put in or taken out: one blank line between tables and around the new ones, none doubled where a table went.
+function spliceTables(lines, cuts, at, tables, cr = '') {
+  const cut = i => cuts.some(([a, b]) => i >= a && i < b);
+  const out = [];
+  const blank = l => l !== undefined && !l.trim();
+  let afterCut = false;
+  for (let i = 0; i <= lines.length; i++) {
+    if (i === at && tables.length) {
+      const prev = out[out.length - 1];
+      if (prev !== undefined && prev.trim() && !prev.trim().startsWith('#')) out.push(cr);
+      tables.forEach((t, k) => { if (k) out.push(cr); out.push(...t.map(x => x + cr)); });
+      let next = i;
+      while (next < lines.length && cut(next)) next++;
+      // the last element of a file that ends with a newline is '', which is not a line to keep clear of
+      if (next < lines.length && lines[next].trim()) out.push(cr);
+      afterCut = false;
+    }
+    if (i === lines.length) break;
+    if (cut(i)) { afterCut = true; continue; }
+    // a blank line left behind by a table that went, right after another blank line (or at the very top), goes too
+    if (afterCut && blank(lines[i]) && i < lines.length - 1 && (out.length === 0 || blank(out[out.length - 1]))) continue;
+    afterCut = false;
+    out.push(lines[i]);
   }
   return out;
 }
 
-// Replace module `moduleId`'s sections (when `sections` is given) and/or checks (when `checks` is given) in the
-// toml text; the other one is kept as it is. The new tables go at the end of the module's block, after its own keys,
-// so TOML attaches them to that module. Throws if the module has no [[module]] block.
-function setModuleLayout(tomlText, moduleId, { sections, checks } = {}) {
-  const text = String(tomlText).replace(/\r\n?/g, '\n');
+const sameJson = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+const sectionShape = s => ({ title: s.title !== null && s.title !== undefined && String(s.title).trim() ? String(s.title).trim() : null, tiles: (s.tiles || []).map(String) });
+const checkShape = c => ({ name: String(c.name), label: String(c.label).trim(), expression: String(c.expression).replace(/\s+/g, ' ').trim(),
+  ...(typeof c.tolerance === 'number' && Number.isFinite(c.tolerance) ? { tolerance: c.tolerance } : {}) });
+
+// Replace all of module `moduleId`'s tables of one kind ('section' or 'check') with `items`. Only those tables are
+// cut out and written; every other line of the file, the module's other tables included, stays byte for byte.
+function replaceKind(text, moduleId, kind, items) {
+  const lines = text.split('\n');
+  const cr = lines.length > 1 && lines[0].endsWith('\r') ? '\r' : '';
   const block = tomlModules(text).find(b => b.id === moduleId);
   if (!block) throw new Error(`tilekit.toml has no [[module]] block for ${moduleId}.`);
-  const lines = text.split('\n');
-  const loose = l => !l.trim() || l.trim().startsWith('#');
-  // a sub-table runs to the next header; its trailing blank and comment lines belong to whatever comes next
-  const subs = [...block.sections, ...block.checks].map(s => { let e = s.end; while (e > s.start + 1 && loose(lines[e - 1])) e--; return [s.start, e]; });
-  const inSub = i => subs.some(([a, b]) => i >= a && i < b);
-  // what is kept of the module's sections or checks is written again, so the order is always sections then checks
-  const keep = {
-    sections: sections || block.sections.map(s => ({ title: s.title, tiles: s.tiles })),
-    checks: checks || block.checks.map(c => ({ name: c.name, label: c.label, expression: c.expression, ...(c.tolerance !== undefined ? { tolerance: c.tolerance } : {}) })),
-  };
-  // the module's own header and keys end before its first sub-table (a comment just above that stays there), or, with
-  // none, before the block's trailing blank and comment lines (which belong to whatever follows)
-  let at = subs.length ? Math.min(...subs.map(r => r[0])) : block.end;
-  while (at > block.start + 1 && (subs.length ? !lines[at - 1].trim() : loose(lines[at - 1]))) at--;
-  // comments that sat among the old sub-tables or after the block are kept, after the new tables
-  const comments = lines.slice(at, block.end).filter((l, k) => !inSub(at + k) && l.trim());
-  const after = lines.slice(block.end);
-  const out = [...lines.slice(0, at), ...layoutLines(keep), ...(comments.length ? ['', ...comments] : []), ...(after.length ? ['', ...after] : [])];
-  return out.join('\n').replace(/\n*$/, '\n');
+  const old = kind === 'section' ? block.sections : block.checks;
+  const cuts = old.map(s => subRange(lines, s));
+  // the end of the module's block, before the blank and comment lines that belong to whatever follows
+  let blockEnd = block.end;
+  while (blockEnd > block.start + 1 && looseLine(lines[blockEnd - 1])) blockEnd--;
+  let at;
+  if (old.length) at = old[0].start;                  // where the first one stood
+  else if (kind === 'section' && block.checks.length) {
+    // sections go before the checks, above a comment that sits on the first check
+    at = block.checks[0].start;
+    while (at > block.start + 1 && lines[at - 1].trim().startsWith('#')) at--;
+  } else at = blockEnd;                               // after everything the module has
+  const out = spliceTables(lines, cuts, at, items.map(kind === 'section' ? sectionTable : checkTable), cr).join('\n');
+  return out.endsWith('\n') ? out : out + '\n';
 }
 
-// Take tiles out of a module's sections (when they are deleted), dropping a section left empty. Returns the text
-// unchanged when the module has no sections.
+const kindText = (text, block, kind) => {
+  const lines = text.split('\n');
+  return (kind === 'section' ? block.sections : block.checks).map(s => lines.slice(...subRange(lines, s)).join('\n'));
+};
+
+// What was written is read back before it is returned: the kind that was replaced must read as exactly what was
+// asked for, and the other kind must be the same text as before.
+function verifyLayout(before, after, moduleId, { sections, checks }) {
+  const b0 = tomlModules(before).find(b => b.id === moduleId);
+  const b1 = tomlModules(after).find(b => b.id === moduleId);
+  const bad = what => new Error(`tilekit.toml was not changed: the ${what} of ${moduleId} would not read back as written.`);
+  if (!b1) throw bad('layout');
+  const read = (subs, shape) => subs.some(s => s.unread.length) ? null : subs.map(shape);
+  if (sections) { if (!sameJson(read(b1.sections, sectionShape), sections.map(sectionShape))) throw bad('sections'); }
+  else if (!sameJson(kindText(before, b0, 'section'), kindText(after, b1, 'section'))) throw bad('sections');
+  if (checks) { if (!sameJson(read(b1.checks, checkShape), checks.map(checkShape))) throw bad('reconciliation checks'); }
+  else if (!sameJson(kindText(before, b0, 'check'), kindText(after, b1, 'check'))) throw bad('reconciliation checks');
+  return after;
+}
+
+// Replace module `moduleId`'s sections (when `sections` is given) and/or checks (when `checks` is given) in the
+// toml text. Only the tables of the kind being replaced are cut out and written again, where the first of them
+// stood (new sections go before the checks, new checks after everything else the module has); the kind that is not
+// replaced, and every other line of the file, is left byte for byte. Throws if the module has no [[module]] block.
+function setModuleLayout(tomlText, moduleId, { sections, checks } = {}) {
+  const before = String(tomlText);
+  let text = before;
+  if (sections) text = replaceKind(text, moduleId, 'section', sections);
+  if (checks) text = replaceKind(text, moduleId, 'check', checks);
+  return verifyLayout(before, text, moduleId, { sections, checks });
+}
+
+// Take tiles out of a module's sections (when they are deleted), dropping a section left empty. Only the sections
+// that hold one of the tiles are written again; the others, the checks and the rest of the file are left byte for
+// byte. Returns the text unchanged when no section holds one. Throws, with a plain reason, when the module has a
+// section that cannot be read with certainty: nothing is written from a guess.
 function dropTilesFromSections(tomlText, moduleId, names) {
-  const block = tomlModules(String(tomlText)).find(b => b.id === moduleId);
+  const text = String(tomlText);
+  const block = tomlModules(text).find(b => b.id === moduleId);
   if (!block || !block.sections.length) return tomlText;
   const gone = new Set(names);
-  if (!block.sections.some(s => s.tiles.some(t => gone.has(t)))) return tomlText;
-  const sections = block.sections.map(s => ({ title: s.title, tiles: s.tiles.filter(t => !gone.has(t)) })).filter(s => s.tiles.length);
-  return setModuleLayout(tomlText, moduleId, { sections });
+  // an unread section might hold one of the tiles; whether it does cannot be told, so the edit is refused
+  const unread = block.sections.find(s => s.unread.length);
+  if (unread) {
+    throw new Error(`a section of ${moduleId} in tilekit.toml (line ${unread.start + 1}) has ${unread.unread.map(k => `\`${k}\``).join(', ')} written in a way this app cannot read with certainty, so it cannot take ${[...gone].join(', ')} out of the sections. Correct that section in tilekit.toml, or give the module's sections afresh in the draft.`);
+  }
+  const hit = block.sections.filter(s => s.tiles.some(t => gone.has(t)));
+  if (!hit.length) return tomlText;
+  const lines = text.split('\n');
+  const cr = lines.length > 1 && lines[0].endsWith('\r') ? '\r' : '';
+  let out = lines;
+  // from the last to the first, so the line numbers of those still to do stay right
+  for (const s of [...hit].reverse()) {
+    const left = s.tiles.filter(t => !gone.has(t));
+    const range = subRange(lines, s);
+    out = spliceTables(out, [range], range[0], left.length ? [sectionTable({ title: s.title, tiles: left })] : [], cr);
+  }
+  const after = out.join('\n');
+  return after.endsWith('\n') ? after : after + '\n';
 }
 
 function tomlPackage(tomlText) {
@@ -311,7 +509,7 @@ function insertModuleToml(tomlText, mod) {
 }
 
 module.exports = {
-  FORMATS, SNAKE, normaliseCode, tileCodeProblems, tileDescription, descriptionProblems, spliceFunction, skeleton, appendFunctions,
+  FORMATS, SNAKE, normaliseCode, tileCodeProblems, tileDescription, descriptionProblems, spliceFunction, removeFunction, skeleton, appendFunctions,
   ensureNumpyImport, tomlModules, tomlPackage, insertModuleToml, wrap, setModuleLayout, dropTilesFromSections, layoutLines,
   chooseConvertProblems, tileBody,
 };

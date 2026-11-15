@@ -1,6 +1,7 @@
 """Review state: sign-offs, staleness kinds, reconfirm, export and the test cache."""
 
 import json
+import shutil
 import sys
 
 import pytest
@@ -39,9 +40,12 @@ def run(capsys, root, *argv):
 
 @pytest.fixture
 def built(make_model, gridcraft_cli, capsys):
+    """A built model whose tiles each have a passing test, run since the build: a tile's sign-off needs that."""
     root = make_model(modules=MODULES, cases=CASES)
+    write_tile_tests(root)
     code, doc = run(capsys, root, "build")
     assert code == 0, doc
+    run_tests(capsys, root)
     return root
 
 
@@ -55,9 +59,10 @@ def sign(capsys, root, *target):
     return run(capsys, root, "signoff", *target, "--reviewer", "Pat", "--comment", "ok")
 
 
-def pass_tile_tests(capsys, root):
-    """Give every tile without one a (trivially) passing test file, then run `tilekit test` so the cache is current:
-    a module's sign-off needs every built tile's tests to have passed since the last change."""
+def write_tile_tests(root):
+    """Give every tile without one a (trivially) passing test file; True when any was written."""
+    for key in [k for k in sys.modules if k == root.name or k.startswith(root.name + ".")]:
+        del sys.modules[key]
     folder = root / "tests" / "tiles"
     folder.mkdir(parents=True, exist_ok=True)
     wrote = False
@@ -66,11 +71,22 @@ def pass_tile_tests(capsys, root):
         if not path.exists():
             path.write_text(f"def test_{tile}_by_hand():\n    assert 1 + 1 == 2\n")
             wrote = True
-    if wrote:  # a tile's workbook is built for its test (the hand checks), so a new test file asks for a rebuild
-        code, doc = run(capsys, root, "build")
-        assert code == 0, doc
+    return wrote
+
+
+def run_tests(capsys, root):
+    """Run `tilekit test` so the cache is current: a tile's sign-off, and a module's, need the tile tests to have
+    passed since the last change."""
     code, doc = run(capsys, root, "test")
     assert code == 0 and doc["failed"] == 0, doc
+
+
+def pass_tile_tests(capsys, root):
+    """Give every tile without one a passing test file, rebuild if any was written, and run the tests."""
+    if write_tile_tests(root):  # a tile's workbook is built for its test (the hand checks): a new test file asks for a rebuild
+        code, doc = run(capsys, root, "build")
+        assert code == 0, doc
+    run_tests(capsys, root)
 
 
 def sign_all(capsys, root):
@@ -90,9 +106,12 @@ def edit(root, module, old, new):
     path.write_text(text.replace(old, new))
 
 
-def rebuild(capsys, root):
+def rebuild(capsys, root, tests=True):
+    """Rebuild, and (as a reviewer must before signing anything off again) run the tests on the changed model."""
     code, doc = run(capsys, root, "build")
     assert code == 0, doc
+    if tests and (root / "tests").is_dir():
+        run(capsys, root, "test")  # whatever the result: a failing test then blocks, as it should
 
 
 def test_unbuilt_built_signed(make_model, gridcraft_cli, capsys):
@@ -103,6 +122,11 @@ def test_unbuilt_built_signed(make_model, gridcraft_cli, capsys):
     code, doc = sign(capsys, root, "--tile", "doubled")
     assert code == 1 and "not been built" in doc["error"]["message"]
     run(capsys, root, "build")
+    t = status(capsys, root)["tiles"]["doubled"]
+    assert t["state"] == "built" and not t["can_sign_off"]  # built, but it has no test yet
+    assert t["blockers"] == ["It has no hand-calculation test (tests/tiles/test_doubled.py); write one first."]
+    assert t["test"] == {"file": "tests/tiles/test_doubled.py", "result": "none", "changed_since_signoff": False}
+    pass_tile_tests(capsys, root)
     t = status(capsys, root)["tiles"]["doubled"]
     assert t["state"] == "built" and t["drift"] is None and t["workbook_current"] and t["can_sign_off"]
     assert t["checks_pass"] and t["formula"] == "={x}+{x}" and t["signed_formula"] is None
@@ -245,7 +269,7 @@ def test_blocker_uncovered_branch(make_model, gridcraft_cli, capsys):
     cases = {"one": {"id": "one", "name": "One", "purpose": "p", "model_point": {"size": 1.0}}}
     root = make_model(modules={"first": {"source": BRANCHY, "layer": "A"}}, states={},
                       cases=cases)
-    run(capsys, root, "build")
+    pass_tile_tests(capsys, root)
     t = status(capsys, root)["tiles"]["clipped"]
     assert t["uncovered_branches"] and not t["can_sign_off"]
     assert any("branch" in b for b in t["blockers"])
@@ -266,6 +290,8 @@ def test_not_built_marker(make_model, capsys):
 
 
 def test_module_and_model_rules(built, capsys):
+    shutil.rmtree(built / "tests")  # start from a model whose tiles have no tests
+    (built / "review/model/tests.json").unlink()
     s = status(capsys, built)
     m = s["modules"]["first"]
     assert m["state"] == "built" and [c["name"] for c in m["checks"]] == [
@@ -277,8 +303,11 @@ def test_module_and_model_rules(built, capsys):
     assert code == 1 and "doubled" in doc["error"]["message"]
     code, doc = sign(capsys, built, "--whole-model")
     assert code == 1
-    sign(capsys, built, "--tile", "doubled")
+    code, doc = sign(capsys, built, "--tile", "doubled")
+    assert code == 1 and "has no hand-calculation test" in doc["error"]["message"]
     pass_tile_tests(capsys, built)
+    code, doc = sign(capsys, built, "--tile", "doubled")
+    assert code == 0, doc
     code, doc = sign(capsys, built, "--module", "first")
     assert code == 0 and doc["signed_off"]["kind"] == "module"
     s = status(capsys, built)

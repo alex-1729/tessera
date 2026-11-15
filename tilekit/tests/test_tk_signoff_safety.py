@@ -16,14 +16,17 @@ from tilekit.gridcraft import GridCraft
 from tilekit.review import check_expected, expected_path, tile_stamp
 from tilekit.stamps import model_stamp, tile_stamp as stamp_of
 
-from test_tk_review import BRANCHY, CASES, MODULES, edit, rebuild, run, sign, sign_all, status
+from test_tk_review import (BRANCHY, CASES, MODULES, edit, pass_tile_tests, rebuild, run, run_tests, sign, sign_all,
+                            status, write_tile_tests)
 
 
 @pytest.fixture
 def built(make_model, gridcraft_cli, capsys):
     root = make_model(modules=MODULES, cases=CASES)
+    write_tile_tests(root)
     code, doc = run(capsys, root, "build")
     assert code == 0, doc
+    run_tests(capsys, root)
     return root
 
 
@@ -333,7 +336,6 @@ def test_a_tile_waiting_on_an_unbuilt_tile_cannot_be_signed_off(make_model, grid
     source = root / "src" / root.name / "first.py"
     source.write_text(source.read_text().replace("    Status: not built\n", "").replace(
         "return np.nan * balance_bop", "return balance_bop + interest"))
-    code, doc = run(capsys, root, "build")
-    assert code == 0, doc
+    pass_tile_tests(capsys, root)
     t = status(capsys, root)["tiles"]["interest"]
     assert t["waiting_on"] == [] and t["can_sign_off"], t["blockers"]

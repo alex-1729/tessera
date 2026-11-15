@@ -1,10 +1,10 @@
 {
   "kind": "module",
   "name": "profit",
-  "built_at": "2026-11-15T03:56:52+00:00",
+  "built_at": "2026-11-15T06:01:50+00:00",
   "stamp": {
     "code": "74fcc0bc25a42285cb4d729da6d7546700412aa8f9685b5b4e9037c957b41f1b",
-    "spec": "e360dfe2cb9a36bf9666fcdcd5d65937bf534da8dbda5f30fb6e30860a699630",
+    "spec": "c1ca19856548ab4cd23081530cb72ea511c9c4a06ba74a2b0bd3e1b22e3bed7f",
     "upstream": "b9b50958629de1e4a1c48df8d799a17710ab80fd0aba9f0995040d96d41c8649",
     "cases": "a42493b46f4e2e1d7ec9309bfd93f977df0cf13535b4eaf45c63ac35f8dc13dc",
     "params": "05fab2750280bae719ccdeae45603fce740d04232cbcda23e56fa79d7c849932",
@@ -300,7 +300,7 @@
   ],
   "content_digest": "9560b4d1579771e9bb4f7cf1f475b6139979b372f10142d49829dd39a7703f1e",
   "content_stat": {
-    "mtime_ns": 1794715012205574155,
+    "mtime_ns": 1794722510197635803,
     "size": 71987
   }
 }

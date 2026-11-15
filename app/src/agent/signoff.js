@@ -84,7 +84,8 @@ function reconfirmable(status, graph, moduleId) {
     if (e.formula !== e.signed_formula) skipped.push({ name: n, reason: 'the formula has changed since sign-off; review it again' });
     else if (e.values_only) skipped.push({ name: n, reason: 'values-only tile; sign it off again on its own' });
     else if (!e.workbook_current) skipped.push({ name: n, reason: 'workbook needs a rebuild' });
-    else if (!e.can_sign_off) skipped.push({ name: n, reason: (e.blockers || []).join(' ') });
+    // `reconfirm_blockers` is the tooling's own list for a re-confirmation (a test unchanged since sign-off need not be run again)
+    else if (e.reconfirm_blockers ? e.reconfirm_blockers.length : !e.can_sign_off) skipped.push({ name: n, reason: (e.reconfirm_blockers || e.blockers || []).join(' ') });
     else tiles.push(n);
   }
   return { tiles, skipped };

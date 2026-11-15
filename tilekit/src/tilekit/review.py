@@ -164,11 +164,24 @@ def _signed_summary(signoff):
 # ---------------------------------------------------------------- status
 
 def _tests_state(model):
-    """(cached `tilekit test` result or None, stale). The cache is stale when its model stamp is not the current one."""
+    """(cached `tilekit test` result or None, stale). The cache is stale when its model stamp is not the current one,
+    or when a file the tests lean on (`tests/conftest.py`, a helper module) is not the one that ran."""
     cache = _read_json(tests_cache_path(model))
     if not cache or not isinstance(cache.get("tests"), list):
         return None, False
-    return cache, cache.get("stamp") != model_stamp(model)
+    return cache, cache.get("stamp") != model_stamp(model) or cache.get("support") != _tests_support_digest(model)
+
+
+def _tests_support_digest(model):
+    """One digest of every Python file under `tests/` that is not itself a test file (conftest.py, helpers): a change
+    to one can change what any test does, so a cache made with other bytes is stale."""
+    folder = model.root / "tests"
+    paths = [p for p in (sorted(folder.rglob("*.py")) if folder.is_dir() else [])
+             if "__pycache__" not in p.parts and not p.name.startswith("test_")]
+    h = hashlib.sha256()
+    for path in paths:
+        h.update(_relative(model, path).encode() + b"\x00" + path.read_bytes() + b"\x00")
+    return h.hexdigest()
 
 
 def _file_digest(path):
@@ -180,8 +193,8 @@ def cached_test_result(model, tests, relative):
 
     "not_run" when there is no cache, the cache is stale (the model changed since), the cache does not record the file
     (a cache written before per-file results existed, or a file added since), the file's bytes differ from those that
-    ran (it was edited since), or none of its tests ran. A file whose tests were all skipped counts as passed, as the
-    model-level check counts skipped tests."""
+    ran (it was edited since), or none of its tests ran. A file whose tests were all skipped is `not_run` too: a
+    passing test is a condition of sign-off, and a test that was skipped checked nothing."""
     path = model.root / relative
     if not path.is_file():
         return "none"
@@ -193,9 +206,64 @@ def cached_test_result(model, tests, relative):
         return "not_run"
     if entry.get("failed"):
         return "failed"
-    if entry.get("passed") or entry.get("skipped"):
+    if entry.get("passed"):
         return "passed"
-    return "not_run"
+    return "not_run"  # nothing ran, or every test was skipped: nothing was checked
+
+
+def undefined_values(model):
+    """{tile: {case id: {"count": n, "first_month": m or None}}} for every tile whose Python value is not a number
+    (NaN or infinite) somewhere in a case; `first_month` is None for a summary tile. None when the cases cannot be
+    run. Cached on the model, like the stamps.
+
+    Excel shows such a value as #NUM! or #DIV/0!, and the difference check counts the two as agreeing, so on these
+    cells it checks nothing. A tile says when that is expected with an `Undefined:` line in its docstring."""
+    if "_undefined_values" in model.__dict__:
+        return model.__dict__["_undefined_values"]
+    graph = model.graph
+    summary = set(graph.summary_order())
+    found = {}
+    try:
+        for case in load_cases(model):
+            _, _, results = run_case(model, case.id)
+            for name in graph.order:
+                if name not in results:
+                    continue
+                values = results[name]
+                series = [float(values[0, 0])] if name in summary else [float(v) for v in values[:, 0, 0]]
+                bad = [i for i, v in enumerate(series) if not math.isfinite(v)]
+                if bad:
+                    found.setdefault(name, {})[case.id] = {"count": len(bad),
+                                                          "first_month": None if name in summary else bad[0] + 1}
+    except Exception as exc:  # noqa: BLE001 - a model whose cases do not run cannot be checked, and says so
+        log.debug("cases could not be run for the undefined-values check: %s", exc)
+        found = None
+    model.__dict__["_undefined_values"] = found
+    return found
+
+
+def _undefined_blocker(cases):
+    parts = []
+    for case_id, info in sorted(cases.items()):
+        month = info.get("first_month")
+        parts.append(f"case {case_id}" + (f" (first in month {month})" if month is not None else ""))
+    return ("Its value is not a number in " + ", ".join(parts) + ". Excel shows an error there and the difference "
+            "check counts that as agreeing, so those cells are not checked. Correct the tile, or, if that is expected, "
+            "add an `Undefined:` line to its docstring saying when.")
+
+
+TEST_BLOCKERS = {
+    "none": "It has no hand-calculation test ({file}); write one first.",
+    "failed": "Its hand-calculation test ({file}) fails.",
+    "not_run": "Its hand-calculation test ({file}) has not been run since the last change; run it first.",
+}
+
+
+def _all_skipped(tests, relative):
+    """True when the cache holds a current run of this file, as it is now, in which every test was skipped."""
+    cache, stale = tests
+    entry = ((cache or {}).get("files") or {}).get(relative) if not stale and isinstance((cache or {}).get("files"), dict) else None
+    return bool(isinstance(entry, dict) and entry.get("skipped") and not entry.get("passed") and not entry.get("failed"))
 
 
 CASE_LINE = re.compile(r"^\s*Case:\s*([A-Za-z0-9_]+)\s*,\s*month\s+(\d+)\s*$", re.MULTILINE)
@@ -225,6 +293,12 @@ def _test_checks(model, tests=None):
     cache, stale = tests if tests is not None else _tests_state(model)
     if not cache:
         return []
+    # a cache made only of single-file runs since the model last changed does not hold the whole model's tests
+    stale = stale or bool(cache.get("partial"))
+    # ... nor does one made before a test file was added, removed or edited: the files that ran are not the ones there
+    ran = {rel: (entry or {}).get("sha256") for rel, entry in (cache.get("files") or {}).items()} \
+        if isinstance(cache.get("files"), dict) else None
+    stale = stale or ran != _test_file_digests(model)
     checks = []
     for test in cache["tests"]:
         if not Path(test.get("file", "")).name.startswith("test_invariants"):
@@ -258,7 +332,7 @@ def compute_status(model):
 
     tiles = {}
     for name in graph.order:
-        tiles[name] = _tile_entry(model, name, hash_now, errors, translations)
+        tiles[name] = _tile_entry(model, name, hash_now, errors, translations, tests)
 
     modules = {}
     for item in model.config.modules:
@@ -310,7 +384,7 @@ def _workbook_blockers(what, stored, current, content_ok):
     return []
 
 
-def _tile_entry(model, name, hash_now, errors, translations):
+def _tile_entry(model, name, hash_now, errors, translations, tests=(None, False)):
     xlsx, sidecar = tile_paths(model, name)
     current = tile_stamp(model, name)
     stored, doc, content_ok = workbook_state(xlsx, sidecar)
@@ -370,6 +444,44 @@ def _tile_entry(model, name, hash_now, errors, translations):
                         "yet, so some of its values are placeholders (#NUM!). Build "
                         f"{'it' if len(waiting) == 1 else 'them'} before signing this off.")
 
+    # A value that is not a number (NaN or infinite) for any other reason is the same hole: Excel's error counts as
+    # agreeing with it. It blocks sign-off unless the docstring says, in an `Undefined:` line, when that is expected.
+    declared = model.graph.tiles[name].doc.undefined
+    found = undefined_values(model)
+    undefined_cases = {} if found is None else found.get(name, {})
+    if not waiting:
+        if found is None:
+            blockers.append("The cases could not be run, so its values could not be checked for ones that are not "
+                            "a number.")
+        elif undefined_cases and not declared:
+            blockers.append(_undefined_blocker(undefined_cases))
+
+    # The tile's own hand-calculation test, from the cached test runs. Like the hand checks it is not part of the
+    # stamp: a test changed after sign-off never makes the sign-off stale. It shows in the review queue and, until
+    # the test has been run again and passes, blocks a new sign-off.
+    test_file = handchecks.test_path(model, name)
+    test_rel = _relative(model, test_file)
+    test_result = cached_test_result(model, tests, test_rel)
+    all_skipped = test_result == "not_run" and _all_skipped(tests, test_rel)
+    if all_skipped:
+        blockers.append(f"Every test in its hand-calculation test ({test_rel}) was skipped, so nothing was checked.")
+    elif test_result != "passed":
+        blockers.append(TEST_BLOCKERS[test_result].format(file=test_rel))
+    signed_test = (signoff or {}).get("test")
+    test_changed = isinstance(signed_test, dict) and (
+        test_result == "none" or signed_test.get("sha256") != _file_digest(test_file))
+    # What stands in the way of a values-only re-confirmation: everything that blocks a sign-off (a re-confirmation
+    # writes a new one, so the test must have passed on the model as it is now), and two things that need the
+    # reviewer to look again rather than re-confirm in bulk: a test changed since sign-off, and values that are not
+    # a number in other places than when the tile was signed off.
+    reconfirm_blockers = list(blockers)
+    if test_changed:
+        reconfirm_blockers.append("Its test changed after sign-off; look at the test and sign the tile off again.")
+    signed_undefined = (signoff or {}).get("undefined_cases")
+    if isinstance(signed_undefined, dict) and signed_undefined != undefined_cases:
+        reconfirm_blockers.append("The places where its value is not a number have changed since sign-off; "
+                                  "review it again.")
+
     if model.graph.tiles[name].doc.not_built:
         state, drift, blockers = "not_built", None, ["This tile has not been built yet."]
     return {
@@ -392,6 +504,8 @@ def _tile_entry(model, name, hash_now, errors, translations):
         "signed_off": _signed_summary(signoff),
         "workbook": _relative(model, xlsx),
         "waiting_on": waiting,
+        "undefined": {"declared": declared, "cases": undefined_cases},
+        "test": {"file": test_rel, "result": test_result, "changed_since_signoff": test_changed},
         "hand_checks": None if hand is None else {
             "sheet": hand.get("sheet"), "checks_pass": hand.get("checks_pass"),
             "max_abs_difference": hand.get("max_abs_difference"), "not_in_sheet": hand.get("not_in_sheet", []),
@@ -399,6 +513,7 @@ def _tile_entry(model, name, hash_now, errors, translations):
                                               "pass")} for c in hand.get("checks", [])]},
         "can_sign_off": not blockers,
         "blockers": blockers,
+        "reconfirm_blockers": reconfirm_blockers,
         "_formula": (doc or {}).get("formula"),
     }
 
@@ -449,8 +564,11 @@ def _module_entry(model, module_id, hash_now, tiles, errors, tests=(None, False)
     current = module_stamp(model, module_id)
     stored, doc, content_ok = workbook_state(xlsx, sidecar)
     signoff = _read_json(signoff_path(model, "module", module_id))
+    # the reconciliations are not part of `checks_pass`: a sign-off kept through a new case needs them to hold too
+    recorded_checks = {r.get("name"): r for r in ((doc or {}).get("reconciliations") or [])}
+    reconciled = all(bool((recorded_checks.get(c.name) or {}).get("pass")) for c in model.config.module(module_id).checks)
     state, drift, new_cases = _assess(current, stored, signoff, hash_now, content_ok,
-                                      bool(doc and doc.get("checks_pass") is True))
+                                      bool(doc and doc.get("checks_pass") is True) and reconciled)
     names = list(model.graph.modules[module_id].tiles)
     mine = {n: tiles[n] for n in names}
     if state == "stale" and any(t["drift"] == "formula" for t in mine.values()):
@@ -547,8 +665,16 @@ def _model_entry(model, default_case, case_ids, hash_now, tiles, modules, errors
     if doc is not None and doc.get("case") != default_case:
         content_ok = False  # the stored workbook shows another case
     signoff = _read_json(signoff_path(model, "model", model.config.name))
+    # as for a module: the model keeps a sign-off through a new case only while every module's reconciliations hold
+    reconciled = all(m["reconciliations"] is not None and all(r["pass"] for r in m["reconciliations"])
+                     for m in modules.values() if any(c["name"] == "Reconciliations hold" for c in m["checks"]))
     state, drift, new_cases = _assess(current, stored, signoff, hash_now, content_ok,
                                       bool(doc and doc.get("checks_pass") is True))
+    if state == "signed_off" and not reconciled:
+        # a reconciliation that fails is a failed check; one that cannot be read yet (a module workbook out of date)
+        # only asks for a rebuild
+        failing = any(not r["pass"] for m in modules.values() for r in (m["reconciliations"] or []))
+        state, drift = "stale", ("formula" if failing else "values")
     if state == "stale" and any(t["drift"] == "formula" for t in tiles.values()):
         drift = "formula"
 
@@ -665,6 +791,14 @@ def _write_signoff(model, kind, name, reviewer, comment, values_only_reason=None
     }
     if kind == "tile":
         document["formula"] = model_translations(model)[name].formula
+        test_file = handchecks.test_path(model, name)
+        if test_file.is_file():  # the test as it stood at sign-off: a later change shows in the review queue
+            document["test"] = {"file": _relative(model, test_file), "sha256": _file_digest(test_file)}
+        if model.graph.tiles[name].doc.undefined:
+            document["undefined"] = model.graph.tiles[name].doc.undefined
+        # where its value was not a number when it was signed off (empty when nowhere): a re-confirmation is refused
+        # if that has moved since
+        document["undefined_cases"] = (undefined_values(model) or {}).get(name, {})
         if values_only_reason:
             document["values_only_reason"] = values_only_reason
     path = signoff_path(model, kind, name)
@@ -719,6 +853,9 @@ def signoff(model, tile=None, module=None, whole_model=False, reviewer=None, com
     return {"signed_off": {"kind": kind, "name": name, "reviewer": reviewer.strip(), "at": at}, "status": new}
 
 
+TESTS_NEED_RUNNING = "its test has not been run on the changed model; run the tests first"
+
+
 def _reconfirm_skip(entry):
     """Why `reconfirm` leaves this tile with values drift alone; None when it would re-sign it."""
     if entry["formula"] != entry["signed_formula"]:
@@ -727,8 +864,11 @@ def _reconfirm_skip(entry):
         return "values-only tile; sign it off again with --values-only"
     if not entry["workbook_current"]:
         return "workbook needs a rebuild"
-    if not entry["can_sign_off"]:
-        return " ".join(entry["blockers"])
+    waiting = entry["reconfirm_blockers"]
+    if waiting == [TEST_BLOCKERS["not_run"].format(file=entry["test"]["file"])]:
+        return TESTS_NEED_RUNNING  # nothing else in the way: run the tests, then it can be re-confirmed
+    if waiting:
+        return " ".join(waiting)
     return None
 
 
@@ -761,7 +901,7 @@ def reconfirm(model, reviewer, module=None, comment=None):
 
 # ---------------------------------------------------------------- the review queue
 
-QUEUE_KINDS = ("not_signed_off", "formula_drift", "values_drift", "new_case", "unexercised_branch")
+QUEUE_KINDS = ("not_signed_off", "formula_drift", "values_drift", "new_case", "unexercised_branch", "test_changed")
 
 
 def _new_case_text(new_cases, names):
@@ -784,10 +924,10 @@ def _tile_reasons(entry, case_names):
         reasons.append(("not_signed_off", text))
     elif state == "stale" and entry["drift"] == "values":
         skip = _reconfirm_skip(entry)
-        if skip is None or skip == "workbook needs a rebuild":
-            text = "Only upstream values changed since sign-off: rebuild and re-confirm."
+        if skip is None or skip in ("workbook needs a rebuild", TESTS_NEED_RUNNING):
+            text = "Only values or the layout changed since sign-off, not the formula: rebuild and re-confirm."
         else:
-            text = "Upstream values changed since sign-off, and it needs a full review again."
+            text = "Values or the layout changed since sign-off, and it needs a full review again."
         reasons.append(("values_drift", text))
     elif state == "stale":
         reasons.append(("formula_drift", "Changed since sign-off: needs a full review again."))
@@ -795,6 +935,11 @@ def _tile_reasons(entry, case_names):
         reasons.append(("new_case", _new_case_text(entry["new_cases"], case_names)))
     for label in entry["uncovered_branches"]:
         reasons.append(("unexercised_branch", f"No case takes the branch '{label}', which blocks sign-off."))
+    if entry["signed_off"] is not None and entry["test"]["changed_since_signoff"]:
+        gone = entry["test"]["result"] == "none"
+        reasons.append(("test_changed", ("Its test was removed after sign-off" if gone else
+                                         "Its test changed after sign-off")
+                        + ": the sign-off stands, but look at the test and sign the tile off again."))
     return reasons
 
 
@@ -845,7 +990,8 @@ def queue_json(model):
             reconfirm = None
             if _has_values_drift(entry):
                 skip = _reconfirm_skip(entry)
-                reconfirm = "ready" if skip is None else "after_rebuild" if skip == "workbook needs a rebuild" else None
+                reconfirm = ("ready" if skip is None else "after_rebuild" if skip == "workbook needs a rebuild"
+                             else "after_tests" if skip == TESTS_NEED_RUNNING else None)
             add("tile", name, module_id, graph.tiles[name].doc.label, _tile_reasons(entry, case_names), reconfirm)
         pending = sum(status["tiles"][n]["state"] != "signed_off" for n in names)
         add("module", module_id, module_id, titles.get(module_id),
@@ -976,8 +1122,41 @@ def _file_results(digests, tests):
     return files
 
 
+def _keep_file_run(model, relative, digest, tests, stamp, support):
+    """Put one file's results from a single-file run into the test cache.
+
+    The rule that nothing counts as run unless it ran since the model last changed is kept: when the cache was made
+    for the current model stamp, this file's results replace its old ones; otherwise the cache starts again with this
+    file alone. A cache that started that way is marked `partial` until a full run replaces it, and a partial cache
+    never satisfies the model-level test checks."""
+    path = tests_cache_path(model)
+    cache = _read_json(path)
+    current = (isinstance(cache, dict) and cache.get("stamp") == stamp and cache.get("support") == support
+               and isinstance(cache.get("tests"), list) and isinstance(cache.get("files"), dict))
+    base = cache if current else {"tests": [], "files": {}, "partial": True}
+    for test in tests:
+        test["path"] = relative
+    kept = [t for t in base["tests"] if t.get("path") != relative] + tests
+    document = {
+        "at": _now(), "stamp": stamp,
+        "passed": sum(t["outcome"] == "passed" for t in kept),
+        "failed": sum(t["outcome"] == "failed" for t in kept),
+        "tests": kept,
+        "files": {**base["files"], **_file_results({relative: digest}, tests)},
+        "support": support,
+    }
+    if base.get("partial"):
+        document["partial"] = True
+    path.parent.mkdir(parents=True, exist_ok=True)
+    write_json(path, document)
+
+
 def run_model_tests(model, file=None):
-    """Run the model's tests and cache the result; with `file`, run that one test file only and cache nothing."""
+    """Run the model's tests and cache the result; with `file`, run that one test file only.
+
+    A single-file run of a tile's or a module's own test (`tests/tiles/`, `tests/modules/`) is kept in the same
+    cache, for that file only (see `_keep_file_run`); any other single-file run leaves the cache alone. The document
+    returned is that run's, not the cache."""
     tests_dir = model.root / "tests"
     target = tests_dir
     if file is not None:
@@ -988,7 +1167,9 @@ def run_model_tests(model, file=None):
             raise TilekitError(f"No test file {file}")
     elif not tests_dir.is_dir():
         raise TilekitError(f"The model has no tests directory ({tests_dir})")
-    digests = _test_file_digests(model) if file is None else {}
+    # read before the run, so an edit made while the tests run is not recorded as tested
+    digests = _test_file_digests(model)
+    stamp_before, support_before = model_stamp(model), _tests_support_digest(model)
     with tempfile.TemporaryDirectory() as tmp:
         report = Path(tmp) / "junit.xml"
         result = subprocess.run(
@@ -1003,16 +1184,21 @@ def run_model_tests(model, file=None):
                                {"exit_code": result.returncode, "output": (result.stdout + result.stderr)[-4000:]})
         tests = _parse_junit(report)
     document = {
-        "at": _now(), "stamp": model_stamp(model),
+        "at": _now(), "stamp": stamp_before,
         "passed": sum(t["outcome"] == "passed" for t in tests),
         "failed": sum(t["outcome"] == "failed" for t in tests),
         "tests": tests,
     }
     if file is None:
         document["files"] = _file_results(digests, tests)
+        document["support"] = support_before
     if file is not None:
         document["file"] = _relative(model, target.resolve())
         document["output"] = (result.stdout + result.stderr)[-4000:]
+        # only the test of one tile or one module is kept from a run on its own: those gate that item's sign-off;
+        # the model's other tests count only from a full run
+        if document["file"] in digests and document["file"].startswith(("tests/tiles/", "tests/modules/")):
+            _keep_file_run(model, document["file"], digests[document["file"]], tests, stamp_before, support_before)
         return document
     path = tests_cache_path(model)
     path.parent.mkdir(parents=True, exist_ok=True)

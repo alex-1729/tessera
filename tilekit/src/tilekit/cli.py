@@ -168,7 +168,7 @@ def signoff_options(parser):
 
 
 def test_options(parser):
-    parser.add_argument("--file", metavar="PATH", help="run one test file; the cached whole-suite result is untouched")
+    parser.add_argument("--file", metavar="PATH", help="run one test file; the result of a tile's or a module's own test is kept in the test cache for that file")
 
 
 def reconfirm_options(parser):
