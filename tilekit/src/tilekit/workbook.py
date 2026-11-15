@@ -35,6 +35,7 @@ from tilekit.errors import TilekitError
 from tilekit.graph import param_fields
 from tilekit.stamps import upstream_tiles
 from tilekit.trace import branch_counts, near_tie_map, run_case
+from tilekit import handchecks
 from tilekit.translate import TOLERANCE_ABS, model_translations
 
 TOLERANCE_REL = 1e-12
@@ -203,6 +204,8 @@ class SheetPlan:
     case: str | None = None
     rows: dict = field(default_factory=dict)  # id(line) or id(table) -> row number (a table's label row)
     header_row: int | None = None
+    header: str = "Month"  # what the numbered header row counts
+    column_notes: tuple = ()  # (label, texts): a row of text above the header, one per column
     last_row: int = 3
 
     @property
@@ -433,7 +436,11 @@ def render_sheet(plan, locator, renames):
 
     if has_series:
         h = plan.header_row
-        cmds.append(_cmd("range.setValues", range=f"B{h}", values=[["Month", *range(1, plan.months + 1)]]))
+        cmds.append(_cmd("range.setValues", range=f"B{h}", values=[[plan.header, *range(1, plan.months + 1)]]))
+        if plan.column_notes:
+            label, texts = plan.column_notes
+            cmds.append(_cmd("range.setValues", range=f"B{h - 1}", values=[[label, *texts]], parse=False))
+            cmds.append(_cmd("home.fontColor", range=f"B{h - 1}:{last}{h - 1}", color=GREY))
         cmds.append(_cmd("home.bold", range=f"B{h}:{last}{h}"))
         cmds.append(_cmd("home.borders", range=f"B{h}:{last}{h}", preset="bottom", style="thin"))
 
@@ -470,13 +477,13 @@ def render_sheet(plan, locator, renames):
             defined.append(define(line.name, refers))
 
     # geometry
-    labels = [*(p[1] for p in plan.params), *(line.label for line in _lines(plan)), "Month",
+    labels = [*(p[1] for p in plan.params), *(line.label for line in _lines(plan)), plan.header,
               *(t.label for t in plan.tables), plan.title, plan.subtitle]  # B2/B3 never clip at the frozen column
     label_px = (max(len(t) for t in labels) + 2) * CHAR_PX
     cmds.append(_cmd("home.columnWidth", cols="A:A", width=EDGE_PX))
     cmds.append(_cmd("home.columnWidth", cols="B:B", width=max(label_px, 120)))
     cmds.append(_cmd("home.rowHeight", rows="1:1", height=EDGE_PX))
-    value_chars = 6
+    value_chars = max([6, *(len(t) for t in (plan.column_notes[1] if plan.column_notes else ()))])
     for line in _lines(plan):
         if line.python is not None and not line.scalar:
             value_chars = max(value_chars, display_length(line.fmt, line.python))
@@ -840,6 +847,76 @@ def tile_plans(info, tile_name, datas):
     return plans
 
 
+# ---------------------------------------------------------------- hand checks sheet
+
+def hand_plan(info, tile_name, checks, taken):
+    """The `Hand checks` sheet of a tile workbook: one column per check of the tile's hand-calculation test.
+
+    Every argument of the tile (parameters too, since a check may vary them) is a row of the check's inputs,
+    the tile's own formula is evaluated on each column, and the row is compared with the figures worked by hand:
+    the line's `python` is the hand figures, so the build's difference check is Excel against the hand calculation.
+    """
+    tile = info.graph.tiles[tile_name]
+    translation = info.translations[tile_name]
+    count = len(checks)
+    plan = SheetPlan(sheet_name(handchecks.SHEET, taken), tile.doc.label or tile_name,
+                     "Hand checks: the tile's formula on the inputs of each check of its test, against the figure "
+                     "worked by hand", count, scope="sheet", case=handchecks.CASE, header="Check",
+                     column_notes=("Test", tuple(f"{c['test']} ({c['index']})" for c in checks)))
+    args = list(dict.fromkeys(tile.args))
+    params = {a for a in args if info.kind(a) == "param"}
+    inputs = []
+    for a in args:
+        values = np.array([c["args"][a] for c in checks], dtype=np.float64)
+        # a parameter is a row here, not a defined name: `$name` cannot clash with a renamed parameter
+        inputs.append(Line(f"${a}" if a in params else a, info.label(a), ("values", values),
+                           number_format(info.fmt(a), values), style="input", name=a, python=values))
+    template = _IDENTIFIER.sub(lambda m: "{$" + m.group(1) + "}" if m.group(1) in params else m.group(0),
+                               translation.formula)
+    expected = np.array([c["expected"] for c in checks], dtype=np.float64)
+    code = number_format(info.fmt(tile_name), expected)
+    tolerance = max([translation.tolerance, *(c["tolerance"] for c in checks)])
+    own = Line(tile_name, info.label(tile_name), ("formula", template), code, style="output", name=tile_name,
+               check=tile_name, python=expected, tolerance=tolerance)
+    hand = f"hand:{tile_name}"
+    grey = [
+        Line(hand, "Worked by hand", ("values", expected), code, style="input", python=expected),
+        Line(None, "Difference", ("formula", "={" + tile_name + "}-{" + hand + "}"), DIFFERENCE_FORMAT, style="grey",
+             python=np.zeros(1)),
+    ]
+    plan.series = [inputs, [own], grey]
+    return plan
+
+
+def _hand_document(hand, plan, results, translation):
+    """The sidecar's `hand_checks`: what was laid out, what Excel made of each check, and whether all agree."""
+    document = {"digest": hand["digest"], "sheet": plan.name if plan else None, "not_in_sheet": hand["not_in_sheet"],
+                "checks": [], "max_abs_difference": None, "checks_pass": None}
+    if plan is None:
+        return document
+    values = next((v for p, line, v in results if p is plan and line.check), [])
+    worst, ok = 0.0, True
+    for check, got in zip(hand["checks"], values):
+        entry = {**check}
+        if isinstance(got, int | float) and not isinstance(got, bool):
+            diff = abs(float(got) - check["expected"])
+            agrees = diff <= max(check["tolerance"], translation.tolerance) + TOLERANCE_REL * abs(check["expected"])
+            entry.update(excel=float(got), difference=diff)
+            entry["pass"] = bool(agrees)
+            if worst is not None:
+                worst = max(worst, diff) if math.isfinite(diff) else None
+        else:
+            entry.update(excel=None, difference=None, error=got.get("error") if isinstance(got, dict) else repr(got))
+            entry["pass"] = False
+            worst = None
+        ok = ok and entry["pass"]
+        document["checks"].append(entry)
+    if len(values) != len(hand["checks"]):
+        ok = False
+    document["max_abs_difference"], document["checks_pass"] = worst, ok
+    return document
+
+
 # ---------------------------------------------------------------- module workbook
 
 def _module_parts(info, module_id):
@@ -1114,9 +1191,16 @@ def build_tile(model, gridcraft, name, datas, stamp, paths=None, sheet=None, lab
     xlsx, sidecar = paths or tile_paths(model, name)
     plans = tile_plans(info, name, datas)
     _apply_overrides(plans, sheet, label)
+    translation = info.translations[name]
+    # The stored tile workbook (not a one-off for a real policy) also carries the hand checks of the tile's test.
+    hand, hand_sheet = None, None
+    if paths is None and sheet is None:
+        hand = handchecks.extract(model, name, info.translations)
+        if hand["checks"]:
+            hand_sheet = hand_plan(info, name, hand["checks"], {p.name for p in plans})
+            plans.append(hand_sheet)
     results = build_workbook(gridcraft, xlsx, plans)
     cases = summarise(results, datas)
-    translation = info.translations[name]
     case_docs = {}
     for data, plan in zip(datas, plans):
         entry = cases[data.case.id]
@@ -1140,6 +1224,7 @@ def build_tile(model, gridcraft, name, datas, stamp, paths=None, sheet=None, lab
         "tolerance": translation.tolerance, "relative_tolerance": TOLERANCE_REL,
         "max_abs_difference": worst, "checks_pass": ok, "cases": case_docs,
         "near_ties": {cid: c["near_ties"] for cid, c in case_docs.items() if c["near_ties"]},
+        **({"hand_checks": _hand_document(hand, hand_sheet, results, translation)} if hand is not None else {}),
         **(extra or {}),
     }
     write_json(sidecar, _seal(document, xlsx))

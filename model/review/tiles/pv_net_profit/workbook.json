@@ -2,7 +2,7 @@
   "kind": "tile",
   "name": "pv_net_profit",
   "module": "profit",
-  "built_at": "2026-11-14T21:09:14+00:00",
+  "built_at": "2026-11-15T03:22:55+00:00",
   "stamp": {
     "code": "8d5fa583d33f29fe2acaee3cc8420a237c019fc1fc2d6e29581ccd8d590aed7b",
     "spec": "71633b185b4c7031047498f058b1bfd026453620a711ff8f475e3a936af0ff98",
@@ -58,9 +58,19 @@
     }
   },
   "near_ties": {},
+  "hand_checks": {
+    "digest": "90b590197d5ebc5955d72f4885d987db1b7daf9427cdc7f2a79274539ea1b21a",
+    "sheet": null,
+    "not_in_sheet": [
+      "test_pv_net_profit_by_hand"
+    ],
+    "checks": [],
+    "max_abs_difference": null,
+    "checks_pass": null
+  },
   "content_digest": "838d7005f21087d9469146d2c134976dfe1651fd0721a6167fb86f2620bd6fc5",
   "content_stat": {
-    "mtime_ns": 1794690554208086433,
+    "mtime_ns": 1794712975180572657,
     "size": 41875
   }
 }

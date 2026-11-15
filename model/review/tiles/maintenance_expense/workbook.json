@@ -2,7 +2,7 @@
   "kind": "tile",
   "name": "maintenance_expense",
   "module": "cashflows",
-  "built_at": "2026-11-14T21:09:13+00:00",
+  "built_at": "2026-11-15T03:22:54+00:00",
   "stamp": {
     "code": "46ec30b526fb0348b480e42d66a68dfdb7281ec5a027d38f1ec5b27153506b52",
     "spec": "6f34dbdc67436371cdb5adbdf3a626f9b3b7edd76e608497bdd3f8593c24ec69",
@@ -58,9 +58,57 @@
     }
   },
   "near_ties": {},
-  "content_digest": "9e04392778609ef08dd025149204ca92e00b4dddd11b5e25f47eeac51d4c73af",
+  "hand_checks": {
+    "digest": "cc79f6637551961854ca8f5861d7ce320e89120822b5d4860da90145e11e86fa",
+    "sheet": "Hand checks",
+    "not_in_sheet": [],
+    "checks": [
+      {
+        "test": "test_maintenance_expense_by_hand",
+        "index": 1,
+        "args": {
+          "expense_pm": 2.0,
+          "in_force_bop": 1.0
+        },
+        "expected": -2.0,
+        "tolerance": 1e-09,
+        "excel": -2.0,
+        "difference": 0.0,
+        "pass": true
+      },
+      {
+        "test": "test_maintenance_expense_by_hand",
+        "index": 2,
+        "args": {
+          "expense_pm": 2.0,
+          "in_force_bop": 0.994711289129205
+        },
+        "expected": -1.989422578258,
+        "tolerance": 1e-09,
+        "excel": -1.98942257825841,
+        "difference": 4.1011638529653283e-13,
+        "pass": true
+      },
+      {
+        "test": "test_maintenance_expense_by_hand",
+        "index": 3,
+        "args": {
+          "expense_pm": 2.0,
+          "in_force_bop": 0.989450548721085
+        },
+        "expected": -1.978901097442,
+        "tolerance": 1e-09,
+        "excel": -1.97890109744217,
+        "difference": 1.6986412276764895e-13,
+        "pass": true
+      }
+    ],
+    "max_abs_difference": 4.1011638529653283e-13,
+    "checks_pass": true
+  },
+  "content_digest": "801c343ddd045c2e41403ce325de02036b3899331d191ee93105479810e67a38",
   "content_stat": {
-    "mtime_ns": 1794690553149001016,
-    "size": 51907
+    "mtime_ns": 1794712974192183845,
+    "size": 53123
   }
 }

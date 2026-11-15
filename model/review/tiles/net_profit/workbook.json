@@ -2,7 +2,7 @@
   "kind": "tile",
   "name": "net_profit",
   "module": "quota_share",
-  "built_at": "2026-11-14T21:09:14+00:00",
+  "built_at": "2026-11-15T03:22:55+00:00",
   "stamp": {
     "code": "867613b91df4b879ac090d27c31eccdf87882a79f89368c51f9153dd8b29f846",
     "spec": "08fb0067dd0000eb33d3419205bc7db54662255849d1e4e85335d95a05e79c8e",
@@ -58,9 +58,46 @@
     }
   },
   "near_ties": {},
-  "content_digest": "17c0207f3f130c8e03f3374938819f6cb3f7b75621c3fd84b6fb27790004c391",
+  "hand_checks": {
+    "digest": "972a17c4f1b93ab014bda3b5531eca3174aa6be75139441758a188fb33a24588",
+    "sheet": "Hand checks",
+    "not_in_sheet": [],
+    "checks": [
+      {
+        "test": "test_net_profit_by_hand",
+        "index": 1,
+        "args": {
+          "gross_profit": -151.635507249742,
+          "ceded_death_strain": -3.643534874871,
+          "reinsurance_premium": -4.007888362358
+        },
+        "expected": -151.999860737229,
+        "tolerance": 1e-09,
+        "excel": -151.999860737229,
+        "difference": 0.0,
+        "pass": true
+      },
+      {
+        "test": "test_net_profit_by_hand",
+        "index": 2,
+        "args": {
+          "gross_profit": -1.440150785081,
+          "ceded_death_strain": -3.606552172015,
+          "reinsurance_premium": -3.967207389217
+        },
+        "expected": -1.800806002283,
+        "tolerance": 1e-09,
+        "excel": -1.8008060022830001,
+        "difference": 2.220446049250313e-16,
+        "pass": true
+      }
+    ],
+    "max_abs_difference": 2.220446049250313e-16,
+    "checks_pass": true
+  },
+  "content_digest": "2c07bcee75b975a27883ad860c7c6266c0910678da9fb441d01c0601f777bef1",
   "content_stat": {
-    "mtime_ns": 1794690554087086724,
-    "size": 67135
+    "mtime_ns": 1794712975069696752,
+    "size": 68349
   }
 }

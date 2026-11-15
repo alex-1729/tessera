@@ -2,7 +2,7 @@
   "kind": "tile",
   "name": "lapses",
   "module": "decrements",
-  "built_at": "2026-11-14T21:09:12+00:00",
+  "built_at": "2026-11-15T03:22:53+00:00",
   "stamp": {
     "code": "0145bc1295914d59ec219049b2cae2f7c088d44d80154461b85fb916f7adbf56",
     "spec": "f9e602b9df7a028f2740af21b157aa0ea9e35ef48b634e0687eaacf16d1d3ddc",
@@ -58,9 +58,60 @@
     }
   },
   "near_ties": {},
-  "content_digest": "66d946c303f17f798c8470af554c5e7bb8971143f9c96c3ea8b194fb46e3ef35",
+  "hand_checks": {
+    "digest": "6c49cebc46e168d153ca28ff507d451b5f3a8b41e333aff4c392c7e101477537",
+    "sheet": "Hand checks",
+    "not_in_sheet": [],
+    "checks": [
+      {
+        "test": "test_lapses_by_hand",
+        "index": 1,
+        "args": {
+          "in_force_bop": 1.0,
+          "deaths": 0.000146451239576,
+          "lapse_rate_pm": 0.005143012831822946
+        },
+        "expected": 0.005142259631219,
+        "tolerance": 1e-15,
+        "excel": 0.00514225963121857,
+        "difference": 4.3021142204224816e-16,
+        "pass": true
+      },
+      {
+        "test": "test_lapses_by_hand",
+        "index": 2,
+        "args": {
+          "in_force_bop": 0.994711289129205,
+          "deaths": 0.000145676701314,
+          "lapse_rate_pm": 0.005143012831822946
+        },
+        "expected": 0.005115063706806,
+        "tolerance": 1e-15,
+        "excel": 0.0051150637068064905,
+        "difference": 4.909267437014364e-16,
+        "pass": true
+      },
+      {
+        "test": "test_lapses_by_hand",
+        "index": 3,
+        "args": {
+          "in_force_bop": 0.989450548721085,
+          "deaths": 0.00014490625936,
+          "lapse_rate_pm": 0.005143012831822946
+        },
+        "expected": 0.005088011613775,
+        "tolerance": 1e-15,
+        "excel": 0.005088011613775495,
+        "difference": 4.9439619065339e-16,
+        "pass": true
+      }
+    ],
+    "max_abs_difference": 4.9439619065339e-16,
+    "checks_pass": true
+  },
+  "content_digest": "4bbd55204b728ab3ec55ae166bac995b06cedd03e782229047b0ca32214c232f",
   "content_stat": {
-    "mtime_ns": 1794690552547096973,
-    "size": 62951
+    "mtime_ns": 1794712973603322602,
+    "size": 64275
   }
 }

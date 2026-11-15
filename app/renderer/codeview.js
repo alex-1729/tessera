@@ -130,6 +130,27 @@ export function testCases(text) {
   return out;
 }
 
+// What the spreadsheet made of one test's checks: the tile's own Excel formula on the inputs of each check (the
+// Hand checks sheet of the tile's workbook), beside the figure worked by hand.
+function sheetChecks(c, hand) {
+  if (!hand) return null;
+  const mine = (hand.checks || []).filter(k => k.test === c.name);
+  const num = x => (typeof x === 'number' && Number.isFinite(x) ? String(Number(x.toPrecision(12))) : '');
+  if (!mine.length) {
+    return (hand.not_in_sheet || []).includes(c.name)
+      ? h('p', { class: 'grey sheetnote' }, 'Not in the spreadsheet: this test is not a plain call of the tile with numbers, so only Python runs it.') : null;
+  }
+  const partial = (hand.not_in_sheet || []).includes(c.name);
+  return h('div', { class: 'sheetchecks', 'data-pass': String(mine.every(k => k.pass)) },
+    h('div', { class: 'srclab' }, `In the spreadsheet (sheet ${hand.sheet || 'Hand checks'})`),
+    h('table', {}, h('thead', {}, h('tr', {}, h('th', {}, 'Inputs'), h('th', { class: 'r' }, 'By hand'), h('th', { class: 'r' }, 'Excel formula'), h('th', {}, ''))),
+      h('tbody', {}, mine.map(k => h('tr', {},
+        h('td', { class: 'mono' }, Object.entries(k.args || {}).map(([n, v]) => `${n} = ${num(v)}`).join(', ')),
+        h('td', { class: 'mono r' }, num(k.expected)), h('td', { class: 'mono r' }, k.excel === null || k.excel === undefined ? 'error' : num(k.excel)),
+        h('td', { class: k.pass ? 'ok' : 'bad' }, k.pass ? 'agrees' : 'does not agree'))))),
+    partial ? h('p', { class: 'grey sheetnote' }, 'Some checks of this test are not plain calls with numbers, so only Python runs those.') : null);
+}
+
 // For a test taken from a case of the model: the hand figure, the Python value and the spreadsheet for that case and
 // month, side by side. The spreadsheet is the tile's stored workbook, which compares Excel with Python in every month
 // of every case; it counts only while that workbook is up to date.
@@ -148,13 +169,15 @@ async function threeWay(c, id, st, api, traces) {
   const sheet = st.workbook_current === false ? { word: 'workbook out of date', ok: false }
     : !cr ? { word: 'no workbook for this case', ok: false }
       : cr.pass ? { word: `agrees with Python (largest difference ${num(cr.max_abs_difference || 0)})`, ok: true } : { word: `differs from Python by up to ${num(cr.max_abs_difference)}`, ok: false };
+  const hc = ((st.hand_checks || {}).checks || []).find(x => x.test === c.name);
+  if (hc) { sheet.ok = !!hc.pass; sheet.value = hc.excel; sheet.word = hc.pass ? 'the Excel formula agrees with the hand figure' : 'the Excel formula does not agree with the hand figure'; }
   const all = handOk && sheet.ok;
   return h('div', { class: 'threeway', 'data-agrees': String(all) },
     h('div', { class: 'srclab' }, `Same figure three ways: case ${k.case}, month ${k.month}`),
     h('table', {}, h('tbody', {},
       h('tr', {}, h('td', {}, 'Worked by hand'), h('td', { class: 'mono r' }, num(hand)), h('td', {})),
       h('tr', {}, h('td', {}, 'Python'), h('td', { class: 'mono r' }, num(py)), h('td', { class: handOk ? 'ok' : 'bad' }, typeof py !== 'number' ? 'no value for this month' : handOk ? 'agrees with the hand figure' : 'differs from the hand figure')),
-      h('tr', {}, h('td', {}, 'Spreadsheet'), h('td', { class: 'mono r' }, sheet.ok && typeof py === 'number' ? num(py) : ''), h('td', { class: sheet.ok ? 'ok' : 'bad' }, sheet.word)))),
+      h('tr', {}, h('td', {}, 'Spreadsheet'), h('td', { class: 'mono r' }, typeof sheet.value === 'number' ? num(sheet.value) : sheet.ok && typeof py === 'number' ? num(py) : ''), h('td', { class: sheet.ok ? 'ok' : 'bad' }, sheet.word)))),
     h('div', { class: 'threeword ' + (all ? 'ok' : 'bad') }, all ? 'All three agree.' : 'Not all three agree yet.'));
 }
 
@@ -266,6 +289,19 @@ export async function paintSource(host, info) {
     if (r.err) nodes.push(h('p', { class: 'grey', id: 'srcnone' }, 'There is no test file for this tile.'));
     else {
       if (cases.intro) nodes.push(h('p', { class: 'testintro' }, cases.intro));
+      {
+        // one line on the spreadsheet side: how many checks the Excel formula was run on, and whether they agree
+        const hs = (L.tileStatus(S, id) || {}).hand_checks;
+        const stNow = L.tileStatus(S, id) || {};
+        if (hs && (hs.checks || []).length) {
+          const n = hs.checks.length, bad = hs.checks.filter(k => !k.pass).length;
+          nodes.push(h('p', { class: 'sheetline ' + (bad ? 'bad' : 'ok'), id: 'sheetline' }, bad
+            ? `Spreadsheet: ${bad} of ${n} checks do not agree with the hand figures.`
+            : `Spreadsheet: the Excel formula agrees with the hand figure in all ${n} check${n === 1 ? '' : 's'} it can run.`));
+        } else if (cases.length && stNow.workbook_current === false && stNow.state !== 'not_built') {
+          nodes.push(h('p', { class: 'warn', id: 'sheetline' }, 'The workbook was built before this test last changed. Rebuild it to see these checks in the spreadsheet.'));
+        }
+      }
       const traces = new Map();
       const tileSt = L.tileStatus(S, id) || {};
       for (const c of cases) {
@@ -276,6 +312,7 @@ export async function paintSource(host, info) {
           c.lead ? h('p', { class: 'testlead' }, c.lead) : null,
           c.working ? h('div', { class: 'testwork' }, h('div', { class: 'srclab' }, 'Worked by hand'), h('pre', {}, c.working)) : null,
           c.checks.length ? h('div', { class: 'testchecks' }, h('div', { class: 'srclab' }, 'Checked against the tile'), c.checks.map(k => h('pre', { class: 'testcheck' }, k))) : null,
+          sheetChecks(c, tileSt.hand_checks),
           three));
       }
       if (!cases.some(c => c.caseCheck)) nodes.push(h('p', { class: 'warn', id: 'nocasecheck' }, 'No test here is taken from a case of the model, so the hand figures are not yet set beside the spreadsheet. Ask the agent to add one.'));

@@ -2,7 +2,7 @@
   "kind": "tile",
   "name": "reinsurance_premium",
   "module": "quota_share",
-  "built_at": "2026-11-14T21:09:13+00:00",
+  "built_at": "2026-11-15T03:22:54+00:00",
   "stamp": {
     "code": "536cf0595dad8a5e04f9106a9c9da963c798b5687355c688e1124555775d7f6c",
     "spec": "2dc05703097f6c5ce0ab86abfd10ebf32f55a4b35a6a2089bbe32ce26f8312ba",
@@ -58,9 +58,50 @@
     }
   },
   "near_ties": {},
-  "content_digest": "0e741469fb4e622bba0921dacbb6c58b8b142e068371aaf6ce523bb80369aca8",
+  "hand_checks": {
+    "digest": "633475744b03d85194d73d9fdd59f2826e317e63d4e383aead0fc13264e9a4b5",
+    "sheet": "Hand checks",
+    "not_in_sheet": [],
+    "checks": [
+      {
+        "test": "test_reinsurance_premium_by_hand",
+        "index": 1,
+        "args": {
+          "sum_at_risk": 49757.6515625,
+          "in_force_bop": 1.0,
+          "mort_rate_pm": 0.00014645123957646167,
+          "quota_share": 0.5,
+          "reinsurance_loading": 0.1
+        },
+        "expected": -4.007888362358,
+        "tolerance": 1e-09,
+        "excel": -4.007888362357985,
+        "difference": 1.509903313490213e-14,
+        "pass": true
+      },
+      {
+        "test": "test_reinsurance_premium_by_hand",
+        "index": 2,
+        "args": {
+          "sum_at_risk": 49514.46785233875,
+          "in_force_bop": 0.994711289129205,
+          "mort_rate_pm": 0.00014645123957646167,
+          "quota_share": 0.5,
+          "reinsurance_loading": 0.1
+        },
+        "expected": -3.967207389217,
+        "tolerance": 1e-09,
+        "excel": -3.967207389216818,
+        "difference": 1.8207657603852567e-13,
+        "pass": true
+      }
+    ],
+    "max_abs_difference": 1.8207657603852567e-13,
+    "checks_pass": true
+  },
+  "content_digest": "7e7e8bc886620d267924f2a28e8e075f8d37021339cac5bf34e65383758ae9ab",
   "content_stat": {
-    "mtime_ns": 1794690553964584928,
-    "size": 65979
+    "mtime_ns": 1794712974967079007,
+    "size": 67278
   }
 }

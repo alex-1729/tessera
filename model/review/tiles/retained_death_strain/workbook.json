@@ -2,7 +2,7 @@
   "kind": "tile",
   "name": "retained_death_strain",
   "module": "quota_share",
-  "built_at": "2026-11-14T21:09:13+00:00",
+  "built_at": "2026-11-15T03:22:54+00:00",
   "stamp": {
     "code": "d4c68ec3af67c2103085b7720ed5e9eb0799671aa5e4fb0b0e38926678f83fc0",
     "spec": "e9b4a1cba1e88aa53a9b8e382886ff994c04ebb504b795a5381ee688b3a72b48",
@@ -58,9 +58,44 @@
     }
   },
   "near_ties": {},
-  "content_digest": "381a0d011b393510a1820ee121047c9a4a04ec3b2d57290bbd66eb34c65b130d",
+  "hand_checks": {
+    "digest": "d51c44925785bf39415a4adf36bd244dde4913cb8dd6f7b113a8508622f15d73",
+    "sheet": "Hand checks",
+    "not_in_sheet": [],
+    "checks": [
+      {
+        "test": "test_retained_death_strain_by_hand",
+        "index": 1,
+        "args": {
+          "death_strain": -7.287069749742,
+          "ceded_death_strain": -3.643534874871
+        },
+        "expected": -3.643534874871,
+        "tolerance": 1e-09,
+        "excel": -3.643534874871,
+        "difference": 0.0,
+        "pass": true
+      },
+      {
+        "test": "test_retained_death_strain_by_hand",
+        "index": 2,
+        "args": {
+          "death_strain": -10.0,
+          "ceded_death_strain": -3.0
+        },
+        "expected": -7.0,
+        "tolerance": 1e-09,
+        "excel": -7.0,
+        "difference": 0.0,
+        "pass": true
+      }
+    ],
+    "max_abs_difference": 0.0,
+    "checks_pass": true
+  },
+  "content_digest": "9bf47d6be5ba41ac864c3caf530754ad787e244c8ae91c825564da1baa6a72da",
   "content_stat": {
-    "mtime_ns": 1794690553737488660,
-    "size": 51455
+    "mtime_ns": 1794712974768350888,
+    "size": 52552
   }
 }

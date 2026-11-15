@@ -454,6 +454,17 @@ Review queue (`app/renderer/queue.js`): the top bar of every model view shows `R
 
 Look: plain and dense, like a classic desktop tool. System font, thin rules, square corners, statuses written as words. No coloured pills, rounded cards, icons, status dots, gradients or shadows. The one exception is the chat, which the user asked to read as a back and forth: what the reviewer said is a navy box on the right, what the agent said a white box on the left (square corners, no labels); actions, cards and drafts stay plain.
 
+## Hand checks (the test's figures in the spreadsheet)
+
+A tile's hand-calculation test (`tests/tiles/test_<tile>.py`) is also run by the tile's Excel formula. `tilekit/handchecks.py` reads the test file with `ast` and takes every assertion of the plain form `assert tile(numbers...) == pytest.approx(number, rel=0, abs=...)` or `== number` (numbers, module-level constants and simple arithmetic on them; keywords allowed) as one hand check `{test, index, args, expected, tolerance}`. Assertions in any other form (inside a loop, comparing two calls, an inequality) put their test in `not_in_sheet`: Python still runs them, Excel does not. Summary tiles and tiles with no Excel formula have every test in `not_in_sheet`.
+
+- **The sheet.** The stored tile workbook gets a `Hand checks` sheet after the case sheets: one column per check (row 4 names the test, row 5 numbers the checks), a blue input row for every argument of the tile (parameters too, since a check may vary them), the tile's own formula evaluated on each column, the figure worked by hand, and their difference. One-off workbooks for a real policy do not carry it.
+- **The sidecar.** `workbook.json` gains `hand_checks: {digest, sheet, checks: [{test, index, args, expected, tolerance, excel, difference, pass}], not_in_sheet, max_abs_difference, checks_pass}`. A check passes when `|excel - expected| <= max(its tolerance, the tile's tolerance) + 1e-12 * |expected|`.
+- **Not part of a stamp.** Adding or changing a test never makes a sign-off stale and never changes `drift`. The sidecar's digest is compared with the test file as it is now: when they differ the tile's `workbook_current` is false, `build` rebuilds it, and until then the tile has the blocker "The tile's workbook was built before its test last changed; rebuild it first." A sidecar from before hand checks existed counts as current only while the tile has no test to show.
+- **Blocks a new sign-off.** A check that does not agree adds the blocker "The spreadsheet formula does not agree with the hand calculation in <tests>." The cases' own difference check (`checks_pass`) is separate and unchanged.
+- **Status.** Each tile in `status` has `hand_checks` (null when the tile has no stored workbook built for its current test): `{sheet, checks_pass, max_abs_difference, not_in_sheet, checks}`.
+- **In the app.** The Test view shows, for each test, the inputs, the hand figure and the Excel formula's figure for every check on the sheet, and says which tests Excel does not see. The house standards ask for checks in the plain form so they reach the sheet.
+
 ## Tooling version and pinning
 
 - The tooling's version is `tilekit.version.VERSION`, equal to `version` in `tilekit/pyproject.toml`. Each release is tagged `tilekit-v<version>` in this repository.

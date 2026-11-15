@@ -2,7 +2,7 @@
   "kind": "tile",
   "name": "premium_income",
   "module": "cashflows",
-  "built_at": "2026-11-14T21:09:12+00:00",
+  "built_at": "2026-11-15T03:22:53+00:00",
   "stamp": {
     "code": "cef844e70e11accb34a52c30d6c3ab7ce472943cb89b1dd23cbee9917b30450c",
     "spec": "4eea74297169533fd4999dc3544ee46cb4addc17981113f2dd6f0fa2148a5602",
@@ -58,9 +58,57 @@
     }
   },
   "near_ties": {},
-  "content_digest": "14d9e35d8d74de3f7407b521ea252740c3ef338f3ce5b16714a202b3f2ced688",
+  "hand_checks": {
+    "digest": "84cb752f41df66ff078d35ef2d775c9d64f05779106a6f6d5e5ebfe05d433171",
+    "sheet": "Hand checks",
+    "not_in_sheet": [],
+    "checks": [
+      {
+        "test": "test_premium_income_by_hand",
+        "index": 1,
+        "args": {
+          "premium": 250.0,
+          "in_force_bop": 1.0
+        },
+        "expected": 250.0,
+        "tolerance": 1e-09,
+        "excel": 250.0,
+        "difference": 0.0,
+        "pass": true
+      },
+      {
+        "test": "test_premium_income_by_hand",
+        "index": 2,
+        "args": {
+          "premium": 250.0,
+          "in_force_bop": 0.994711289129205
+        },
+        "expected": 248.677822282301,
+        "tolerance": 1e-09,
+        "excel": 248.67782228230126,
+        "difference": 2.5579538487363607e-13,
+        "pass": true
+      },
+      {
+        "test": "test_premium_income_by_hand",
+        "index": 3,
+        "args": {
+          "premium": 250.0,
+          "in_force_bop": 0.989450548721085
+        },
+        "expected": 247.362637180271,
+        "tolerance": 1e-09,
+        "excel": 247.36263718027124,
+        "difference": 2.2737367544323206e-13,
+        "pass": true
+      }
+    ],
+    "max_abs_difference": 2.5579538487363607e-13,
+    "checks_pass": true
+  },
+  "content_digest": "634d504435d11b448054850c918923309091f5f11fe32f26e04f894d7429669d",
   "content_stat": {
-    "mtime_ns": 1794690552811810848,
-    "size": 50484
+    "mtime_ns": 1794712973850340681,
+    "size": 51708
   }
 }

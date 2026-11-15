@@ -2,7 +2,7 @@
   "kind": "tile",
   "name": "sum_at_risk",
   "module": "cashflows",
-  "built_at": "2026-11-14T21:09:13+00:00",
+  "built_at": "2026-11-15T03:22:54+00:00",
   "stamp": {
     "code": "56750801a7a7705b3331a2811a7284ed95b1a58010bab84ae6ad3f2770448a05",
     "spec": "179ee3781ed9026a75c6f8601e64d997120bc0ca3ab8f688c91cdf3af97be82c",
@@ -76,9 +76,57 @@
     }
   },
   "near_ties": {},
-  "content_digest": "bda4c7b15dc064867974facf0de43ef4f9ae29ec04646bea5f68f9491136e9a3",
+  "hand_checks": {
+    "digest": "a46982c3f99e25757339170c2b1cc82bfed70bcc64af9c8f6e7101923c9a0901",
+    "sheet": "Hand checks",
+    "not_in_sheet": [],
+    "checks": [
+      {
+        "test": "test_sum_at_risk_by_hand",
+        "index": 1,
+        "args": {
+          "sum_assured": 50000.0,
+          "fund_value_eop": 242.3484375
+        },
+        "expected": 49757.6515625,
+        "tolerance": 1e-09,
+        "excel": 49757.6515625,
+        "difference": 0.0,
+        "pass": true
+      },
+      {
+        "test": "test_sum_at_risk_by_hand",
+        "index": 2,
+        "args": {
+          "sum_assured": 50000.0,
+          "fund_value_eop": 485.532147661253
+        },
+        "expected": 49514.46785233875,
+        "tolerance": 1e-09,
+        "excel": 49514.46785233875,
+        "difference": 0.0,
+        "pass": true
+      },
+      {
+        "test": "test_sum_at_risk_by_hand",
+        "index": 3,
+        "args": {
+          "sum_assured": 12000.0,
+          "fund_value_eop": 12345.67
+        },
+        "expected": 0.0,
+        "tolerance": 1e-09,
+        "excel": 0.0,
+        "difference": 0.0,
+        "pass": true
+      }
+    ],
+    "max_abs_difference": 0.0,
+    "checks_pass": true
+  },
+  "content_digest": "d0ad80183835a2620a0402e20d1668e9814baabdc45bee0541c042128aaa6601",
   "content_stat": {
-    "mtime_ns": 1794690553316123096,
-    "size": 49292
+    "mtime_ns": 1794712974359070742,
+    "size": 50493
   }
 }

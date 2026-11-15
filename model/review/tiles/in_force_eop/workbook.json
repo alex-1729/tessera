@@ -2,7 +2,7 @@
   "kind": "tile",
   "name": "in_force_eop",
   "module": "decrements",
-  "built_at": "2026-11-14T21:09:12+00:00",
+  "built_at": "2026-11-15T03:22:53+00:00",
   "stamp": {
     "code": "c61ba52ed7e7cde2a2a91fc03b26bebd2e1039ada9e4e791b2decb1914e147b2",
     "spec": "6917a81acc2be1f68c546a71677fe5e9fc04e87fa444c7d2f64ff5f11d19ec1f",
@@ -58,9 +58,60 @@
     }
   },
   "near_ties": {},
-  "content_digest": "c95272c8211aa2deaf98bce25529b49ad980221ab67148f4f35b5397b83927f4",
+  "hand_checks": {
+    "digest": "3bdd7fca3f5d5b997211c5683fc674a4f28378bc57730d0de6f57b33326aa4d6",
+    "sheet": "Hand checks",
+    "not_in_sheet": [],
+    "checks": [
+      {
+        "test": "test_in_force_eop_by_hand",
+        "index": 1,
+        "args": {
+          "in_force_bop": 1.0,
+          "deaths": 0.000146451239576,
+          "lapses": 0.005142259631219
+        },
+        "expected": 0.994711289129205,
+        "tolerance": 1e-15,
+        "excel": 0.994711289129205,
+        "difference": 0.0,
+        "pass": true
+      },
+      {
+        "test": "test_in_force_eop_by_hand",
+        "index": 2,
+        "args": {
+          "in_force_bop": 0.994711289129205,
+          "deaths": 0.000145676701314,
+          "lapses": 0.005115063706806
+        },
+        "expected": 0.989450548721085,
+        "tolerance": 1e-15,
+        "excel": 0.989450548721085,
+        "difference": 0.0,
+        "pass": true
+      },
+      {
+        "test": "test_in_force_eop_by_hand",
+        "index": 3,
+        "args": {
+          "in_force_bop": 0.989450548721085,
+          "deaths": 0.00014490625936,
+          "lapses": 0.005088011613775
+        },
+        "expected": 0.98421763084795,
+        "tolerance": 1e-15,
+        "excel": 0.9842176308479499,
+        "difference": 1.1102230246251565e-16,
+        "pass": true
+      }
+    ],
+    "max_abs_difference": 1.1102230246251565e-16,
+    "checks_pass": true
+  },
+  "content_digest": "debb922b999143f7026726e285fc74c03fb966ab308f2c88e8ca12c6f689b923",
   "content_stat": {
-    "mtime_ns": 1794690552647038605,
-    "size": 63576
+    "mtime_ns": 1794712973694443898,
+    "size": 64860
   }
 }

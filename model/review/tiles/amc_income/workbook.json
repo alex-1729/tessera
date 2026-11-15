@@ -2,7 +2,7 @@
   "kind": "tile",
   "name": "amc_income",
   "module": "cashflows",
-  "built_at": "2026-11-14T21:09:13+00:00",
+  "built_at": "2026-11-15T03:22:54+00:00",
   "stamp": {
     "code": "c70bf8aa094035dc75550e683cd58248006ea74da5c984d67f7643c3be7dc7c2",
     "spec": "287680fb28c59dda57136201d46241b50b33d3a8aa075f58bb097b782c2d55e8",
@@ -58,9 +58,19 @@
     }
   },
   "near_ties": {},
+  "hand_checks": {
+    "digest": "6853b4affa7524b68d4849430062b15794df06bb716a5a22e966204032439b94",
+    "sheet": null,
+    "not_in_sheet": [
+      "test_amc_income_by_hand"
+    ],
+    "checks": [],
+    "max_abs_difference": null,
+    "checks_pass": null
+  },
   "content_digest": "8ea942e5ec6742641d0bc9a43302abfb20f48eea30ff17a7ebbba85c01a14df9",
   "content_stat": {
-    "mtime_ns": 1794690553038988034,
+    "mtime_ns": 1794712974074275029,
     "size": 65503
   }
 }

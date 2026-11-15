@@ -2,7 +2,7 @@
   "kind": "tile",
   "name": "death_strain",
   "module": "cashflows",
-  "built_at": "2026-11-14T21:09:13+00:00",
+  "built_at": "2026-11-15T03:22:54+00:00",
   "stamp": {
     "code": "50cc33f9ea06ad1ddd9fb7ed48a9bf554ca3601c1829ae62e45e9e881c3eb2c3",
     "spec": "9f6d0e74ae3554002f93a750d67e753127592264c6a60c4c4a2b656447c81be9",
@@ -58,9 +58,57 @@
     }
   },
   "near_ties": {},
-  "content_digest": "bb40e5acce62939a5bc7abfab8fb1835ac495b6645223fb894d2e2c6b7373cab",
+  "hand_checks": {
+    "digest": "45086d779f6556ef83ca8f548acab30b2fbd994f26698bd163d2c87763beb2ed",
+    "sheet": "Hand checks",
+    "not_in_sheet": [],
+    "checks": [
+      {
+        "test": "test_death_strain_by_hand",
+        "index": 1,
+        "args": {
+          "deaths": 0.000146451239576,
+          "sum_at_risk": 49757.6515625
+        },
+        "expected": -7.287069749742,
+        "tolerance": 1e-09,
+        "excel": -7.287069749718818,
+        "difference": 2.318145675417327e-11,
+        "pass": true
+      },
+      {
+        "test": "test_death_strain_by_hand",
+        "index": 2,
+        "args": {
+          "deaths": 0.000145676701314,
+          "sum_at_risk": 49514.46785233875
+        },
+        "expected": -7.213104344031,
+        "tolerance": 1e-09,
+        "excel": -7.2131043440468074,
+        "difference": 1.580779951382283e-11,
+        "pass": true
+      },
+      {
+        "test": "test_death_strain_by_hand",
+        "index": 3,
+        "args": {
+          "deaths": 0.0001,
+          "sum_at_risk": 0.0
+        },
+        "expected": 0.0,
+        "tolerance": 1e-09,
+        "excel": 0.0,
+        "difference": 0.0,
+        "pass": true
+      }
+    ],
+    "max_abs_difference": 2.318145675417327e-11,
+    "checks_pass": true
+  },
+  "content_digest": "5f8e18126a8b14bcd90e8a365dbd368315d28400eb19291b2ea34439bbc64116",
   "content_stat": {
-    "mtime_ns": 1794690553396245735,
-    "size": 56416
+    "mtime_ns": 1794712974439802297,
+    "size": 57663
   }
 }
