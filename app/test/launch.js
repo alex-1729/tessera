@@ -244,7 +244,7 @@ function copyExample(dst) {
   // ------------------------------------------------------------ 6. real-data folder per model
   const RD = path.join(tmp, 'real-data-A');
   ctl.win.webContents.send('menu', 'modelSettings');
-  check('File > Model settings…: the dialog shows the model name (display only), the GitHub link and the real-data folder', await waitFor(`!!document.getElementById('f-realDataDir') && document.getElementById('settingsname')`, 5000) && (await ev(`document.getElementById('settingsname').textContent`)) === 'Unit-linked pricing' && !!(await ev(`document.getElementById('usedefault')`)));
+  check('File > Model settings…: the dialog shows the model name, the GitHub link and the real-data folder', await waitFor(`!!document.getElementById('f-realDataDir') && !!document.getElementById('f-name')`, 5000) && (await ev(`document.getElementById('f-name').value`)) === 'Unit-linked pricing' && !!(await ev(`document.getElementById('usedefault')`)));
   await shot('launch-settings-dialog');
   picks.push(RD);
   await ev(`document.getElementById('pickrealdata').click()`);
@@ -255,6 +255,24 @@ function copyExample(dst) {
   await setVal('f-github', remoteA);
   await ev(`document.getElementById('confirm').click()`);
   check('Settings: saved for that model in the app settings', await waitFor(`!document.getElementById('dialog')`, 8000) && settingsOnDisk().models.find(m => m.dir === A).realDataDir === RD);
+  // rename: the name goes into tilekit.toml and the app's list, and the top bar follows
+  const tomlA = () => fs.readFileSync(path.join(A, 'tilekit.toml'), 'utf8');
+  const tomlBefore = tomlA();
+  ctl.win.webContents.send('menu', 'modelSettings');
+  await waitFor(`!!document.getElementById('f-name')`, 5000);
+  await setVal('f-name', '   ');
+  check('Settings: an empty name cannot be saved', await ev(`document.getElementById('confirm').disabled`));
+  await setVal('f-name', 'Unit-linked "v2"');
+  await ev(`document.getElementById('confirm').click()`);
+  check('Settings: a new name is saved in tilekit.toml and in the app\'s list', await waitFor(`!document.getElementById('dialog')`, 8000)
+    && tomlA() === tomlBefore.replace('name = "Unit-linked pricing"', 'name = "Unit-linked \\"v2\\""') && settingsOnDisk().models.find(m => m.dir === A).name === 'Unit-linked "v2"', tomlA().slice(0, 80));
+  check('Settings: the top bar shows the new name', await waitFor(`document.getElementById('modelname').textContent==='Unit-linked "v2"'`, 15000), await ev(`document.getElementById('modelname').textContent`));
+  ctl.win.webContents.send('menu', 'modelSettings');
+  await waitFor(`!!document.getElementById('f-name')`, 5000);
+  await setVal('f-name', 'Unit-linked pricing');
+  await ev(`document.getElementById('confirm').click()`);
+  check('Settings: renaming back restores tilekit.toml exactly', await waitFor(`!document.getElementById('dialog')`, 8000) && tomlA() === tomlBefore
+    && await waitFor(`document.getElementById('modelname').textContent==='Unit-linked pricing'`, 15000));
   await ev(`window.api.tk('sample-portfolio', ['--out', 'real-data/pf.csv', '--policies', '20'])`);
   const runDoc = await ev(`window.api.tk('run', ['--model-points', 'real-data/pf.csv', '--name', 'pf'])`);
   check('real data: the portfolio and the run are stored in the chosen folder', fs.existsSync(path.join(RD, 'pf.csv')) && fs.existsSync(path.join(RD, 'runs', 'pf', 'run.json')) && runDoc.policies === 20);

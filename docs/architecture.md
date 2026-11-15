@@ -416,6 +416,10 @@ House style (the user's own; follow it exactly):
 
 ### Sign-off through the chat
 
+**Markdown** (`app/renderer/markdown.js`): the agent's replies and questions are drawn from their markdown as DOM nodes, never as HTML text: paragraphs, headings (bold, same size), nested bullet and numbered lists, fenced code, tables, rules, quotes, and inline bold, italic and code. A link shows its text and address as plain text; nothing in a reply is clickable. The reviewer's own messages stay as typed.
+
+**Questions** (`ask_user`): one call carries one to four questions, each `{question, header, options: [{label, description}], multi_select}`. The event is `{type: "question", text, questions}` and the window draws one form: per question its header, the suggested answers (radio buttons, or tick boxes with `multi_select`) and a box for another answer; `Send answers` is live once every question has an answer and sends one message, a line per question (`Header: answer`). The form goes once answered or when the reviewer types a reply instead; the questions stay as text. A single question with no suggested answers is a plain line.
+
 The agent can prepare a sign-off; only the reviewer's explicit confirmation in the app records one. When the reviewer says they are happy, the agent calls `request_signoff` (or `request_reconfirm` for bulk re-confirmation of values-only drift), which reads `status` and saves a pending request that the window shows with a Confirm button, blockers included. The window's `confirmSignoff(id, {reviewer, comment, valuesOnlyReason})` re-reads `status`, refuses if the item's stored stamp changed since the request (or its workbook went out of date) or if blockers now exist, and only then runs `tilekit signoff` (or `reconfirm`). A typed "yes" is not a confirmation. The agent's tools are given a `tilekit` runner that refuses `signoff` and `reconfirm`, and no tool can reach `confirmSignoff`.
 
 ## Models, the launch page and git
@@ -432,7 +436,7 @@ The app keeps its own list of models in its settings file (Electron's userData `
 
 **Push request** (the chat can commit, never push): the agent has `git_status` (read only), `commit(message)` (local commit of the model folder, only when the user asked) and `request_push()`, which saves a pending request (`review/requests/<id>.json`, `kind: "push"`) and emits `{type: "push_request", scope, text, request: {id, branch, remote, commits: [{hash, subject}]}}`; the window draws a card with `Push` and `Not now`. Only the window's click reaches `confirmPush(id)` (re-reads git state; refuses and expires the request if the branch or remote changed; otherwise `git push`) or `declinePush(id)`. No tool can reach either.
 
-**Per-model settings** (`Settings…` / File > Model settings…): the GitHub link (a label in the app's list; validated; it does not change `origin`) and the real-data folder (`Choose…`, `Use the default`). The runner passes the folder as `TILEKIT_REAL_DATA_DIR`; a path written `real-data/...` in the window means that folder; the workbook read/write allowance is `<model>/review` plus that folder (absolute paths are accepted only inside it).
+**Per-model settings** (`Settings…` / File > Model settings…): the name (written to `[model] name` in the model's `tilekit.toml` and to the app's list; the folder and the repository are not renamed; the name is part of the model stamp, so the model workbook goes out of date and a model sign-off must be given again), the GitHub link (a label in the app's list; validated; it does not change `origin`) and the real-data folder (`Choose…`, `Use the default`). The runner passes the folder as `TILEKIT_REAL_DATA_DIR`; a path written `real-data/...` in the window means that folder; the workbook read/write allowance is `<model>/review` plus that folder (absolute paths are accepted only inside it).
 
 ## App
 

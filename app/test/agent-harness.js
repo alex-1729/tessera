@@ -278,6 +278,19 @@ async function offline() {
     const after = await hq.write_tile({ name: 'units_eop', code: 'x', test_code: '' });
     check('after ask_user, tools refuse until the user answers', tq.asked && after.isError && /question/.test(after.text));
 
+    // ask_user with several questions: one question event carrying the form.
+    const tq2 = turn({ level: 'model', id: 'model' });
+    const nEv = e.events.length;
+    await createHandlers(svc, tq2).ask_user({ questions: [
+      { question: 'What is priced?', header: 'Purpose', options: [{ label: 'Profit', description: 'On a block' }, { label: 'Reserve' }] },
+      { question: 'Which results?', header: 'Results', multi_select: true, options: [{ label: 'IRR' }, { label: 'PVs' }] }] });
+    const qEv = e.events.slice(nEv).find(x => x.type === 'question');
+    check('ask_user with several questions emits one form', tq2.asked && qEv && qEv.questions.length === 2 && qEv.questions[1].multi === true
+      && qEv.questions[0].options[0].description === 'On a block' && qEv.text === '1. What is priced?\n2. Which results?', qEv);
+    const tq3 = turn({ level: 'model', id: 'model' });
+    const none = await createHandlers(svc, tq3).ask_user({ questions: [] });
+    check('ask_user with no question is refused', none.isError && !tq3.asked);
+
     // Logs.
     const logOk = fs.existsSync(path.join(dir, 'review', 'model', 'log.jsonl'));
     check('events are appended to the scope log', logOk);

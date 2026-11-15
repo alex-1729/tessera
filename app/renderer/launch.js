@@ -133,19 +133,22 @@ export async function settingsDialog(id, then) {
   if (!m) return;
   await formDialog({
     title: 'Settings', confirm: 'Save',
-    sections: [h('div', { class: 'field' }, h('div', { class: 'lab' }, 'Model'), h('div', { class: 'mname', id: 'settingsname' }, m.name), h('div', { class: 'mdir' }, m.dir))],
+    sections: [h('div', { class: 'field' }, h('div', { class: 'lab' }, 'Folder'), h('div', { class: 'mdir' }, m.dir))],
     fields: [
+      { id: 'name', label: 'Name', value: m.name },
       { id: 'github', label: 'GitHub repository link', value: m.github, optional: true, placeholder: 'https://github.com/owner/repo' },
       { id: 'realDataDir', label: 'Real-data folder', value: m.realDataDir, optional: true, placeholder: `${m.dir}/real-data (the default)`,
         button: { id: 'pickrealdata', text: 'Choose…', onclick: pickInto } }],
     onReady: () => {
       const f = document.getElementById('f-realDataDir');
+      document.getElementById('f-name').closest('.field').append(h('p', { class: 'grey small' },
+        'The name is saved in the model\'s tilekit.toml; the folder and the GitHub repository keep their names. A new name puts the model workbook out of date, and a sign-off of the whole model has to be given again.'));
       f.closest('.field').append(h('button', { type: 'button', id: 'usedefault', class: 'linkbtn', onclick: () => { f.value = ''; f.dispatchEvent(new Event('input', { bubbles: true })); } }, 'Use the default'),
         h('p', { class: 'grey small' }, 'Runs and real-policy workbooks are stored here, outside the model repository. Leave it empty to use the default.'));
     },
     submit: async v => {
       if (v.github) { const chk = await api().launch.checkLink(v.github); if (!chk.ok) return [chk.error]; }
-      try { await api().launch.setSettings(id, { github: v.github, realDataDir: v.realDataDir }); } catch (e) { return [e.message]; }
+      try { await api().launch.setSettings(id, { name: v.name, github: v.github, realDataDir: v.realDataDir }); } catch (e) { return [e.message]; }
       return null;
     } });
   await then();

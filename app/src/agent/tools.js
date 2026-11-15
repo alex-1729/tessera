@@ -335,11 +335,24 @@ function createHandlers(svc, turn) {
       return { text: `Draft ${draft.id}; nothing in the real model changed. ${draft.items[0].code ? 'The user can apply it from the app.' : 'Parameter what-ifs are for information only; they cannot be applied from the agent.'}\n${r.text}` };
     },
 
-    async ask_user({ question, options }) {
+    // One call asks up to four questions; the window draws them as one card with suggested answers and a free-text
+    // "Other" for each. `question` with plain string `options` is the older single-question form and still works.
+    async ask_user({ questions, question, options }) {
       const w = waiting(); if (w) return w;
+      const clean = x => String(x == null ? '' : x).trim();
+      const qs = (Array.isArray(questions) ? questions : []).map(q => ({
+        question: clean(q && q.question), header: clean(q && q.header).slice(0, 30),
+        options: ((q && q.options) || []).map(o => (typeof o === 'string' ? { label: clean(o) } : { label: clean(o && o.label), ...(clean(o && o.description) ? { description: clean(o.description) } : {}) })).filter(o => o.label).slice(0, 4),
+        ...(q && q.multi_select ? { multi: true } : {}),
+      })).filter(q => q.question).slice(0, 4);
+      if (!qs.length && !clean(question)) return { text: 'Give at least one question.', isError: true };
       turn.asked = true;
-      svc.emitEvent(scope, { type: 'question', text: question, ...(options && options.length ? { options } : {}) });
-      return { text: 'The question is shown to the user. End your turn now with no further text; their next message is the answer.' };
+      const done = { text: 'The question is shown to the user. End your turn now with no further text; their next message is the answer.' };
+      if (!qs.length) { svc.emitEvent(scope, { type: 'question', text: clean(question), ...(options && options.length ? { options } : {}) }); return done; }
+      if (qs.length === 1 && !qs[0].options.length) { svc.emitEvent(scope, { type: 'question', text: qs[0].question }); return done; }
+      const text = qs.length === 1 ? qs[0].question : qs.map((q, i) => `${i + 1}. ${q.question}`).join('\n');
+      svc.emitEvent(scope, { type: 'question', text, questions: qs });
+      return done;
     },
 
     // Git. The tools can read the state and commit the model's own folder; there is no tool that pushes. A push is
@@ -403,7 +416,7 @@ const DESCRIPTIONS = {
   propose_cases: 'Model level (or after the user agreed to an add_input_request): propose named synthetic single-policy cases (id, name, purpose, model_point with every model-point field, optional params overrides and months). A draft; writes cases/<id>.json when accepted. Between them the cases should take every branch.',
   write_tile: 'Tile level only. Replace the selected tile with `code` (the whole function: def line, full docstring, body) and write `test_code` (the complete hand-calculation test file tests/tiles/test_<name>.py). Checks the rules (restoring the old code on errors), rebuilds the tile, module and model workbooks, runs the test, and returns the differences per case and uncovered branches. Asks the human first if sign-offs would go stale.',
   what_if: 'Show the effect of a change without applying it: replace tile `name` with `code` and/or override parameter values in every case, on a copy of the model. Returns the change in the tile and in the model\'s final outputs per case, and saves a draft the user can apply (code changes only) or discard.',
-  ask_user: 'Ask the user one question (an actuarial choice you must not guess). Ends your turn; the next user message is the answer. Optional short answer options.',
+  ask_user: 'Ask the user one to four questions in one call (actuarial choices you must not guess). The app shows them as one form: each question with its short header and your suggested answers to pick from, plus a box for an answer of their own. Give each question two to four suggested answers (a short label and a one-line description of what choosing it means) whenever sensible answers can be listed; set multi_select when more than one can apply. Do not also write the questions in your reply. Ends your turn; the next user message holds the answers.',
   add_input_request: 'Record that the work needs something that does not exist (a parameter, input series, table, state, case or a tile in another module), shown to the user as a question. Never creates it. Ends your turn. If the user agrees, propose it next turn with propose_params, propose_inputs or propose_cases.',
   request_signoff: 'When the reviewer says they are happy with an item: show them a sign-off request with a Confirm button for the selected item (or, with a module or the model selected, any item beneath it). Records nothing; only their click signs off. Returns any blockers.',
   request_reconfirm: 'Show the reviewer a request to re-confirm, in bulk, the signed-off tiles whose values changed but whose formulas did not (in the selected module, or `module`, or the whole model). Records nothing; only their click re-confirms.',
@@ -449,7 +462,13 @@ function sdkTools(sdk, z, handlers) {
       name: z.string().optional().describe('tile to replace'), code: z.string().optional().describe('the whole replacement function'),
       params: z.record(z.string(), z.number()).optional().describe('parameter overrides applied to every case'),
     }),
-    t('ask_user', { question: z.string(), options: z.array(z.string()).optional() }),
+    t('ask_user', { questions: z.array(z.object({
+      question: z.string().describe('the full question, one sentence'),
+      header: z.string().describe('a label of one to three words, for example "Cashflows"'),
+      options: z.array(z.object({ label: z.string().describe('the answer, one to five words'), description: z.string().optional().describe('one line on what choosing it means') })).max(4).optional()
+        .describe('two to four suggested answers; the user can always type another'),
+      multi_select: z.boolean().optional().describe('true when several answers can apply'),
+    })).min(1).max(4) }),
     t('add_input_request', {
       description: z.string().describe('what is needed and why, in one sentence'),
       kind: z.enum(['parameter', 'input', 'table', 'state', 'case', 'tile']).optional(),

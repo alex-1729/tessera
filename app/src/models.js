@@ -22,6 +22,26 @@ function readName(dir) {
   return null;
 }
 
+// Write the model's name into tilekit.toml: the name line of [model] is replaced (or added under the header).
+// Everything else in the file is left byte for byte as it was.
+function writeName(dir, name) {
+  const file = path.join(dir, 'tilekit.toml');
+  const text = fs.readFileSync(file, 'utf8');
+  const nl = text.includes('\r\n') ? '\r\n' : '\n';
+  const lines = text.split(/\r?\n/);
+  const value = `name = ${JSON.stringify(name)}`;
+  let inModel = false, header = -1, at = -1;
+  for (let i = 0; i < lines.length && at < 0; i++) {
+    const sec = /^\s*\[([^\]]*)\]/.exec(lines[i]);
+    if (sec) { inModel = sec[1].trim() === 'model'; if (inModel) header = i; continue; }
+    if (inModel && /^\s*name\s*=/.test(lines[i])) at = i;
+  }
+  if (at >= 0) lines[at] = value;
+  else if (header >= 0) lines.splice(header + 1, 0, value);
+  else throw new Error('tilekit.toml has no [model] section.');
+  fs.writeFileSync(file, lines.join(nl));
+}
+
 const isModelDir = dir => { try { return fs.statSync(path.join(dir, 'tilekit.toml')).isFile(); } catch { return false; } };
 
 // store: {get(), save()} over the settings object.
@@ -60,4 +80,4 @@ function createModels(settings, save) {
   };
 }
 
-module.exports = { createModels, readName, isModelDir, real };
+module.exports = { createModels, readName, writeName, isModelDir, real };
