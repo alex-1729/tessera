@@ -7,6 +7,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 module.exports = function makeStub({ emit }) {
   const log = [];
   const drafts = [];
+  const old = [];           // earlier conversations: [{id, log}]
   const calls = { send: [], confirm: [], decline: [], accept: [], discard: [], interrupt: 0 };
   const reqStatus = {};      // request id -> pending (default) | confirmed | declined | expired | superseded
   const reqWho = {};
@@ -35,6 +36,12 @@ module.exports = function makeStub({ emit }) {
     // no argument: the whole conversation; a scope: only that selection's events
     history(scope) { if (!scope && stub.onlyScoped) throw new Error('Invalid scope.'); return scope ? log.filter(e => e.scope && e.scope.level === scope.level && e.scope.id === scope.id) : log.slice(); },
     drafts() { return drafts.map(d => ({ ...d })); },
+    // conversations: the log on show plus earlier ones kept in memory
+    conversations() { const sum = (id, l, current) => ({ id, current, title: (l.find(e => e.type === 'user') || l[0] || {}).text || 'Conversation', started: null, last: null, messages: l.filter(e => ['user', 'agent', 'question'].includes(e.type)).length });
+      return (log.length ? [sum('current', log, true)] : []).concat(old.map(o => sum(o.id, o.log, false))); },
+    newConversation() { if (log.length) old.unshift({ id: 'c2026111400000' + (old.length % 10) + '-abcdef', log: log.splice(0) }); return stub.conversations(); },
+    openConversation(id) { const i = old.findIndex(o => o.id === id); if (i < 0) throw new Error('That conversation is no longer there.'); const o = old.splice(i, 1)[0]; stub.newConversation(); log.push(...o.log); return stub.conversations(); },
+    deleteConversation(id) { if (id === 'current') log.length = 0; else { const i = old.findIndex(o => o.id === id); if (i >= 0) old.splice(i, 1); } return stub.conversations(); },
     async acceptDraft(id) { calls.accept.push(id); await sleep(700); const d = drafts.find(x => x.id === id); if (d) d.status = 'accepted'; return { accepted: true }; },
     async discardDraft(id) { calls.discard.push(id); const d = drafts.find(x => x.id === id); if (d) d.status = 'discarded'; return { discarded: true }; },
     async buildModule() { return { ok: true }; },

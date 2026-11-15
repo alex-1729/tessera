@@ -15,6 +15,11 @@ const agentApi = hasAgent ? {
   interrupt: () => call('agent:interrupt'),
   history: scope => call('agent:history', scope),   // no scope: the whole conversation of the model
   drafts: () => call('agent:drafts'),
+  // conversations: [{id, current, title, started, last, messages}] (null when the agent keeps only one)
+  conversations: () => call('agent:conversations'),
+  newConversation: () => call('agent:newConversation'),
+  openConversation: id => call('agent:openConversation', String(id)),
+  deleteConversation: id => call('agent:deleteConversation', String(id)),
   requests: () => call('agent:requests'),
   acceptDraft: id => call('agent:acceptDraft', String(id)),
   discardDraft: id => call('agent:discardDraft', String(id)),
@@ -33,6 +38,20 @@ const agentApi = hasAgent ? {
 
 contextBridge.exposeInMainWorld('api', {
   ...(agentApi ? { agent: agentApi } : {}),
+  // Claude Code in the chat pane (present only when the app runs it): start({cols, rows}), input(text), resize, the
+  // selection the next message is about, and its output.
+  ...(agentApi && ipcRenderer.sendSync('term:available') === true ? { term: {
+    start: size => call('term:start', size),
+    restart: () => call('term:restart'),
+    input: data => ipcRenderer.send('term:input', String(data)),
+    resize: size => ipcRenderer.send('term:resize', size),
+    select: scope => call('term:select', scope),
+    sessions: () => call('term:sessions'),
+    openSession: id => call('term:openSession', String(id)),
+    deleteSession: id => call('term:deleteSession', String(id)),
+    onData: callback => { const h = (_e, d) => callback(d); ipcRenderer.on('term:data', h); return () => ipcRenderer.removeListener('term:data', h); },
+    onExit: callback => { const h = (_e, d) => callback(d); ipcRenderer.on('term:exit', h); return () => ipcRenderer.removeListener('term:exit', h); },
+  } } : {}),
   tk: (command, args) => call('tk', String(command), args === undefined ? [] : args),
   readWorkbook: async relPath => new Uint8Array(await call('readWorkbook', String(relPath))),
   writeWorkbook: (relPath, bytes) => call('writeWorkbook', String(relPath), new Uint8Array(bytes)),

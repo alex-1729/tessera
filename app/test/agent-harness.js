@@ -123,6 +123,8 @@ from unit_linked.liability.units import units_amc
 def test_units_amc_no_cap():
     """Units after allocation * 0.000625.
 
+    Case: base, month 1
+
     Month 1: 194.0 * 0.000625            = 0.12125
     Month 2: 387.091577026107 * 0.000625 = 0.241932235641317
     Round numbers: 12,000 * 0.002        = 24 (no cap any more: 20,000 * 0.002 = 40)
@@ -556,7 +558,9 @@ async function chatChecks(check) {
   const inputsPy = path.join(dir, 'src', 'unit_linked', 'inputs.py');
   const tomlPath = path.join(dir, 'tilekit.toml');
   const [inBefore, tomlBefore] = [fs.readFileSync(inputsPy, 'utf8'), fs.readFileSync(tomlPath, 'utf8')];
-  const broken = await hmodel.propose_inputs({ summary: 'Broken.', inputs: [{ name: 'broken_series', label: 'Broken', format: 'amount', description: 'Fails at run time.', python: 'broken_series = month * params.no_such_parameter' }] });
+  const broken = await hmodel.propose_inputs({ summary: 'Broken.', inputs: [{ name: 'broken_series', label: 'Broken', format: 'amount', description: 'Fails at run time.', python: 'broken_series = month * no_such_name' }] });
+  const logic = await hmodel.propose_inputs({ summary: 'Logic.', inputs: [{ name: 'mort_rate_pm2', label: 'Monthly mortality', format: 'rate', description: 'Converted from annual.', python: 'mort_rate_pm2 = -monthly_rate_from_annual(-params.mort_rate_pa, params.months_per_year)' }] });
+  check('an input series with model logic in it is refused and pointed to a tile', logic.isError && /model logic, not data/.test(logic.text) && /tile/.test(logic.text), logic.text);
   const ab = await e.service.acceptDraft(draftIdOf(broken.text));
   check('an inputs draft that breaks the model is restored', !ab.accepted && /restored/.test(ab.actions.join(' ')) &&
     fs.readFileSync(inputsPy, 'utf8') === inBefore && fs.readFileSync(tomlPath, 'utf8') === tomlBefore, ab.actions);
@@ -564,21 +568,21 @@ async function chatChecks(check) {
     { name: 'no_assign', label: 'N', format: 'amount', description: 'd', python: 'x = 1' }, { name: 'sneaky', label: 'S', format: 'amount', description: 'd', python: 'import os\nsneaky = 1' }] });
   check('propose_inputs validates names and code', badIn.isError && /already exists/.test(badIn.text) && /must assign no_assign/.test(badIn.text) && /plain assignments/.test(badIn.text), badIn.text);
   const goodIn = await hmodel.propose_inputs({ summary: 'Adds a policy term.', model_point_fields: [{ name: 'term_months', label: 'Policy term in months', format: 'integer', example: 120 }],
-    inputs: [{ name: 'in_term', label: 'In term', format: 'integer', description: 'one while the month is within the policy term, otherwise zero',
-      python: 'in_term = np.where(month <= term_months, 1.0, 0.0)' }],
+    inputs: [{ name: 'months_left', label: 'Months left', format: 'integer', description: 'the months left in the policy term after this month',
+      python: 'months_left = term_months - month' }],
     tables: [{ name: 'fee_scale', label: 'Fee scale', columns: ['year', 'scale'], rows: [[1, 1.0], [2, 1.1]], formats: { year: 'integer', scale: 'number' } }] });
   const ai = await e.service.acceptDraft(draftIdOf(goodIn.text));
   const gi = await e.raw('graph');
   const tr = await e.raw('trace', ['--case', 'base']);
-  check('accepting an inputs draft edits inputs.py, tilekit.toml, cases and adds the table', ai.accepted && gi.quantities.in_term && gi.quantities.in_term.kind === 'input' &&
-    gi.tables.some(t => t.name === 'fee_scale') && tr.series.in_term[0] === 1 && JSON.parse(fs.readFileSync(path.join(dir, 'cases', 'base.json'), 'utf8')).model_point.term_months === 120 &&
-    /in_term: one while the month/.test(fs.readFileSync(inputsPy, 'utf8')), { ai, text: goodIn.text });
+  check('accepting an inputs draft edits inputs.py, tilekit.toml, cases and adds the table', ai.accepted && gi.quantities.months_left && gi.quantities.months_left.kind === 'input' &&
+    gi.tables.some(t => t.name === 'fee_scale') && tr.series.months_left[0] === 119 && JSON.parse(fs.readFileSync(path.join(dir, 'cases', 'base.json'), 'utf8')).model_point.term_months === 120 &&
+    /months_left: the months left in the policy term/.test(fs.readFileSync(inputsPy, 'utf8')), { ai, text: goodIn.text });
 
   // Cases.
   const badCase = await hmodel.propose_cases({ summary: 'x', cases: [{ id: 'short', name: 'Short', purpose: 'p', model_point: { premium_pm: 100 } }] });
   check('propose_cases needs every model-point field', badCase.isError && /missing model-point fields/.test(badCase.text), badCase.text);
   const base = JSON.parse(fs.readFileSync(path.join(dir, 'cases', 'base.json'), 'utf8'));
-  const goodCase = await hmodel.propose_cases({ summary: 'A short term.', cases: [{ id: 'short_term', name: 'Short term', purpose: 'Term ends in month 24, so in_term takes both values.', model_point: { ...base.model_point, term_months: 24 }, params: { policy_fee_pm: 2 } }] });
+  const goodCase = await hmodel.propose_cases({ summary: 'A short term.', cases: [{ id: 'short_term', name: 'Short term', purpose: 'Term ends in month 24, so months_left goes below zero.', model_point: { ...base.model_point, term_months: 24 }, params: { policy_fee_pm: 2 } }] });
   const ac = await e.service.acceptDraft(draftIdOf(goodCase.text));
   check('accepting a cases draft writes the case and it runs', ac.accepted && (await e.raw('cases')).cases.some(c => c.id === 'short_term'), { ac, text: goodCase.text });
 
@@ -630,12 +634,12 @@ async function freshModelChecks(check) {
     g.modules.length === 2 && g.quantities.mortality_rate_pa && chk.counts.error === 0, { am: am.actions, ap: ap.actions, chk: chk.counts });
   const ind = await h.propose_inputs({ summary: 'Sum assured and premium.', model_point_fields: [{ name: 'sum_assured', label: 'Sum assured', format: 'amount', example: 100000 }, { name: 'premium_pm', label: 'Monthly premium', format: 'amount', example: 20 }],
     inputs: [{ name: 'sum_assured', label: 'Sum assured', format: 'amount', description: 'the model-point sum assured in every month' },
-      { name: 'mort_rate_pm', label: 'Mortality rate per month', format: 'rate', description: 'the monthly equivalent of the annual mortality rate',
-        python: 'mort_rate_pm = -monthly_rate_from_annual(-params.mortality_rate_pa, params.months_per_year)', excel: '=1-(1-mortality_rate_pa)^(1/months_per_year)' }] });
+      { name: 'policy_year', label: 'Policy year', format: 'integer', description: 'the policy year of the month: 1 for months 1 to 12, then 2, and so on',
+        python: 'policy_year = np.floor((month - 1) / params.months_per_year) + 1' }] });
   const ai = await e.service.acceptDraft(draftIdOf(ind.text));
   const tr = await tk('trace', ['--case', 'base']);
   check('on a fresh model, an inputs draft with a model-point field and an excel template applies', ai.accepted && tr.series.sum_assured[0] === 100000 &&
-    Math.abs(tr.series.mort_rate_pm[0] - (1 - Math.pow(1 - 0.002, 1 / 12))) < 1e-15, { ai: ai.actions, ind: ind.text });
+    tr.series.policy_year[0] === 1 && tr.series.policy_year[12] === 2, { ai: ai.actions, ind: ind.text });
 }
 
 // ---------------------------------------------------------------- live scenarios

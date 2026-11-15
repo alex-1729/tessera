@@ -4,6 +4,8 @@
 // scope: {level: 'model' | 'module' | 'tile', id}
 import { h, fmtNumber, plainFormula } from './util.js';
 import { markdown } from './markdown.js';
+import { formDialog } from './dialog.js';
+import * as terminal from './terminal.js';
 
 const agentApi = () => (window.api && window.api.agent) || null;
 
@@ -13,8 +15,23 @@ const stopEl = h('button', { type: 'button', id: 'agentlog-stop', class: 'agent-
 const workingEl = h('div', { class: 'alog-line alog-working', id: 'agentlog-working' }, h('span', { class: 'alog-lab' }), h('span', { class: 'alog-txt grey' }, 'Working…'));
 const startersEl = h('div', { class: 'starters', id: 'starters' });
 const noneEl = h('div', { id: 'chatnone', hidden: true }, 'The agent is not available in this mode.');
-export const section = h('section', { class: 'agentlog', id: 'agentlog', hidden: !agentApi() },
-  logEl, h('div', { class: 'agentlog-bottom' }, startersEl, h('div', { class: 'agentlog-row' }, inputEl, stopEl)));
+// New conversation and the list of earlier ones; shown when the agent keeps conversations.
+const newEl = h('button', { type: 'button', class: 'linkbtn', id: 'chatnew', onclick: () => newConversation() }, 'New conversation');
+const listEl = h('button', { type: 'button', class: 'linkbtn', id: 'chatlist', onclick: () => conversationsDialog() }, 'Conversations…');
+const topEl = h('div', { class: 'agentlog-top', id: 'agentlog-top', hidden: true }, newEl, listEl);
+// With Claude Code in the pane (terminal mode) the conversation is in the terminal; the log above it holds only the
+// cards that need a click (drafts, sign-off and push requests), and the app's own input is not shown.
+const TERM = terminal.available();
+// Above the terminal: Claude Code's own commands for a new conversation and for the earlier ones.
+const termTop = h('div', { class: 'agentlog-top', id: 'term-top' },
+  h('button', { type: 'button', class: 'linkbtn', id: 'termnew', title: 'Types /clear', onclick: () => terminal.type('/clear', true) }, 'New conversation'),
+  h('button', { type: 'button', class: 'linkbtn', id: 'termresume', onclick: () => conversationsDialog() }, 'Conversations…'));
+// A card stays while it waits for a click; a few seconds after it is settled (applied, discarded, signed, declined) it goes.
+if (TERM) new MutationObserver(() => setTimeout(() => {
+  for (const l of logEl.querySelectorAll('.alog-line')) if (!l.querySelector('button[data-act]')) l.remove();
+}, 4000)).observe(logEl, { childList: true, subtree: true });
+export const section = h('section', { class: 'agentlog' + (TERM ? ' termmode' : ''), id: 'agentlog', hidden: !agentApi() },
+  topEl, logEl, TERM ? termTop : null, TERM ? terminal.el : null, h('div', { class: 'agentlog-bottom' }, startersEl, h('div', { class: 'agentlog-row' }, inputEl, stopEl)));
 export const unavailable = noneEl;
 
 // What in the conversation needs the reviewer: a sign-off card or a draft with its buttons still showing, or a
@@ -72,6 +89,7 @@ export function mount(scope) {
   section.hidden = false; noneEl.hidden = true;
   inputEl.placeholder = PLACEHOLDER[scope.level] || '';
   current = scope;
+  if (TERM) { void window.api.term.select(scope).catch(() => {}); queueMicrotask(() => terminal.show()); }
   if (!subscribed) { subscribed = true; agentApi().onEvent(onEvent); void refreshBusy(); }
   if (!loaded) { loaded = true; load(); }
   paintStarters();
@@ -86,7 +104,7 @@ export function restoreView(v) {
   logEl.scrollTop = v.bottom ? logEl.scrollHeight : v.top;
   if (v.focus && !inputEl.disabled) inputEl.focus();
 }
-export function prefill(text) { inputEl.value = text; autosize(); }
+export function prefill(text) { if (TERM) { terminal.type(text, false); return; } inputEl.value = text; autosize(); }
 
 // The input grows from two rows to about six.
 function autosize() {
@@ -102,6 +120,9 @@ function line(label, text, cls, ev) {
   return e;
 }
 
+// What was said is drawn as a speech bubble: the reviewer's on the right, the agent's on the left.
+function bubble(e) { e.querySelector('.alog-txt').classList.add('alog-bubble'); return e; }
+
 function append(node) {
   const atBottom = logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 24;
   logEl.append(node);
@@ -110,9 +131,11 @@ function append(node) {
 }
 
 function paintWorking() {
+  if (TERM) { workingEl.remove(); return; }
   if (busy) { logEl.append(workingEl); logEl.scrollTop = logEl.scrollHeight; }
   else workingEl.remove();
   inputEl.disabled = busy;
+  newEl.disabled = busy || shown === 0; listEl.disabled = busy;
   stopEl.hidden = !busy;
 }
 
@@ -140,20 +163,35 @@ export function whatIfLines(result) {
   });
 }
 
-// What a draft would add or change, as a short plain list: name, label, default or formula where there is one.
+// A default shown the way the workbook will show it: percentages as percentages, amounts with two decimals.
+function draftValue(v, format) {
+  if (typeof v !== 'number') return v === undefined || v === null ? '' : String(v);
+  if (format === 'percent' || format === 'rate' || format === 'irr') return (v * 100).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 4 }) + '%';
+  if (format === 'amount') return v.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  if (format === 'integer') return v.toLocaleString('en-GB', { maximumFractionDigits: 0 });
+  return fmtNumber(v);
+}
+
+// What a draft would add or change, as a small table: what it is called in words, its name in the code, and its
+// default, layer or units where it has one. A line of purpose or formula goes under the row it belongs to.
 function draftItems(d) {
   const items = d.items || [];
-  const one = it => {
-    if (typeof it === 'string') return it;
-    const name = it.id && it.name && it.id !== it.name ? it.id : (it.name || it.id || it.table || it.title || '');
-    const bits = [name, it.name && it.name !== name ? it.name : '', it.type && it.type !== name ? it.type : '', it.label && it.label !== name ? it.label : '', it.title && it.title !== name && it.title !== it.label ? it.title : '',
-      it.default !== undefined && it.default !== null ? 'default ' + it.default : '', it.formula ? it.formula : (it.expression || '')].filter(Boolean);
-    return bits.join(', ');
-  };
-  const rows = items.map(it => one(it)).filter(Boolean);
+  const rows = [];
+  for (const it of items) {
+    if (typeof it === 'string') { rows.push(h('tr', { class: 'draftitem' }, h('td', { colspan: '3' }, it))); continue; }
+    const name = it.id && it.name && it.id !== it.name ? it.id : (it.name || it.id || it.table || '');
+    const words = it.label || it.title || (it.id && it.name && it.id !== it.name ? it.name : '') || it.purpose || '';
+    const value = it.default !== undefined && it.default !== null ? draftValue(it.default, it.format)
+      : it.example !== undefined && it.example !== null ? draftValue(it.example, it.format) : '';
+    const aside = value !== '' ? h('td', { class: 'dval' }, value) : h('td', { class: 'dside' }, it.layer || it.units || (it.columns ? `${it.columns.length} columns` : '') || it.type || '');
+    if (!name && !words) continue;
+    rows.push(h('tr', { class: 'draftitem' }, h('td', { class: 'dwords' }, words || name), h('td', { class: 'dname' }, words ? name : ''), aside));
+    const more = it.formula || it.expression || (it.label || it.title ? it.purpose : '') || it.spec || it.description || '';
+    if (more) rows.push(h('tr', { class: 'draftmore' }, h('td', { colspan: '3' }, String(more))));
+  }
   if (!rows.length) return [];
   const head = { tiles: 'Tiles to add', modules: 'Modules to add', params: 'Parameters to add', inputs: 'Inputs to add', cases: 'Cases to add' }[d.kind] || 'Changes';
-  return [h('div', { class: 'draftlist' }, h('div', { class: 'cardsec' }, head + (d.module ? ` (in ${d.module})` : '')), ...rows.map(r => h('div', { class: 'draftitem' }, r)))];
+  return [h('div', { class: 'draftlist' }, h('div', { class: 'cardsec' }, head + (d.module ? ` (in ${d.module})` : '')), h('table', { class: 'drafttable' }, h('tbody', {}, rows)))];
 }
 
 function draftLine(ev, status) {
@@ -184,7 +222,8 @@ function draftLine(ev, status) {
     yes.disabled = no.disabled = false;
   } }, 'Discard');
   buttons.append(...(canApply ? [yes] : []), no);
-  const body = [h('div', {}, ev.text)];
+  const lead = isWhatIf ? ev.text : String(ev.text || '').replace(/^Draft:\s*/i, '').replace(/\s*\([^)]*\)\s*(?=\.?$)/, '').replace(/^./, c => c.toUpperCase());
+  const body = [h('div', { class: 'draftlead' }, lead)];
   if (isWhatIf && d.result) body.push(...whatIfLines(d.result).map(t => h('div', { class: 'alog-num' }, t)));
   if (!isWhatIf) body.push(...draftItems(d));
   if (!isWhatIf && (d.warnings || []).length) body.push(...d.warnings.map(w => h('div', { class: 'grey' }, w)));
@@ -192,7 +231,7 @@ function draftLine(ev, status) {
   else if (status === 'discarded') body.push(h('div', { class: 'alog-done' }, 'Discarded.'));
   else if (status === 'proposed') body.push(buttons, done, errors);
   const e = line('Agent', '', 'alog-draft', ev);
-  e.querySelector('.alog-txt').append(...body);
+  e.querySelector('.alog-txt').append(h('div', { class: 'draftcard' }, body));
   e.dataset.draft = d.id || '';
   return e;
 }
@@ -348,25 +387,31 @@ function questionCard(ev) {
     void send(text);
   });
   const e = line('Agent', '', 'alog-question', ev);
-  e.querySelector('.alog-txt').append(h('div', { class: 'alog-qtext' }, markdown(ev.text || '')),
+  e.querySelector('.alog-txt').append(h('div', { class: 'alog-qtext alog-bubble' }, markdown(ev.text || '')),
     h('div', { class: 'alog-opts alog-card qcard' }, parts.map(p => p.node), h('div', { class: 'alog-btns' }, send1)));
   return e;
 }
+
+// In terminal mode a draft is approved in the centre pane (the Draft to approve tab), so the bar keeps only the
+// cards that need the reviewer's own click: sign-off and push requests. What-if drafts stay here.
+const CARDS = new Set(['draft', 'signoff_request', 'push_request']);
+const inCentre = ev => TERM && ev.type === 'draft' && ev.draft && ev.draft.kind !== 'what_if';
 
 function divider(scope) {
   return h('div', { class: 'alog-divider', 'data-scope': keyOf(scope) }, hooks.titleOf(scope));
 }
 
 function render(ev, draftStatus) {
+  if (TERM && (!CARDS.has(ev.type) || inCentre(ev))) return null;
   switch (ev.type) {
     case 'user':
       logEl.querySelectorAll('.alog-opts').forEach(n => n.remove());
-      return line('You', ev.text, '', ev);
-    case 'agent': return line('Agent', markdown(ev.text), '', ev);
+      return bubble(line('You', ev.text, 'alog-you', ev));
+    case 'agent': return bubble(line('Agent', markdown(ev.text), 'alog-agent', ev));
     case 'action': return line('', ev.text, 'alog-action', ev);
     case 'question': {
       if ((ev.questions || []).length) return questionCard(ev);
-      const e = line('Agent', markdown(ev.text), 'alog-question', ev);
+      const e = bubble(line('Agent', markdown(ev.text), 'alog-question alog-agent', ev));
       if ((ev.options || []).length) {
         e.querySelector('.alog-txt').append(h('div', { class: 'alog-opts' }, ev.options.map(o =>
           h('button', { type: 'button', class: 'small', onclick: () => send(String(o)) }, o))));
@@ -426,6 +471,7 @@ async function load() {
       st = q ? (reqWord[q.status] || 'closed') : ((i === lastReq && lastReq > lastUser) ? 'proposed' : 'closed');
       if (q) { ev = { ...ev, request: { ...ev.request, ...q }, reviewer: q.reviewer }; }
     }
+    if (TERM && st !== 'proposed') return;
     const node = render(ev, st);
     if (node && ev.type === 'question' && !(i === lastQ && lastQ > lastUser)) node.querySelectorAll('.alog-opts').forEach(n => n.remove());
     if (node) shown++;
@@ -436,9 +482,11 @@ async function load() {
   paintWorking();
   paintStarters();
   logEl.scrollTop = logEl.scrollHeight;
+  void readChats();
 }
 
 function onEvent(ev) {
+  if (ev.type === 'navigate') { if (typeof ev.route === 'string' && /^#\/(tile|module)\/[\w%]+$/.test(ev.route)) location.hash = ev.route; return; }
   if ((ev.type === 'signoff_request' || ev.type === 'push_request') && ev.request) {
     for (const old of logEl.querySelectorAll('.alog-signoff')) {
       if (old.dataset.kind === ev.request.kind && old.dataset.name === ev.request.name && old.dataset.request !== ev.request.id && old._settle) old._settle('Superseded by a newer request.');
@@ -446,9 +494,9 @@ function onEvent(ev) {
   }
   if (loading) loading.queued.push(ev);
   else { const n = render(ev); if (n) { shown++; startersEl.hidden = true; append(withDividerFrag(ev, n)); } }
-  if (ev.type === 'user') { busy = true; paintWorking(); hooks.onBusy(); }
+  if (ev.type === 'user' || ev.type === 'turn_start') { busy = true; paintWorking(); hooks.onBusy(); }
   else if (ev.type === 'draft') hooks.draftsChanged();
-  else if (ev.type === 'done') { void refreshBusy().then(() => hooks.afterTurn()); }
+  else if (ev.type === 'done') { void refreshBusy().then(() => { void readChats(); return hooks.afterTurn(); }); }
 }
 function withDividerFrag(ev, node) {
   const nodes = withDivider(ev, node);
@@ -466,11 +514,74 @@ function setBusy(now) {
   busy = now; paintWorking(); hooks.onBusy();
 }
 
+// ---------------------------------------------------------------- conversations
+
+let chats = null;            // [{id, current, title, started, last, messages}], or null when the agent keeps only one
+// Where conversations come from: Claude Code's own saved ones in terminal mode, the app's otherwise.
+const chatSource = () => (TERM
+  ? { list: () => window.api.term.sessions(), open: id => window.api.term.openSession(id), remove: id => window.api.term.deleteSession(id) }
+  : { list: () => agentApi().conversations(), open: id => agentApi().openConversation(id), remove: id => agentApi().deleteConversation(id) });
+
+async function readChats() {
+  try { chats = TERM || agentApi().conversations ? await chatSource().list() : null; } catch { chats = null; }
+  topEl.hidden = !chats || TERM;
+  if (chats) listEl.textContent = `Conversations (${chats.length})…`;
+  newEl.disabled = busy || shown === 0; listEl.disabled = busy;
+  return chats;
+}
+
+// The conversation on show is kept with the earlier ones and the chat starts empty.
+async function newConversation() {
+  if (busy || shown === 0) return;
+  try { await agentApi().newConversation(); } catch (e) { append(line('', couldNot(e.message), 'alog-error')); return; }
+  await load();
+  inputEl.focus();
+}
+
+const chatDate = c => (c.last || c.started ? new Date(c.last || c.started).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : '');
+
+async function conversationsDialog() {
+  if (busy && !TERM) return;
+  const listNode = h('div', { id: 'chats', class: 'chats' });
+  const say = h('p', { class: 'warn', id: 'chatserror' });
+  const act = async (fn, reloadChat) => {
+    say.textContent = '';
+    try { await fn(); } catch (e) { say.textContent = e.message; }
+    if (reloadChat) await load();
+    await readChats();
+    paint();
+  };
+  function paint() {
+    const rows = (chats || []).map(c => {
+      const buttons = h('span', { class: 'chatacts' });
+      const normal = () => buttons.replaceChildren(
+        c.current ? h('span', { class: 'grey' }, 'on show') : h('button', { type: 'button', class: 'linkbtn', 'data-act': 'open', onclick: async () => { await act(() => chatSource().open(c.id), true); document.getElementById('confirm').click(); } }, 'Open'),
+        h('button', { type: 'button', class: 'linkbtn', 'data-act': 'delete', onclick: () => buttons.replaceChildren(
+          h('button', { type: 'button', class: 'linkbtn warn', 'data-act': 'reallydelete', onclick: () => act(() => chatSource().remove(c.id), c.current) }, 'Delete for good'),
+          h('button', { type: 'button', class: 'linkbtn', 'data-act': 'keep', onclick: normal }, 'Keep')) }, 'Delete'));
+      normal();
+      return h('div', { class: 'chatrow', 'data-id': c.id },
+        h('div', { class: 'chattitle' }, c.title),
+        h('div', { class: 'chatmeta' }, h('span', { class: 'grey' }, [chatDate(c), `${c.messages} message${c.messages === 1 ? '' : 's'}`].filter(Boolean).join(', ')), buttons));
+    });
+    listNode.replaceChildren(...(rows.length ? rows : [h('p', { class: 'grey' }, 'No conversations yet.')]));
+  }
+  await readChats();
+  paint();
+  await formDialog({
+    title: 'Conversations', confirm: 'Done', fields: [],
+    intro: [TERM ? 'Open starts Claude Code again on that conversation. Deleting removes a conversation for good, here and in Claude Code\'s own /resume list. Sign-offs, drafts and the record of changes kept with each tile and module are not touched.'
+      : 'Deleting removes a conversation from this list for good. Sign-offs, drafts and the record of changes kept with each tile and module are not touched.'],
+    sections: [listNode, say],
+    submit: async () => null });
+}
+
 // ---------------------------------------------------------------- actions
 
 export async function send(text, extra) {
   const scope = current;
   if (!scope || !text || !String(text).trim() || busy) return false;
+  if (TERM) { terminal.type(text, true); return true; }
   setBusy(true);
   try { await agentApi().send(scope, String(text), extra); }
   catch (e) { append(line('', couldNot(e.message), 'alog-error')); }
@@ -480,6 +591,7 @@ export async function send(text, extra) {
 
 export async function buildModule(id) {
   if (busy) return;
+  if (TERM) { terminal.type(`Build the tiles of module ${id} that are not built yet.`, true); return; }
   building = true; setBusy(true);
   try { await agentApi().buildModule(id); }
   catch (e) { append(line('', couldNot(e.message), 'alog-error')); }

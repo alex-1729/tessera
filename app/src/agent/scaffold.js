@@ -201,6 +201,14 @@ function validateInputs(graph, modelDir, draft) {
       if (!new RegExp(`^${n}\\s*=`, 'm').test(code)) problems.push(`The Python for ${n} must assign ${n} = ... at its top level.`);
       if (/^\s*(import|from|def|class|return|global|nonlocal)\b/m.test(code)) problems.push(`The Python for ${n} must be plain assignments (no import, def, class or return).`);
       if (/\bopen\(|\beval\(|\bexec\(|__import__|\bsubprocess\b|\bos\./.test(code)) problems.push(`The Python for ${n} may only compute arrays (no file or system calls; tables are read with the module's own helpers).`);
+      // Input series are data: a field as it is, a table lookup, or time bookkeeping. Model logic is refused here so
+      // that it becomes a tile, with an Excel formula, a hand-calculation test and a sign-off.
+      const logic = [];
+      const used = [...new Set([...code.matchAll(/\bparams\.([A-Za-z_]\w*)/g)].map(m => m[1]))].filter(x => x !== 'months_per_year');
+      if (used.length) logic.push(`it is worked out from the parameter${used.length > 1 ? 's' : ''} ${used.join(', ')}`);
+      if (/\b\w*(rate|prob\w*)_from_\w+\s*\(|\*\*|\bnp\.(power|exp|log\w*|expm1)\s*\(/.test(code)) logic.push('it converts a rate or probability from one basis to another');
+      if (/\bnp\.(where|select|piecewise|minimum|maximum|clip)\s*\(/.test(code)) logic.push('it chooses between values by a condition');
+      if (logic.length) problems.push(`${n} is model logic, not data: ${logic.join('; ')}. Do not propose it as an input series. Make it a tile in the module that uses it (propose it later with propose_structure tiles), reading the parameter or the model-point field in the basis it is quoted in. An input series may only be a model-point field as it is, a table lookup, or time bookkeeping such as the policy year.`);
     }
     if (it.excel !== undefined && it.excel !== null && it.excel !== '') {
       if (typeof it.excel !== 'string' || !it.excel.startsWith('=')) problems.push(`The excel template of ${n} must start with '='.`);
@@ -245,7 +253,15 @@ function editInputs(text, items) {
   const fields = items.filter(i => i.type === 'model_point');
   const inputs = items.filter(i => i.type === 'input');
   const fieldLines = fields.map(f => `    ${f.name} = np.asarray(model_points[${JSON.stringify(f.name)}], dtype=np.float64)`);
-  const codeLines = inputs.filter(i => i.python).flatMap(i => [...indent(i.python, 4).split('\n'), '']);
+  // Each new table is read once, under its own name, as {column: array}; the series code looks values up in it.
+  const tables = items.filter(i => i.type === 'table');
+  const hasLoader = /^def load_table\(/m.test(text) && /^ASSUMPTIONS\s*=/m.test(text);
+  const tableLines = !hasLoader ? [] : tables.filter(t => !new RegExp(`^ {4}${t.name}\\s*=`, 'm').test(text)).map(t => {
+    const file = String(t.file || `assumptions/${t.name}.csv`);
+    const where = file.startsWith('assumptions/') ? `ASSUMPTIONS / ${JSON.stringify(file.slice('assumptions/'.length))}` : `ASSUMPTIONS.parent / ${JSON.stringify(file)}`;
+    return `    ${t.name} = load_table(${where})`;
+  });
+  const codeLines = [...(tableLines.length ? [...tableLines, ''] : []), ...inputs.filter(i => i.python).flatMap(i => [...indent(i.python, 4).split('\n'), ''])];
   const dictLines = inputs.map(i => `        ${JSON.stringify(i.name)}: ${i.name},`);
 
   // dict entries, then the code before the dict, then the fields (after the fields anchor, or with the code)

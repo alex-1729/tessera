@@ -352,7 +352,8 @@ async function acceptTileDraft(ctx, draft) {
   const tk = ctx.tilekit;
   const graph = await tk('graph');
   const moduleId = draft.module || draft.scope.id;
-  const { problems } = validateTileDraft(graph, moduleId, draft.items);
+  const states = draft.states || [];
+  const { problems } = validateTileDraft(graph, moduleId, draft.items, states);
   if (problems.length) throw new Error('The draft no longer fits the model: ' + problems.join(' '));
   const file = moduleFile(ctx, graph, moduleId);
   const before = read(file);
@@ -379,7 +380,7 @@ async function acceptTileDraft(ctx, draft) {
   const place = it => {
     if (done.has(it.name)) return;
     done.add(it.name);
-    for (const a of it.args) if (names.has(a)) place(added.find(x => x.name === a));
+    for (const a of it.args) if (names.has(a)) place(added.find(x => x.name === a));   // a state is not a dependency
     ordered.push(it);
   };
   added.forEach(place);
@@ -392,14 +393,24 @@ async function acceptTileDraft(ctx, draft) {
   }
   text = src.appendFunctions(text, ordered.map(it => src.skeleton(it)));
   fs.writeFileSync(file, text);
+  // the states the tiles read go into tilekit.toml in the same step, so the model loads with both or neither
+  const tomlFile = path.join(ctx.modelDir, 'tilekit.toml');
+  const tomlBefore = states.length ? read(tomlFile) : null;
+  if (states.length) {
+    const qs = x => JSON.stringify(String(x));
+    const blocks = states.flatMap(st => ['', `[state.${st.name}]`, `from = ${qs(st.from)}`, `initial = ${Number.isInteger(st.initial) ? st.initial.toFixed(1) : String(st.initial)}`, `label = ${qs(st.label)}`, `format = ${qs(st.format)}`]);
+    fs.writeFileSync(tomlFile, tomlBefore.replace(/\s+$/, '') + '\n' + blocks.join('\n') + '\n');
+  }
   try {
     await tk('graph');
   } catch (e) {
     fs.writeFileSync(file, before);
+    if (tomlBefore !== null) fs.writeFileSync(tomlFile, tomlBefore);
     throw new Error(`The model would not load with the draft (${e.message}); nothing was changed.`);
   }
   const actions = [];
   if (ordered.length) actions.push(`Added ${count(ordered.length, 'tile skeleton')} to ${moduleId}: ${ordered.map(i => i.name).join(', ')}.`);
+  if (states.length) actions.push(`Added ${count(states.length, 'carried-forward state')}: ${states.map(x => `${x.name} (from ${x.from})`).join(', ')}.`);
   if (changed.length) actions.push(`Respecified ${changed.map(i => i.name).join(', ')}; ${changed.length === 1 ? 'it is' : 'they are'} now not built.`);
   const related = await rebuildRelated(ctx, [moduleId]);
   if (related.sentence) actions.push(related.sentence);

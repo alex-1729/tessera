@@ -236,7 +236,7 @@ const check = (name, ok, detail) => { summary.checks.push({ name, ok: !!ok, ...(
     const segSel = () => ev(`[...document.querySelectorAll('button.seg')].filter(b=>b.getAttribute('aria-selected')==='true').map(b=>b.dataset.seg)`);
     const codeShown = () => ev(`(()=>{const w=document.getElementById('codewrap'); return !w.hidden && w.getBoundingClientRect().height>0})()`);
     await go('#/tile/' + tileName); await settle();
-    check('centre: three segments, square, in order Spreadsheet, Code, Test', await ev(`(()=>{const b=[...document.querySelectorAll('#seg button.seg')]; const cs=getComputedStyle(document.getElementById('seg')); return b.map(x=>x.textContent).join('|')==='Spreadsheet|Code|Test' && cs.borderTopLeftRadius==='0px' && cs.borderTopWidth==='1px'})()`));
+    check('centre: three segments, square, in order Spreadsheet, Code, Test', await ev(`(()=>{const b=[...document.querySelectorAll('#seg button.seg')].filter(x=>!x.hidden); const cs=getComputedStyle(document.getElementById('seg')); return b.map(x=>x.textContent).join('|')==='Spreadsheet|Code|Test' && cs.borderTopLeftRadius==='0px' && cs.borderTopWidth==='1px'})()`));
     check('centre: the switch is first in the bar above the spreadsheet, left-aligned', await ev(`(()=>{const s=document.getElementById('seg').getBoundingClientRect(), c=document.getElementById('cbar').getBoundingClientRect(); return Math.abs(s.left-c.left-14)<=2 && document.getElementById('cbar').firstElementChild.id==='seg'})()`));
     check('centre: Spreadsheet is selected by default and the code pane is closed', (await segSel()).join() === 'spreadsheet' && !(await codeShown()));
     check('centre: selected segment is navy with sand text', await ev(`(()=>{const b=document.getElementById('seg-spreadsheet'), cs=getComputedStyle(b); return cs.backgroundColor==='rgb(20, 33, 61)' && cs.color==='rgb(244, 239, 230)'})()`));
@@ -297,7 +297,9 @@ const check = (name, ok, detail) => { summary.checks.push({ name, ok: !!ok, ...(
     await ev(`Object.assign(window.__app.S.status.tiles[${JSON.stringify(otherTile)}], {state:'stale', drift:'formula', signed_formula:'=old'}); window.__app.render()`); await settle();
     const orig = await ev(`window.__app.S.graph.quantities[${JSON.stringify(otherTile)}].source.code`);
     await ev(`window.__app.S.graph.quantities[${JSON.stringify(otherTile)}].source.code += '\\n    # edited by the agent'; window.__app.render()`); await settle();
-    check('centre: a changed tile shows Was and Now side by side', await ev(`!!document.getElementById('srcpair') && document.querySelector('#srcwas .src').dataset.code===${JSON.stringify(orig)} && document.querySelector('#srcnow .src').dataset.code.includes('# edited by the agent') && document.querySelector('#srcwas .srclab').textContent==='Was' && document.querySelector('#srcnow .srclab').textContent==='Now'`));
+    check('centre: a changed tile shows one listing with the added line marked, and keeps both texts', await ev(`!!document.getElementById('srcpair') && document.querySelector('#srcwas .src').dataset.code===${JSON.stringify(orig)} && document.querySelector('#srcnow .src').dataset.code.includes('# edited by the agent') && document.querySelectorAll('#srcdiff .l.add').length===1 && document.querySelector('#srcdiff .l.add .t').textContent.includes('# edited by the agent') && document.querySelectorAll('#srcdiff .l.del').length===0 && /1 line added/.test(document.querySelector('#srcpair .srclab').textContent)`));
+    await ev(`document.getElementById('srcack').click()`); await settle();
+    check('centre: Acknowledge changes clears the highlighting and records nothing', await ev(`!document.getElementById('srcpair') && !!document.querySelector('#codewrap .src')`));
     await shot('centre-was-now' + SFX);
     await ev(`document.getElementById('seg-spreadsheet').click()`); await sleep(300);
     await ev(`document.getElementById('seg-spreadsheet').click()`);
@@ -346,7 +348,7 @@ const check = (name, ok, detail) => { summary.checks.push({ name, ok: !!ok, ...(
     // draft kinds: a plain list of what would be added, and "Working…" while a slow accept runs
     stub.inject({ type: 'draft', scope, text: 'A parameter and an input.', draft: { id: 'dr-params', kind: 'params', items: [{ name: 'surrender_rate', label: 'Surrender rate', default: 0.05 }], warnings: [] } });
     await waitFor(`!!document.querySelector('[data-draft="dr-params"]')`, 5000);
-    check('chat: a params draft lists the parameter with its label and default above Accept and Discard', await ev(`(()=>{const d=document.querySelector('[data-draft="dr-params"]'); return d.querySelector('.cardsec').textContent==='Parameters to add' && d.querySelector('.draftitem').textContent==='surrender_rate, Surrender rate, default 0.05' && [...d.querySelectorAll('button')].map(b=>b.textContent).join('|')==='Accept|Discard' && d.querySelector('.cardsec').compareDocumentPosition(d.querySelector('button'))&4})()`));
+    check('chat: a params draft shows the label, name and default of the parameter in a table above Accept and Discard', await ev(`(()=>{const d=document.querySelector('[data-draft="dr-params"]'); return d.querySelector('.cardsec').textContent==='Parameters to add' && [...d.querySelectorAll('.draftitem td')].map(x=>x.textContent).join('|')==='Surrender rate|surrender_rate|0.05' && d.querySelector('.draftitem .dval') && [...d.querySelectorAll('button')].map(b=>b.textContent).join('|')==='Accept|Discard' && d.querySelector('.cardsec').compareDocumentPosition(d.querySelector('button'))&4})()`));
     await ev(`document.querySelector('[data-draft="dr-params"] button[data-act=accept]').click()`);
     check('chat: accepting a params draft shows "Working…" in the chat while it runs', await waitFor(`document.querySelector('[data-draft="dr-params"] .alog-done').innerText==='Working…'`, 600));
     check('chat: and then "Accepted."', await waitFor(`document.querySelector('[data-draft="dr-params"]').innerText.includes('Accepted.') && !document.querySelector('[data-draft="dr-params"] button')`, 8000));
@@ -354,7 +356,7 @@ const check = (name, ok, detail) => { summary.checks.push({ name, ok: !!ok, ...(
     stub.inject({ type: 'draft', scope, text: 'An input.', draft: { id: 'dr-inputs', kind: 'inputs', items: [{ type: 'model_point', name: 'sum_assured', label: 'Sum assured' }, { type: 'table', name: 'mortality' }] } });
     stub.inject({ type: 'draft', scope, text: 'A case.', draft: { id: 'dr-cases', kind: 'cases', items: [{ id: 'young', name: 'Young policyholder' }] } });
     await waitFor(`!!document.querySelector('[data-draft="dr-cases"]')`, 5000);
-    check('chat: tiles, inputs and cases drafts are plain lists too', await ev(`(()=>{const t=d=>document.querySelector('[data-draft="'+d+'"]').innerText.toLowerCase(); return t('dr-tiles').includes('tiles to add (in unit_projection)') && t('dr-tiles').includes('surrender_charge, surrender charge, =a*b') && t('dr-inputs').includes('inputs to add') && t('dr-inputs').includes('sum_assured, model_point, sum assured') && t('dr-inputs').includes('mortality, table') && t('dr-cases').includes('young, young policyholder')})()`));
+    check('chat: tiles, inputs and cases drafts are tables too', await ev(`(()=>{const t=d=>document.querySelector('[data-draft="'+d+'"]').innerText.toLowerCase(); return t('dr-tiles').includes('tiles to add (in unit_projection)') && /surrender charge\\s+surrender_charge/.test(t('dr-tiles')) && t('dr-tiles').includes('=a*b') && t('dr-inputs').includes('inputs to add') && /sum assured\\s+sum_assured\\s+model_point/.test(t('dr-inputs')) && /mortality\\s+table/.test(t('dr-inputs')) && /young policyholder\\s+young/.test(t('dr-cases'))})()`));
     for (const d of ['dr-tiles', 'dr-inputs', 'dr-cases']) await ev(`document.querySelector('[data-draft="${d}"] button[data-act=discard]').click()`);
     await waitFor(`!document.querySelector('#agentlog-log .alog-draft button')`, 5000);
 
@@ -523,6 +525,24 @@ const check = (name, ok, detail) => { summary.checks.push({ name, ok: !!ok, ...(
     await ev(`document.querySelector('.qcard .alog-btns button').click()`);
     check('chat: the answers go as one message, a line per question', await waitFor(`!document.getElementById('agentlog-input').disabled`, 8000) && stub.calls.send.length === nq + 1 && stub.calls.send[nq].text === 'Purpose: Profit\nResults: IRR, Reserves', stub.calls.send[nq] && stub.calls.send[nq].text);
     check('chat: once answered the form is gone and the questions stay as text', await ev(`!document.querySelector('.qcard') && [...document.querySelectorAll('.alog-qtext')].pop().querySelectorAll('ol > li').length===2 && [...document.querySelectorAll('.alog-qtext li')].pop().textContent==='Which results?' && getComputedStyle([...document.querySelectorAll('.alog-qtext')].pop()).display!=='none'`));
+    // conversations: start a new one, find the earlier one in the list, open it again, delete one
+    const linesNow = () => ev(`document.querySelectorAll('#agentlog-log .alog-line:not(.alog-working)').length`);
+    const before = await linesNow();
+    check('chat: New conversation and Conversations are offered above the chat', await waitFor(`!document.getElementById('agentlog-top').hidden && /^Conversations \\(1\\)…$/.test(document.getElementById('chatlist').textContent) && !document.getElementById('chatnew').disabled`, 5000), await ev(`document.getElementById('chatlist').textContent`));
+    await ev(`document.getElementById('chatnew').click()`);
+    check('chat: New conversation empties the chat and keeps the old one in the list', await waitFor(`document.querySelectorAll('#agentlog-log .alog-line:not(.alog-working)').length===0 && document.getElementById('chatnew').disabled`, 5000) && stub.conversations().length === 1 && !stub.conversations()[0].current);
+    await say('second conversation');
+    await waitFor(`/\\(2\\)/.test(document.getElementById('chatlist').textContent)`, 5000);
+    await ev(`document.getElementById('chatlist').click()`);
+    await waitFor(`document.querySelectorAll('#chats .chatrow').length===2`, 5000);
+    await shot('chat-conversations');
+    check('chat: the list shows the conversation on show first, then the earlier one with Open and Delete', await ev(`(()=>{const r=[...document.querySelectorAll('#chats .chatrow')]; return r[0].dataset.id==='current' && /on show/.test(r[0].innerText) && r[0].querySelector('.chattitle').textContent==='second conversation' && !!r[1].querySelector('[data-act=open]') && !!r[1].querySelector('[data-act=delete]')})()`));
+    await ev(`document.querySelector('#chats .chatrow[data-id=current] [data-act=delete]').click()`);
+    check('chat: Delete asks once more before anything goes', await ev(`!!document.querySelector('#chats [data-act=reallydelete]') && !!document.querySelector('#chats [data-act=keep]')`) && stub.conversations().length === 2);
+    await ev(`document.querySelector('#chats [data-act=reallydelete]').click()`);
+    check('chat: deleting the conversation on show empties the chat and the list drops it', await waitFor(`document.querySelectorAll('#chats .chatrow').length===1 && document.querySelectorAll('#agentlog-log .alog-line:not(.alog-working)').length===0`, 5000) && stub.conversations().length === 1);
+    await ev(`document.querySelector('#chats [data-act=open]').click()`);
+    check('chat: Open brings the earlier conversation back and closes the list', await waitFor(`!document.getElementById('dialog') && document.querySelectorAll('#agentlog-log .alog-line:not(.alog-working)').length===${before}`, 8000) && stub.conversations().length === 1 && stub.conversations()[0].current, await linesNow());
     await say('give me a draft');
     check('chat: a draft shows Apply draft and Discard', await ev(`[...document.querySelectorAll('#agentlog-log .alog-draft button')].map(b=>b.textContent).join('|')==='Apply draft|Discard'`));
     await ev(`document.getElementById('hideright').click()`); await settle();

@@ -11,6 +11,7 @@
 <header id="topbar">
   <a id="home" href="#/launch" aria-label="Models"><svg id="logo" width="22" height="22" viewBox="0 0 64 64" aria-hidden="true"><rect x="6" y="6" width="24" height="24" fill="#f4efe6"/><rect x="34" y="6" width="24" height="24" fill="none" stroke="#f4efe6" stroke-width="4"/><rect x="6" y="34" width="24" height="24" fill="none" stroke="#f4efe6" stroke-width="4"/><rect x="34" y="34" width="24" height="24" fill="#e08a5c"/></svg><span id="brand">Tessera</span></a>
   <a id="modelname" href="#/launch" title="Back to the list of models"></a>
+  <button id="gitline" type="button" class="keep" hidden title="Commit and push…"></button>
   <span class="sp"></span>
   <span id="queuenav">
     <button id="queuebtn" type="button" class="keep" aria-expanded="false" aria-controls="queue">Review queue <b id="queuecount"></b></button>
@@ -40,7 +41,7 @@
     <div id="centermsgs" class="msgs"></div>
     <div id="cbar">
       <div id="seg" role="tablist" aria-label="Centre pane">
-        <button type="button" class="seg keep" id="seg-spreadsheet" data-seg="spreadsheet" role="tab">Spreadsheet</button><button type="button" class="seg keep" id="seg-code" data-seg="code" role="tab">Code</button><button type="button" class="seg keep" id="seg-test" data-seg="test" role="tab">Test</button>
+        <button type="button" class="seg keep" id="seg-draft" data-seg="draft" role="tab" hidden>Draft to approve</button><button type="button" class="seg keep" id="seg-spreadsheet" data-seg="spreadsheet" role="tab">Spreadsheet</button><button type="button" class="seg keep" id="seg-code" data-seg="code" role="tab">Code</button><button type="button" class="seg keep" id="seg-test" data-seg="test" role="tab">Test</button>
       </div>
       <div id="lines"><div id="realbar" hidden></div><div id="stalebar" hidden></div><div id="sheetbar" hidden></div><div id="tracebar" hidden></div></div>
     </div>
