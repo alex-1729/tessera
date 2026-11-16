@@ -297,6 +297,7 @@ async function start(options = {}) {
     return needAgent().send(scope, text, cleanExtra(extra));
   }));
   ipcMain.handle('agent:drafts', wrap(() => needAgent().drafts()));
+  ipcMain.handle('agent:design', wrap(() => { const a = needAgent(); return typeof a.design === 'function' ? a.design() : null; }));
   ipcMain.handle('agent:requests', wrap(() => { const a = needAgent(); return typeof a.requests === 'function' ? a.requests() : []; }));
   ipcMain.handle('agent:acceptDraft', wrap(id => { if (!SLUG.test(String(id))) throw new Error('Invalid draft id.'); return needAgent().acceptDraft(String(id)); }));
   ipcMain.handle('agent:discardDraft', wrap(id => { if (!SLUG.test(String(id))) throw new Error('Invalid draft id.'); return needAgent().discardDraft(String(id)); }));

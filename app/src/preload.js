@@ -15,6 +15,7 @@ const agentApi = hasAgent ? {
   send: (scope, text, extra) => call('agent:send', scope, String(text), extra),
   drafts: () => call('agent:drafts'),
   requests: () => call('agent:requests'),
+  design: () => call('agent:design'),
   acceptDraft: id => call('agent:acceptDraft', String(id)),
   discardDraft: id => call('agent:discardDraft', String(id)),
   status: () => call('agent:status'),

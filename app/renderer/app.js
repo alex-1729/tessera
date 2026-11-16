@@ -53,6 +53,7 @@ async function refresh() {
     const [graph, status, cases, q] = await Promise.all([api.tk('graph'), api.tk('status'), api.tk('cases'), api.tk('queue').catch(() => null)]);
     const runs = status.runs && status.runs.count > 0 ? await api.tk('runs') : { runs: [] };
     S.drafts = api.agent ? ((await api.agent.drafts().catch(() => [])) || []).filter(d => d.status === 'proposed') : [];
+    S.design = api.agent && api.agent.design ? await api.agent.design().catch(() => null) : null;
     // The tooling reports review status only for modules that have tiles. A module that is still empty (just
     // scaffolded) gets a plain entry here so the views can draw it; it has nothing to build or sign off yet.
     for (const m of graph.modules) {

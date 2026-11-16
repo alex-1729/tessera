@@ -32,6 +32,7 @@ module.exports = function makeStub({ emit }) {
       return { ok: true };
     },
     drafts() { return drafts.map(d => ({ ...d })); },
+    design() { return stub.agreedDesign || null; },   // the agreed design (design.json); a test sets stub.agreedDesign
     // a draft as the real backend would have saved it (the approval view reads drafts())
     addDraft(d) { drafts.push({ status: 'proposed', ...d }); },
     async acceptDraft(id) { calls.accept.push(id); await sleep(700); const d = drafts.find(x => x.id === id); if (d) d.status = 'accepted'; return { accepted: true }; },

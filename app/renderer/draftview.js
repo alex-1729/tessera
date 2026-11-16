@@ -75,6 +75,31 @@ function sections(d) {
         (replaces.checks ? ` They replace the module's current checks (${replaces.checks.join(', ')}).` : '')),
       d.checks.length ? table(['Check', 'Name', 'Expression'], d.checks.flatMap(c => pair([h('td', {}, c.label || c.name), name(c.name), h('td', { class: 'mono dv-expr' }, c.expression || '')])))
         : h('p', { class: 'dv-note' }, 'No reconciliation checks.'));
+  } else if (d.kind === 'design') {
+    const g = d.design || {}, mods = g.modules || [];
+    out.push(h('p', { class: 'dv-note' }, 'Accepting saves this as the agreed design (design.json). Nothing is built: modules, parameters, inputs, cases and functions follow as their own drafts, and each says where it departs from this.'));
+    if ((g.order_in_month || []).length) out.push(sec('Order within a month'), h('p', { class: 'dv-lead' }, g.order_in_month.map((x, i) => `${i + 1}. ${x}`).join('   ')));
+    if ((g.results || []).length) out.push(sec('Results the model is for', g.results.length), h('p', { class: 'dv-name' }, g.results.join(', ')));
+    for (const m of mods) {
+      out.push(sec(`Module: ${m.title || m.id}`, (m.tiles || []).length),
+        h('p', { class: 'dv-note' }, h('span', { class: 'dv-name' }, m.id), `  ${m.layer || ''}, ${m.timing === 'summary' ? 'once after the projection' : 'each month'}${m.weights ? ', weights amounts by in-force and decrements' : ''}`),
+        h('p', { class: 'dv-lead' }, m.purpose || ''),
+        table(['Function', 'Name', 'Step', 'Reads'], (m.tiles || []).flatMap(t => pair(
+          [h('td', {}, t.label || t.name), name(t.name), h('td', { class: 'grey' }, t.step || ''), h('td', { class: 'dv-name' }, (t.reads || []).join(', '))],
+          [t.spec, ...(t.branches || []).map(b => `Branch: ${b.when} (case ${b.case})`), ...(t.assumed || []).map(a => 'Assumed: ' + a)].filter(Boolean).join('\n')))));
+      if ((m.states || []).length) out.push(table(['Carried forward', 'Name', 'Takes its value from', { t: 'In month 1', cls: 'r' }],
+        m.states.flatMap(st => pair([h('td', {}, st.label || st.name), name(st.name), name(st.from), h('td', { class: 'r dv-val' }, value(st.initial))]))));
+      if ((m.checks || []).length) out.push(table(['Must be zero', 'Expression'], m.checks.flatMap(c => pair([h('td', {}, c.label || ''), h('td', { class: 'mono dv-expr' }, c.expression || '')]))));
+    }
+    const plain = (title, rows, extra) => { if ((rows || []).length) out.push(sec(title, rows.length), table(['', 'Name', ...(extra ? [extra.t] : [])],
+      rows.flatMap(r => pair([h('td', {}, r.label || r.name || r.purpose || ''), name(r.name || r.id), ...(extra ? [h('td', { class: 'grey' }, extra.f(r))] : [])])))); };
+    plain('Model-point fields', g.model_point_fields);
+    plain('Input series', g.inputs, { t: 'Comes from', f: r => ({ field: 'the model-point field, as it is', lookup: 'a table lookup', time: 'time bookkeeping' }[r.kind] || '') });
+    plain('Parameters', g.params);
+    plain('Assumption tables', g.tables);
+    if ((g.cases || []).length) out.push(sec('Cases', g.cases.length), table(['Case', 'Id', 'What it exercises'], g.cases.flatMap(c => pair([h('td', {}, c.name || c.id), name(c.id), h('td', { class: 'grey' }, c.purpose || '')]))));
+    const assumed = mods.flatMap(m => (m.tiles || []).flatMap(t => (t.assumed || []).map(a => ({ a, t: t.name }))));
+    if (assumed.length) out.push(sec('Assumptions to confirm', assumed.length), table(['Assumption', 'On'], assumed.flatMap(x => pair([h('td', {}, x.a), name(x.t)]))));
   } else if (d.kind === 'module_test') {
     const whole = typeof d.code === 'string';
     const cases = whole ? testCases(d.code) : items.map(it => testCases(String(it.code || ''))[0] || { name: it.name, title: it.name, lead: '', working: '', checks: [] });

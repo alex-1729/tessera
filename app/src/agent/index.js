@@ -410,6 +410,11 @@ function createAgentService(options) {
       return store.listDrafts(modelDir);
     },
 
+    // The agreed design (design.json), or null when the model has none.
+    design() {
+      return require('./design').loadDesign(modelDir);
+    },
+
     requests() {
       // `text` is the sentence the card opens with, so the window can draw a waiting card again after a reload
       return store.listRequests(modelDir).map(r => ({ ...publicRequest(r), scope: r.scope, at: r.at, text: r.kind === 'push' ? pushSentence(r) : signoff.requestSentence(r),
@@ -423,6 +428,7 @@ function createAgentService(options) {
       let r;
       if (draft.kind === 'tiles') r = await edits.acceptTileDraft(svc, draft);
       else if (draft.kind === 'modules') r = await edits.acceptModuleDraft(svc, draft);
+      else if (draft.kind === 'design') r = require('./design').acceptDesignDraft(svc, draft);
       else if (SCAFFOLD_KINDS.has(draft.kind)) {
         r = await scaffold.acceptScaffoldDraft(svc, draft);
         if (r.accepted) {

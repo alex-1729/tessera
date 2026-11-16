@@ -392,3 +392,8 @@ body.launching #mods, body.launching #tiles, body.launching #main, body.launchin
 .cstate { flex: none; width: 70px; color: var(--slate); }
 .cpath { min-width: 0; overflow-wrap: anywhere; }
 .pushck { margin: 8px 0 2px; }
+
+/* the agreed design on the model page */
+.designmod { margin: 2px 0; font: 12px/1.5 var(--sans); }
+.designmod summary { cursor: pointer; font-weight: 600; }
+.designmod p { margin: 2px 0 4px; }

@@ -265,6 +265,36 @@
           "status": "done"
         }
       ]
+    },
+    {
+      "name": "Phase 8: Design stage",
+      "steps": [
+        {
+          "id": 45,
+          "text": "Design standards: how a model is cut into modules and functions",
+          "status": "done"
+        },
+        {
+          "id": 46,
+          "text": "The agent proposes the whole model as one design draft, checked against the standards",
+          "status": "done"
+        },
+        {
+          "id": 47,
+          "text": "Accepting a design saves it in the model; later drafts say where they depart from it",
+          "status": "done"
+        },
+        {
+          "id": 48,
+          "text": "Show the design draft and the agreed design on the model page",
+          "status": "done"
+        },
+        {
+          "id": 49,
+          "text": "Try the design stage with the real agent on the MYGA model",
+          "status": "todo"
+        }
+      ]
     }
   ]
 }

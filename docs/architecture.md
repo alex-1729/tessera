@@ -527,6 +527,20 @@ A tile's hand-calculation test (`tests/tiles/test_<tile>.py`) is also run by the
 
 **Drafts.** `drafts/<id>.json` kinds include `tests` (functions added to a tile's test file) and `module_test` (`module`, `file`, `items`, and `code` when it writes the whole file). Tiles drafts may carry `states`, `remove`, `sections`, `checks` and `replaces`.
 
+## The design stage of scaffolding
+
+A model is designed whole before anything is built. The agent's `propose_design` tool (model level only) takes the whole model: `summary`, `order_in_month`, `results`, `modules` in calculation order (each with `id`, `title`, `layer`, `timing`, `purpose`, `weights`, its `tiles`, `states` and `checks`), `model_point_fields`, `inputs` (kind `field`, `lookup` or `time`), `params`, `tables` and `cases`. Each tile carries `name`, `label`, `reads`, `spec`, `timing`, `step` (`choose`, `convert`, `apply`, `limit`, `combine`), `measure` (`amount`, `proportion`, `weighted`, `rate`, `other`), `branches` (`[{when, case}]`) and `assumed`.
+
+**Checks** (`validateDesign` in `app/src/agent/design.js`, pure; the standards are `app/standards/designing-models.md`). Problems stop the draft: a name that is not snake_case, repeats, differs only by case or clashes with a quantity of another kind; a read that resolves to nothing, or to a model-point field directly; a function reading from a later module, a later layer, or (in a step module) a summary module; a loop; a carried value whose source is not a function of the same module, or with no reconciliation naming both; a function that nothing reads and that is not a result, a state's source or in a reconciliation; no `results`; a `choose` or `limit` step with fewer than two branches or a branch naming no case; a function that reads a per-policy amount and a proportion outside a module marked `weights: true`; an input that is not `field`, `lookup` or `time`; no `order_in_month` with a step module; no cases. Warnings: a purpose of more than one sentence; more than one carried value in a module; a spec that limits a value on a step that is not `limit`; two functions doing the same step on the same reads; an unread input or parameter; a module of five or more functions most of which other modules read.
+
+**The draft and the file.** A valid design is a draft of kind `design` (`design` holds the normalised design; `items` lists the modules) shown in the approval view. Accepting it writes `design.json` at the top of the model folder (`{version: 1, ..., accepted_at}`, kept in the model's repository) and nothing else: no module, parameter, input, case or tile. A second accepted design replaces the file.
+
+**Keeping to it.** `propose_structure` compares a modules draft and a tiles draft with `design.json` (`moduleDepartures`, `tileDepartures`) and adds a warning for each module or function that is not in the design, is in another module there, or reads something different. Warnings never refuse a draft. With no `design.json` nothing is compared.
+
+**In the window.** `window.api.agent.design()` (`agent:design`) returns the file or null. The model page's left bar has "Agreed design" when there is one: how many of its functions are built, the model's functions that are not in it, and each module as a collapsed list of its functions with "built", "signed off", "not built" or "not in the model yet".
+
+**The agent's instructions** (`prompt.js`, "Scaffolding a new model"): questions first, a pasted specification answers them, then `propose_design`; nothing is built until a design is accepted; afterwards it reads `design.json` and follows it, and gives the reason in the summary of a draft that departs.
+
 ## The spreadsheet engine's patches
 
 GridCraft's web build (`vendor/gridcraft/web`, not in git) is built from source at v0.19.1 by `scripts/build-gridcraft-web.sh`, which applies the patches in `vendor-patches/` in order, each skipped when already applied:
