@@ -10,6 +10,7 @@ const v = require('./validate');
 const src = require('./source');
 const scaffold = require('./scaffold');
 const signoff = require('./signoff');
+const design = require('./design');
 
 const TRACE_MONTHS = 12;
 const MAX_TRACE_ROWS = 120;
@@ -219,6 +220,7 @@ function createHandlers(svc, turn) {
         if (scope.level !== 'model') return refuse('modules are proposed at model level; select the whole model.');
         const check = v.validateModuleDraft(graph, modules);
         if (check.problems.length) return invalid(check);
+        check.warnings.push(...design.moduleDepartures(design.loadDesign(svc.modelDir), modules));
         return draftSaved('modules', v.moduleDraftSummary(graph, modules), modules, check, { note: summary });
       }
       // A tiles draft may come from a selected tile, for that tile's own module: the draft still needs the user's Accept.
@@ -246,6 +248,7 @@ function createHandlers(svc, turn) {
       const layout = v.validateLayout(graph, target, items, sts, gone, secs, chks, { rules: true });
       check.problems.push(...layout.problems); check.warnings.push(...layout.warnings);
       if (check.problems.length) return invalid(check);
+      check.warnings.push(...design.tileDepartures(design.loadDesign(svc.modelDir), target, items));
       const parts = [items.length ? v.tileDraftSummary(graph, items) : '', gone.length ? `removes ${v.count(gone.length, 'tile')} (${gone.join(', ')})` : ''].filter(Boolean);
       const lay = v.layoutSummary(secs, chks);
       const line = parts.length
@@ -263,6 +266,19 @@ function createHandlers(svc, turn) {
       const changedTiles = items.filter(t => graph.quantities[t.name]).map(t => t.name);
       return draftSaved('tiles', line, items, check, { note: summary, module: target, new_tiles: newTiles, changed_tiles: changedTiles, ...(sts.length ? { states: sts } : {}), ...(removing.length ? { remove: removing } : {}),
         ...(secs ? { sections: secs } : {}), ...(chks ? { checks: chks } : {}), ...(Object.keys(replaces).length ? { replaces } : {}) });
+    },
+
+    // The design stage: the whole model laid out for the user to agree before anything is built. Accepting it writes
+    // design.json only.
+    async propose_design(args = {}) {
+      if (scope.level !== 'model') return refuse('the design is proposed at model level; select the whole model.');
+      const [graph, casesDoc] = await Promise.all([tk('graph'), tk('cases').catch(() => ({ cases: [] }))]);
+      const caseIds = (Array.isArray(casesDoc) ? casesDoc : (casesDoc.cases || [])).map(c => c.id);
+      const d = design.normalise(args);
+      const check = design.validateDesign(graph, d, caseIds);
+      if (check.problems.length) return invalid(check);
+      const had = !!design.loadDesign(svc.modelDir);
+      return draftSaved('design', design.designSummary(d) + (had ? ', replacing the agreed design' : ''), d.modules.map(m => ({ id: m.id, title: m.title })), check, { note: d.summary, design: d });
     },
 
     // The module's own hand-worked test (tests/modules/test_<module>.py), as a draft: the whole file when there is
@@ -478,6 +494,7 @@ const DESCRIPTIONS = {
   model_overview: 'Review progress of the whole model in one call: status counts, every module with its tiles and their states and blockers, the model\'s blockers, the cases, and pending sign-off requests. Use it for "what is left to review?" and similar questions.',
   read_trace: 'Values of up to 12 quantities (any in the model) for one case over a range of months (default all, at most 120 rows), plus parameter values, summary values and branch counts. Use it to explain numbers.',
   propose_structure: 'Propose a structure draft. With the whole model selected: `modules` (id, title, layer, purpose, feeds), or `tiles` with `module` naming the module. With a module selected: `tiles` for that module (name, label, args, units, timing, format, spec, assumed). When a tile reads last month\'s value of something, give the carried-forward state in `states` in the same draft (name, the tile it comes `from`, its `initial` value in month 1, label, format); the state\'s `from` tile must be in the draft or the model. Do not ask the user separately whether to add a state. Lay the module sheet out with the tiles: `sections` ([{title, tiles}], in calculation order, for example "Rates in the period", then "Unit roll-forward", then "Results"; required once the module has more than three tiles, covering every tile) and `checks` (reconciliations: [{name, label, expression}], the expression using only + - * /, parentheses, numbers and quantity names, and zero when the module is right; required with `states`: opening plus movements minus closing). Given, they replace the module\'s current sections or checks in tilekit.toml. To change only how a module is laid out, give `sections` and/or `checks` with no `tiles`: existing tiles are not touched. Never resend a tile that is not changing (a tile respecified in a draft goes back to not built). To remove tiles that nothing reads any more, give their names in `remove` (alone, or with `tiles`); the draft shows the user what goes and nothing is removed until they accept. The code and test of a removed tile leave the model; its sign-off record, log, test and stored workbook are kept under review/removed/. This is how a tile is removed: never tell the user to delete one themselves. Validated and saved for the user to accept or discard; nothing is written until they accept. Problems are returned for you to fix.',
+  propose_design: 'The design stage of scaffolding, with the whole model selected: lay out the whole model for the user to agree before anything is built. Give `summary` (one sentence on what the model is for), `order_in_month` (the order of events within a month, stated once), `results` (the functions whose values are the output; work backward from these), `modules` in calculation order (id, title, layer, timing step or summary, purpose: the one reviewer question it answers, `weights: true` only for the module that multiplies per-policy amounts by in-force or decrements, its `tiles`, `states` and `checks`), `model_point_fields`, `inputs` (kind field, lookup or time: data only), `params`, `tables` and `cases`. Each tile: name, label, reads, a one-sentence spec, timing, `step` (the one thing it does: choose between values, convert a rate or basis, apply a rate or charge, limit with a cap or floor, combine by adding or netting), `measure` (amount per policy in force, proportion in force or leaving, weighted amount, rate, other), `branches` for a choose or limit step ([{when, case}]: the case that takes each branch) and `assumed`. Each state: name, from, initial, label, with a reconciliation in `checks` ({label, expression}) naming both. The draft is checked against the design standards (names resolve, modules read only earlier modules, one step per function, nothing unread, a reconciliation for every roll-forward, a case for every branch, per-policy amounts kept apart from weighting); problems are returned for you to fix. Accepting it saves design.json and builds nothing. Later module and tile drafts are compared with it and say where they depart.',
   propose_params: 'Propose new parameters, or new defaults and metadata for existing ones, as a draft that edits params.py when the user accepts it. Each: name (snake_case), default (number), label, format, units.',
   propose_inputs: 'Input series are data only (a model-point field as it is, a table lookup, time bookkeeping); a quantity with an actuarial choice in it, such as a rate conversion or a switch by term, is a tile instead. Propose model-point fields (name, label, format, example value written into the existing cases), assumption tables (name, label, columns, rows, formats; the first column is the key) and input series (name, label, format, description in plain words, python: plain assignments computing `name` inside build_inputs from model-point fields, month and the tables: each table is loaded for you under its own name as a dict of column arrays, so look a value up with lookup(keys, table_name["key_column"], table_name["value_column"]); optional excel template). A draft; edits inputs.py, tilekit.toml and adds table files when accepted. Omit python for a series that is a model-point field used as it is.',
   propose_cases: 'Propose named synthetic single-policy cases (id, name, purpose, model_point with every model-point field, optional params overrides and months). A draft; writes cases/<id>.json when accepted. Between them the cases should take every branch.',
@@ -549,6 +566,28 @@ function sdkTools(sdk, z, handlers) {
       checks: z.array(z.object({ name: z.string().describe('snake_case, for example units_reconcile'), label: z.string().describe('for example "Units roll-forward reconciles"'),
         expression: z.string().describe('zero when the module is right, for example "units_bop + units_allocated - units_amc - units_eop"; only + - * /, parentheses, numbers and quantity names') }))
         .optional().describe('reconciliation checks for the module; replaces the module\'s current checks'),
+    }),
+    t('propose_design', {
+      summary: z.string().describe('one sentence on what the model is for'),
+      order_in_month: z.array(z.string()).describe('the order of events within a month, for example ["Premium", "Interest credited", "Deaths", "Surrenders"]'),
+      results: z.array(z.string()).describe('the functions whose values are the output of the model'),
+      modules: z.array(z.object({
+        id: z.string(), title: z.string(), layer: z.string(), timing: z.enum(['step', 'summary']).optional(), purpose: z.string().describe('the one question the module answers for a reviewer'),
+        weights: z.boolean().optional().describe('true only for the module that multiplies per-policy amounts by in-force or decrements'),
+        tiles: z.array(z.object({
+          name: z.string(), label: z.string(), reads: z.array(z.string()), spec: z.string().describe('one plain sentence; never the formula'), timing: z.string().optional().describe('where in the month it sits'),
+          step: z.enum(design.STEPS).describe('the one thing it does'), measure: z.enum(design.MEASURES),
+          branches: z.array(z.object({ when: z.string(), case: z.string().describe('the id of the case that takes this branch') })).optional(),
+          assumed: z.array(z.string()).optional().describe('assumptions the reviewer confirms at sign-off'),
+        })),
+        states: z.array(z.object({ name: z.string(), from: z.string(), initial: z.number(), label: z.string() })).optional(),
+        checks: z.array(z.object({ label: z.string(), expression: z.string().describe('zero when the module is right') })).optional(),
+      })).describe('in calculation order'),
+      model_point_fields: z.array(z.object({ name: z.string(), label: z.string() })).optional(),
+      inputs: z.array(z.object({ name: z.string(), label: z.string(), kind: z.enum(design.INPUT_KINDS) })).optional(),
+      params: z.array(z.object({ name: z.string(), label: z.string() })).optional(),
+      tables: z.array(z.object({ name: z.string(), label: z.string() })).optional(),
+      cases: z.array(z.object({ id: z.string(), name: z.string(), purpose: z.string() })),
     }),
     t('propose_module_test', {
       summary: z.string().describe('one sentence on what the test walks through'),

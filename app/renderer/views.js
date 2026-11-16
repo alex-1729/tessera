@@ -268,6 +268,23 @@ export function moduleView(ctx, id) {
 
 // ---------------------------------------------------------------- model
 
+// The agreed design (design.json) against what the model holds: per module, each function and whether it is built.
+function designSection(S) {
+  const d = S.design;
+  if (!d || !Array.isArray(d.modules)) return [];
+  const state = n => { const q = S.graph.quantities[n]; if (!q || q.kind !== 'tile') return 'not in the model yet'; const st = (S.status.tiles[n] || {}).state; return st === 'not_built' ? 'not built' : st === 'signed_off' ? 'signed off' : 'built'; };
+  const all = d.modules.flatMap(m => (m.tiles || []).map(t => t.name));
+  const built = all.filter(n => ['built', 'signed off'].includes(state(n))).length;
+  const designed = new Set(all);
+  const extra = S.graph.modules.flatMap(m => m.tiles).filter(t => !designed.has(t));
+  return [sec('Agreed design'),
+    h('p', { class: 'grey', id: 'designline' }, `${d.modules.length} module${d.modules.length === 1 ? '' : 's'}, ${all.length} function${all.length === 1 ? '' : 's'}; ${built} built.` + (extra.length ? ` ${extra.length} in the model ${extra.length === 1 ? 'is' : 'are'} not in the design: ${extra.join(', ')}.` : '')),
+    ...d.modules.map(m => h('details', { class: 'designmod' }, h('summary', {}, `${m.title || m.id} (${(m.tiles || []).filter(t => ['built', 'signed off'].includes(state(t.name))).length} of ${(m.tiles || []).length})`),
+      h('p', { class: 'grey' }, m.purpose || ''),
+      h('table', { class: 'dv-table' }, h('tbody', {}, (m.tiles || []).map(t => h('tr', {}, h('td', { class: 'dv-name' }, t.name), h('td', {}, t.label || ''), h('td', { class: 'grey' }, state(t.name)))))))),
+  ];
+}
+
 export function modelView(ctx) {
   const { S } = ctx;
   const busy = ctx.busy();
@@ -280,6 +297,7 @@ export function modelView(ctx) {
   left.push(sec('Modules'));
   const pending = ctx.pendingDrafts().filter(d => d.kind === 'modules' && d.scope && d.scope.level === 'model').flatMap(d => d.items || []);
   left.push(S.graph.modules.length ? modelMap(S, ctx.panelWidth(), pending) : h('p', { class: 'grey', id: 'nomodules' }, 'No modules yet. Use the chat to scaffold the model.'));
+  left.push(...designSection(S));
   right.push(sec('Model checks'));
   right.push(checksTable(S.status.model.checks));
   const blockers = L.modelBlockers(S);

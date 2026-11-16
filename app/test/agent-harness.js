@@ -294,6 +294,8 @@ async function offline() {
     await freshModelChecks(check);
   });
 
+  await guard('the design stage', () => designChecks(check));
+
   await guard('read guard', async () => {
     const dir = copyModel();
     const g = require('../src/agent').readGuard(dir);
@@ -1168,6 +1170,117 @@ async function freshModelChecks(check) {
   const tr = await tk('trace', ['--case', 'base']);
   check('on a fresh model, an inputs draft with a model-point field and an excel template applies', ai.accepted && tr.series.sum_assured[0] === 100000 &&
     tr.series.policy_year[0] === 1 && tr.series.policy_year[12] === 2, { ai: ai.actions, ind: ind.text });
+}
+
+// ---------------------------------------------------------------- the design stage
+
+function miniDesign(layers) {
+  const liab = layers.includes('Liability') ? 'Liability' : layers[0], res = layers.includes('Results') ? 'Results' : layers[layers.length - 1];
+  return {
+    summary: 'A deferred annuity account projected monthly.', order_in_month: ['Premium', 'Interest', 'Deaths'], results: ['pv_net_cashflow'],
+    modules: [
+      { id: 'account_value', title: 'Account value', layer: liab, purpose: 'What one policy is worth each month.', tiles: [
+        { name: 'credited_rate_pa', label: 'Credited rate per year', reads: ['in_term', 'guaranteed_rate_pa', 'renewal_rate_pa'], spec: 'The rate that applies this month.', timing: 'start of month', step: 'choose', measure: 'rate',
+          branches: [{ when: 'in the term', case: 'base' }, { when: 'after the term', case: 'long' }], assumed: ['the renewal rate is flat'] },
+        { name: 'credited_rate_pm', label: 'Credited rate per month', reads: ['credited_rate_pa', 'months_per_year'], spec: 'The yearly rate as a monthly rate.', timing: 'start of month', step: 'convert', measure: 'rate' },
+        { name: 'interest_credited', label: 'Interest credited', reads: ['av_bop', 'credited_rate_pm'], spec: 'A month of interest on the opening value.', timing: 'during month', step: 'apply', measure: 'amount' },
+        { name: 'av_eop', label: 'Closing account value', reads: ['av_bop', 'premium', 'interest_credited'], spec: 'The account value at the end of the month.', timing: 'end of month', step: 'combine', measure: 'amount' }],
+        states: [{ name: 'av_bop', from: 'av_eop', initial: 0, label: 'Opening account value' }],
+        checks: [{ label: 'Account value reconciles', expression: 'av_bop + premium + interest_credited - av_eop' }] },
+      { id: 'decrements', title: 'Decrements', layer: liab, purpose: 'Who leaves in the month.', tiles: [
+        { name: 'mort_rate_pm', label: 'Mortality rate per month', reads: ['mort_rate_pa', 'months_per_year'], spec: 'The yearly rate as a monthly rate.', timing: 'end of month', step: 'convert', measure: 'rate' },
+        { name: 'deaths', label: 'Deaths', reads: ['in_force_bop', 'mort_rate_pm'], spec: 'The share of policies issued that die in the month.', timing: 'end of month', step: 'apply', measure: 'proportion' },
+        { name: 'in_force_eop', label: 'Closing in force', reads: ['in_force_bop', 'deaths'], spec: 'The share of policies issued still in force.', timing: 'end of month', step: 'combine', measure: 'proportion' }],
+        states: [{ name: 'in_force_bop', from: 'in_force_eop', initial: 1, label: 'Opening in force' }],
+        checks: [{ label: 'In force reconciles', expression: 'in_force_bop - deaths - in_force_eop' }] },
+      { id: 'cash_flows', title: 'Cash flows', layer: liab, weights: true, purpose: 'What cash moves per policy issued.', tiles: [
+        { name: 'premium_received', label: 'Premium received', reads: ['premium', 'in_force_bop'], spec: 'Premium from the policies in force.', timing: 'start of month', step: 'apply', measure: 'weighted' },
+        { name: 'death_benefits_paid', label: 'Death benefits paid', reads: ['av_eop', 'deaths'], spec: 'The account value of the policies that die.', timing: 'end of month', step: 'apply', measure: 'weighted' },
+        { name: 'net_cashflow', label: 'Net cash flow', reads: ['premium_received', 'death_benefits_paid'], spec: 'Premium less benefits.', timing: 'end of month', step: 'combine', measure: 'weighted' }] },
+      { id: 'results', title: 'Results', layer: res, timing: 'summary', purpose: 'What the cash flows are worth today.', tiles: [
+        { name: 'pv_net_cashflow', label: 'Present value of net cash flow', reads: ['net_cashflow', 'discount_rate_pa', 'months_per_year'], spec: 'The net cash flow discounted at a flat rate.', step: 'combine', measure: 'other' }] }],
+    model_point_fields: [{ name: 'premium', label: 'Premium' }, { name: 'guaranteed_rate_pa', label: 'Guaranteed rate' }],
+    inputs: [{ name: 'premium', label: 'Premium', kind: 'field' }, { name: 'guaranteed_rate_pa', label: 'Guaranteed rate', kind: 'field' },
+      { name: 'in_term', label: 'In the guarantee term', kind: 'time' }, { name: 'mort_rate_pa', label: 'Mortality rate per year', kind: 'lookup' }],
+    params: [{ name: 'months_per_year', label: 'Months in a year' }, { name: 'renewal_rate_pa', label: 'Renewal rate' }, { name: 'discount_rate_pa', label: 'Discount rate' }],
+    tables: [{ name: 'mortality', label: 'Mortality table' }],
+    cases: [{ id: 'base', name: 'Base', purpose: 'A typical policy inside its term.' }, { id: 'long', name: 'Past the term', purpose: 'Runs beyond the guarantee term.' }],
+  };
+}
+
+async function designChecks(check) {
+  const design = require('../src/agent/design');
+  const dir = path.join(TMP_ROOT, `design-${++copies}`);
+  const tk = runnerFor(dir);
+  await tk('init', ['--name', 'Deferred annuity', '--package', `deferred_annuity_${copies}`]);
+  const g = await tk('graph');
+  const fresh = () => JSON.parse(JSON.stringify(miniDesign(g.layers)));
+  const run = d => design.validateDesign(g, design.normalise(d), []);
+  const has = (r, re) => r.problems.some(p => re.test(p));
+  const good = run(fresh());
+  check('a sound design passes', good.problems.length === 0, good);
+  check('design summary counts modules, functions, carried values, reconciliations and cases',
+    design.designSummary(design.normalise(fresh())) === 'designs four modules with 11 functions, two carried values, two reconciliations and two cases', design.designSummary(design.normalise(fresh())));
+
+  let d = fresh(); d.modules[0].tiles[2].reads.push('deaths');
+  check('a function may not read from a later module', has(run(d), /later module/), run(d));
+  d = fresh(); d.modules[0].tiles.push({ name: 'spare_amount', label: 'Spare', reads: ['av_bop'], spec: 'A spare value.', timing: 'end of month', step: 'apply', measure: 'amount' });
+  check('a function nothing reads is refused', has(run(d), /Nothing reads spare_amount/), run(d));
+  d = fresh(); d.modules[0].checks = [];
+  check('a roll-forward needs a reconciliation', has(run(d), /reconciliation naming both av_bop and av_eop/), run(d));
+  d = fresh(); d.modules[0].tiles[0].branches = [];
+  check('a choose step lists its branches', has(run(d), /at least two branches/), run(d));
+  d = fresh(); d.modules[0].tiles[0].branches[1].case = 'nowhere';
+  check('a branch names a real case', has(run(d), /names the case 'nowhere'/), run(d));
+  d = fresh(); d.modules[2].weights = false;
+  check('amounts are weighted only in the weighting module', has(run(d), /Only a module marked weights: true/), run(d));
+  d = fresh(); d.modules[0].tiles[2].reads = ['av_bop', 'credited_rate_pm', 'bonus_rate_pm'];
+  check('an unknown name is reported', has(run(d), /reads 'bonus_rate_pm'/), run(d));
+  d = fresh(); d.inputs[2].kind = 'formula';
+  check('an input is data only', has(run(d), /data only/), run(d));
+  d = fresh(); d.modules[0].tiles[2].step = 'tidy';
+  check('a function says which one step it does', has(run(d), /which one step/), run(d));
+  d = fresh(); d.results = [];
+  check('a design names its results', has(run(d), /Name the results/), run(d));
+  d = fresh(); d.order_in_month = [];
+  check('the order within a month is stated', has(run(d), /order of events within a month/), run(d));
+  d = fresh(); d.modules[1].tiles[1].name = 'AV_EOP'.toLowerCase().replace('av', 'Av');
+  check('a name that is not snake_case is reported', has(run(d), /not a snake_case name/), run(d));
+  d = fresh(); d.modules[0].tiles[2].spec = 'A month of interest, not below the minimum.';
+  const lim = run(d);
+  check('a limit hidden in another step is a warning', lim.problems.length === 0 && lim.warnings.some(w => /cap or floor is its own function/.test(w)), lim);
+
+  // the tool: model level only, a draft, and design.json on accept
+  const e = serviceFor(dir);
+  const hm = e.service.handlersFor({ level: 'model', id: 'model' });
+  const bad = await hm.propose_design({ ...fresh(), results: [] });
+  check('propose_design returns the problems and saves nothing', bad.isError && /Name the results/.test(bad.text) && e.service.drafts().length === 0, bad);
+  const pd = await hm.propose_design(fresh());
+  const id = draftIdOf(pd.text);
+  const draft = e.service.drafts().find(x => x.id === id);
+  check('propose_design saves a design draft', !!draft && draft.kind === 'design' && draft.design.modules.length === 4 && /designs four modules/.test(draft.summary), pd);
+  check('nothing is written before the design is accepted', !fs.existsSync(path.join(dir, 'design.json')) && e.service.design() === null);
+  const before = JSON.stringify(await tk('graph'));
+  const acc = await e.service.acceptDraft(id);
+  const saved = e.service.design();
+  check('accepting saves design.json and builds nothing', acc.accepted && saved && saved.version === 1 && saved.modules[0].tiles[0].name === 'credited_rate_pa' &&
+    JSON.stringify(await tk('graph')) === before, acc);
+  // later drafts say where they depart from it
+  const md = await hm.propose_structure({ summary: 'Blocks.', modules: [
+    { id: 'account_value', title: 'Account value', layer: saved.modules[0].layer, purpose: 'What one policy is worth each month.', feeds: [] },
+    { id: 'bonuses', title: 'Bonuses', layer: saved.modules[0].layer, purpose: 'Bonus additions.', feeds: [] }] });
+  const mdraft = e.service.drafts().find(x => x.id === draftIdOf(md.text));
+  check('a module that is not in the design is flagged, and one that is in it is not', !!mdraft && mdraft.warnings.length === 1 && /bonuses is not in it/.test(mdraft.warnings[0]) && /Departs from the agreed design/.test(md.text), md);
+  check('tile departures: an extra read, a function in the wrong module and one not designed',
+    design.tileDepartures(saved, 'account_value', [{ name: 'interest_credited', args: ['av_bop', 'credited_rate_pm', 'premium'] }, { name: 'deaths', args: [] }, { name: 'novel_x', args: [] },
+      { name: 'credited_rate_pm', args: ['months_per_year', 'credited_rate_pa'] }]).map(x => x.replace('Departs from the agreed design: ', '')).join('|') ===
+    'interest_credited also reads premium.|deaths is in decrements there, not account_value.|novel_x is not in it for account_value.', design.tileDepartures(saved, 'account_value', [{ name: 'interest_credited', args: ['av_bop', 'credited_rate_pm', 'premium'] }]));
+  check('with no design there is nothing to depart from', design.tileDepartures(null, 'x', [{ name: 'a', args: [] }]).length === 0 && design.moduleDepartures(null, [{ id: 'a' }]).length === 0);
+  const refused = await e.service.handlersFor({ level: 'module', id: 'account_value' }).propose_design(fresh());
+  check('the design is proposed at model level only', refused.isError && /model level/.test(refused.text), refused);
+  const prompt = require('../src/agent/prompt').systemPrompt({ modelDir: dir });
+  check('the prompt has the design stage and its standards', /propose_design/.test(prompt) && /House standards for designing a model/.test(prompt) && /One reviewer question per module/.test(prompt));
+  check('propose_design is in the tool list given to Claude Code', (await e.service.cliTools()).some(t => t.name === 'propose_design'));
 }
 
 // ---------------------------------------------------------------- live scenarios

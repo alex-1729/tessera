@@ -395,6 +395,36 @@ const check = (name, ok, detail) => { summary.checks.push({ name, ok: !!ok, ...(
       await ev(`document.querySelector('[data-dv=discard]').click()`); await settle(); await ev(`window.__app.render()`); await settle();
       check('draft view: discarding both leaves no draft in the centre', (await ev(`window.__app.centre()`)) !== 'draft' && stub.calls.discard.includes('dr-layout') && stub.calls.discard.includes('dr-mtest'));
     }
+    // the design stage: a design draft in the approval view, then the agreed design on the model page
+    if (ctl.agent) {
+      const stub = ctl.agent;
+      const design = { summary: 'A unit-linked policy projected monthly.', order_in_month: ['Premium', 'Allocation', 'Charge'], results: ['units_eop'],
+        modules: [{ id: M, title: 'Unit projection', layer: 'Liability', timing: 'step', purpose: 'How many units one policy holds.', weights: false,
+          tiles: [{ name: 'units_allocated', label: 'Units allocated', reads: ['premium', 'allocation_rate'], spec: 'Units bought with the premium.', step: 'apply', measure: 'amount', timing: 'during month', branches: [], assumed: ['premiums are paid at the start of the month'] },
+            { name: 'units_bonus', label: 'Bonus units', reads: ['units_allocated'], spec: 'Units added as a bonus.', step: 'choose', measure: 'amount', timing: 'during month', branches: [{ when: 'a bonus is due', case: 'base' }, { when: 'no bonus', case: 'zero_premium' }], assumed: [] }],
+          states: [{ name: 'units_bop', from: 'units_eop', initial: 0, label: 'Opening units' }], checks: [{ label: 'Units reconcile', expression: 'units_bop + units_allocated - units_eop' }] }],
+        model_point_fields: [{ name: 'premium', label: 'Premium' }], inputs: [{ name: 'premium', label: 'Premium', kind: 'field' }], params: [{ name: 'allocation_rate', label: 'Allocation rate' }], tables: [],
+        cases: [{ id: 'base', name: 'Base', purpose: 'A typical policy.' }] };
+      stub.addDraft({ id: 'dr-design', kind: 'design', status: 'proposed', scope: { level: 'model', id: 'model' }, summary: 'Draft: designs one module with two functions, one carried value, one reconciliation and one case.',
+        note: design.summary, items: [{ id: M, title: 'Unit projection' }], warnings: [], design });
+      await ev(`window.__app.refresh().then(()=>window.__app.render())`); await settle();
+      const dvText = await ev(`document.getElementById('draftview') ? document.getElementById('draftview').innerText : ''`);
+      check('draft view: a design shows its order, modules, functions with their step and branches, the reconciliation, cases and assumptions',
+        /1\. Premium/.test(dvText) && /Module: Unit projection/i.test(dvText) && /units_bonus/.test(dvText) && /choose/.test(dvText) && /Branch: no bonus \(case zero_premium\)/.test(dvText) &&
+        /units_bop \+ units_allocated - units_eop/.test(dvText) && /Assumptions to confirm/i.test(dvText) && /premiums are paid at the start of the month/.test(dvText) && /Nothing is built/.test(dvText), dvText.slice(0, 1200));
+      await shot('draft-design');
+      await ev(`document.querySelector('[data-dv=discard]').click()`); await settle();
+      stub.agreedDesign = { version: 1, ...design };
+      await ev(`location.hash = '#/model'`); await settle();
+      await ev(`window.__app.refresh().then(()=>window.__app.render())`); await settle();
+      const line = await ev(`(document.getElementById('designline') || { textContent: '' }).textContent`);
+      check('model page: the agreed design says how much of it is built and what the model has outside it', /^1 module, 2 functions; 1 built\./.test(line) && /not in the design/.test(line) &&
+        await ev(`[...document.querySelectorAll('details.designmod tr')].some(r => /units_bonus/.test(r.textContent) && /not in the model yet/.test(r.textContent))`), line);
+      await shot('model-design');
+      stub.agreedDesign = null;
+      await ev(`location.hash = ${JSON.stringify('#/module/' + M)}`); await settle();
+      await ev(`window.__app.refresh().then(()=>window.__app.render())`); await settle();
+    }
     await ev(`window.__app.setCentre(${JSON.stringify(centreWas)})`); await settle();
   }
 
