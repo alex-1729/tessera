@@ -141,7 +141,7 @@ function validateTileDraft(graph, moduleId, items, states = [], remove = [], { l
       else if (!q[a] && !names.has(a) && !stateNames.has(a)) {
         problems.push(`Argument '${a}' of ${it.name} is not a quantity in the model and is not proposed in this draft. ` +
           `If it is last month's value of a tile (a carried-forward state such as ${/_bop$/.test(a) ? a : 'units_bop'}), add it to this same draft in \`states\`: {name, from: the tile it takes next month's value from, initial: its value in month 1, label, format}, and call propose_structure again. ` +
-          'If it is a new parameter, input or tile in another module, ask the user to add it (add_input_request); do not invent it.');
+          'If it is a new parameter, input or tile in another module, propose it as a draft (propose_params, propose_inputs or propose_cases); do not invent it.');
       }
     }
   }

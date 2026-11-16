@@ -231,7 +231,7 @@ async function start(options = {}) {
   }));
 
 
-  // ---- the embedded modelling agent (not in fixture mode)
+  // ---- the modelling agent: its tools, drafts and requests (not in fixture mode)
   const SLUG = /^[A-Za-z0-9_-]{1,80}$/;
   const NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
   let graphCache = null;
@@ -289,28 +289,19 @@ async function start(options = {}) {
   agent = createAgent();
   const needAgent = () => { if (!agent) throw new Error('The agent is not available.'); return agent; };
   ipcMain.on('agent:available', e => { e.returnValue = !!agent; });
+  // A UI-less call: nothing in the window sends through it (messages are typed into Claude Code in the pane). Tests
+  // use it to run a turn with no terminal.
   ipcMain.handle('agent:send', wrap(async (scope, text, extra) => {
     scope = await checkScope(scope);
     if (typeof text !== 'string' || !text.trim() || text.length > 8000) throw new Error('The message must be between 1 and 8,000 characters.');
     return needAgent().send(scope, text, cleanExtra(extra));
   }));
-  ipcMain.handle('agent:interrupt', wrap(async () => needAgent().interrupt()));      // stops whatever turn is running
-  // No scope: the whole conversation of the model. A scope: that selection's own history (older backends).
-  ipcMain.handle('agent:history', wrap(async scope => (scope === undefined || scope === null) ? needAgent().history() : needAgent().history(await checkScope(scope))));
   ipcMain.handle('agent:drafts', wrap(() => needAgent().drafts()));
-  // Conversations. An agent without them (an older backend) has one conversation and nothing to list.
-  const chatId = id => { id = String(id); if (id !== 'current' && !/^c\d{14}-[0-9a-f]{6}$/.test(id)) throw new Error('Unknown conversation.'); return id; };
-  const hasChats = () => typeof needAgent().conversations === 'function';
-  ipcMain.handle('agent:conversations', wrap(() => (hasChats() ? needAgent().conversations() : null)));
-  ipcMain.handle('agent:newConversation', wrap(() => needAgent().newConversation()));
-  ipcMain.handle('agent:openConversation', wrap(id => needAgent().openConversation(chatId(id))));
-  ipcMain.handle('agent:deleteConversation', wrap(id => needAgent().deleteConversation(chatId(id))));
   ipcMain.handle('agent:requests', wrap(() => { const a = needAgent(); return typeof a.requests === 'function' ? a.requests() : []; }));
   ipcMain.handle('agent:acceptDraft', wrap(id => { if (!SLUG.test(String(id))) throw new Error('Invalid draft id.'); return needAgent().acceptDraft(String(id)); }));
   ipcMain.handle('agent:discardDraft', wrap(id => { if (!SLUG.test(String(id))) throw new Error('Invalid draft id.'); return needAgent().discardDraft(String(id)); }));
-  ipcMain.handle('agent:buildModule', wrap(async id => { const s = await checkScope({ level: 'module', id }); return needAgent().buildModule(s.id); }));
   ipcMain.handle('agent:status', wrap(() => needAgent().status()));
-  // A sign-off made through the chat is recorded only by this button: the model cannot do it.
+  // A sign-off the agent asked for is recorded only by this button: the model cannot do it.
   const signoffArgs = (id, v) => {
     if (!SLUG.test(String(id))) throw new Error('Invalid request id.');
     const str = (x, n, what) => { if (x === undefined || x === null) return undefined; if (typeof x !== 'string' || x.length > n) throw new Error(`Invalid ${what}.`); return x; };
@@ -322,7 +313,7 @@ async function start(options = {}) {
     if (typeof a.confirmSignoff !== 'function') throw new Error('Signing off from the chat is not available yet.');
     return a.confirmSignoff(String(id), args);
   }));
-  // A push asked for in the chat happens only through this button; no tool can reach it.
+  // A push the agent asked for happens only through this button; no tool can reach it.
   ipcMain.handle('agent:confirmPush', wrap(id => {
     const a = needAgent();
     if (!SLUG.test(String(id))) throw new Error('Invalid request id.');
@@ -348,9 +339,9 @@ async function start(options = {}) {
     if (term && term.running) { term.stop(); sendWin('term:exit', { code: 0, restart: true }); }
   };
 
-  // ---- Claude Code in the chat pane. The app's own chat stays for tests and as a fallback (settings.chatMode = "builtin").
-  const termOn = () => !!agent && !options.agentStub && typeof agent.cliTools === 'function'
-    && (options.terminal === true || (!process.env.APP_NO_AUTOSTART && settings.chatMode !== 'builtin'));
+  // ---- Claude Code in the right-hand pane: whenever the model has a real agent service. There is none in fixture mode,
+  // and a test's stand-in agent (options.agentStub) has no tools to offer; the pane then says Claude Code is not running.
+  const termOn = () => !!agent && !options.agentStub && typeof agent.cliTools === 'function';
   const bridgeToken = newToken();
   let term = null;
   let shownSession = null;   // the Claude Code conversation in the pane, once known (its hooks say which)
@@ -488,7 +479,7 @@ async function start(options = {}) {
   const onFs = (base) => (_ev, filename) => {
     const rel = filename ? path.posix.join(base, String(filename).replace(/\\/g, '/')) : base;
     if (/(^|\/)(__pycache__|\.DS_Store)(\/|$)|\.pyc$|\.tmp$/.test(rel)) return;
-    if (/(^|\/)(log|chat)\.jsonl$/.test(rel) || /^review\/(drafts|requests)(\/|$)/.test(rel)) return;
+    if (/(^|\/)log\.jsonl$/.test(rel) || /^review\/(drafts|requests)(\/|$)/.test(rel)) return;
     const t = recentWrites.get(rel);
     if (t && Date.now() - t < 3000) return;
     clearTimeout(timer); timer = setTimeout(fire, 300);
@@ -522,6 +513,7 @@ async function start(options = {}) {
 
 module.exports = { start, safeWorkbookPath };
 
+// A test that drives the app requires this file and calls start() itself.
 if (!process.env.APP_NO_AUTOSTART) {
   start().catch(e => { console.error(e); app.exit(1); });
 }

@@ -191,7 +191,7 @@ async function offline() {
     const e = env(dir, false);
     const svc = { modelDir: dir, tilekit: e.tilekit, confirm: async r => { e.confirms.push(r); return false; }, runPytest: pytestFor(dir),
       emitEvent: (scope, ev) => e.events.push({ scope, ...ev }), saveDraftEvent: d => { require('../src/agent/store').saveDraft(dir, d); e.events.push({ type: 'draft', text: d.summary, draft: d }); } };
-    const turn = scope => ({ scope, batchModule: null, asked: false, approved: new Set(), writes: [], drafts: [] });
+    const turn = scope => ({ scope, batchModule: null, approved: new Set(), writes: [], drafts: [] });
 
     const t1 = turn({ level: 'tile', id: 'units_amc' });
     const h = createHandlers(svc, t1);
@@ -200,8 +200,9 @@ async function offline() {
     const mod = createHandlers(svc, turn({ level: 'module', id: 'unit_projection' }));
     const r2 = await mod.write_tile({ name: 'units_amc', code: NO_CAP, test_code: '' });
     check('write_tile refuses at module level', r2.isError, r2);
-    const pt = await h.propose_structure({ summary: 'x', tiles: [] });
-    check('propose_structure refuses at tile level', pt.isError, pt);
+    // from a tile, tiles are proposed for its own module only (the draft still needs the user's Accept)
+    const pt = await h.propose_structure({ summary: 'x', module: 'cashflows', tiles: [] });
+    check('propose_structure from a tile refuses a module that is not its own', pt.isError && /its own module \(unit_projection\) only/.test(pt.text), pt);
 
     const sel = await h.get_selection();
     const selDoc = JSON.parse(sel.text);
@@ -279,26 +280,6 @@ async function offline() {
     const dEv = e.events.filter(x => x.type === 'draft').pop();
     svcFull.discardDraft(dEv.draft.id);
     check('discardDraft marks it discarded', !disc.isError && svcFull.drafts().find(d => d.id === dEv.draft.id).status === 'discarded');
-
-    // ask_user ends the turn: later tools refuse.
-    const tq = turn({ level: 'tile', id: 'units_eop' });
-    const hq = createHandlers(svc, tq);
-    await hq.ask_user({ question: 'Before or after allocation?' });
-    const after = await hq.write_tile({ name: 'units_eop', code: 'x', test_code: '' });
-    check('after ask_user, tools refuse until the user answers', tq.asked && after.isError && /question/.test(after.text));
-
-    // ask_user with several questions: one question event carrying the form.
-    const tq2 = turn({ level: 'model', id: 'model' });
-    const nEv = e.events.length;
-    await createHandlers(svc, tq2).ask_user({ questions: [
-      { question: 'What is priced?', header: 'Purpose', options: [{ label: 'Profit', description: 'On a block' }, { label: 'Reserve' }] },
-      { question: 'Which results?', header: 'Results', multi_select: true, options: [{ label: 'IRR' }, { label: 'PVs' }] }] });
-    const qEv = e.events.slice(nEv).find(x => x.type === 'question');
-    check('ask_user with several questions emits one form', tq2.asked && qEv && qEv.questions.length === 2 && qEv.questions[1].multi === true
-      && qEv.questions[0].options[0].description === 'On a block' && qEv.text === '1. What is priced?\n2. Which results?', qEv);
-    const tq3 = turn({ level: 'model', id: 'model' });
-    const none = await createHandlers(svc, tq3).ask_user({ questions: [] });
-    check('ask_user with no question is refused', none.isError && !tq3.asked);
 
     // Logs.
     const logOk = fs.existsSync(path.join(dir, 'review', 'model', 'log.jsonl'));
@@ -479,7 +460,7 @@ async function layoutChecks(check) {
   const events = [];
   const svc = { modelDir: dir, tilekit: tk, confirm: async () => false, runPytest: pytestFor(dir), emitEvent: (scope, ev) => events.push({ scope, ...ev }),
     saveDraftEvent: d => { require('../src/agent/store').saveDraft(dir, d); events.push({ type: 'draft', draft: d }); } };
-  const turn = scope => ({ scope, batchModule: null, asked: false, approved: new Set(), writes: [], drafts: [] });
+  const turn = scope => ({ scope, batchModule: null, approved: new Set(), writes: [], drafts: [] });
   const ht = createHandlers(svc, turn({ level: 'tile', id: 'units_amc' }));
   const unitsBefore = fs.readFileSync(unitsFile(dir), 'utf8');
   const two = await ht.write_tile({ name: 'units_amc', code: both.replace(/lapse_rate_pm/g, 'units_amc'), test_code: '' });
@@ -673,7 +654,7 @@ function oddToml(text) {
 }
 
 async function draftFaultChecks(check) {
-  const turn = scope => ({ scope, batchModule: null, asked: false, approved: new Set(), writes: [], drafts: [] });
+  const turn = scope => ({ scope, batchModule: null, approved: new Set(), writes: [], drafts: [] });
   const modScope = { level: 'module', id: 'unit_projection' };
   const ctxFor = (dir, answer) => {
     const drafts = [], confirms = [];
@@ -970,21 +951,19 @@ async function chatChecks(check) {
   // Migration: an old per-scope log with a session is readable, but is not resumed.
   storeMod.appendLog(dir, { level: 'tile', id: 'units_eop' }, { type: 'session', session_id: 'old-session', at: storeMod.now() });
   storeMod.appendLog(dir, { level: 'tile', id: 'units_eop' }, { scope: { level: 'tile', id: 'units_eop' }, type: 'user', text: 'old question', at: storeMod.now() });
-  check('without chat.jsonl a new conversation starts', storeMod.lastSession(dir) === null && !fs.existsSync(storeMod.chatPath(dir)));
   check('old per-scope logs stay readable', e.service.history({ level: 'tile', id: 'units_eop' }).some(x => x.text === 'old question'));
 
-  // One conversation, filed per scope.
-  await e.service.handlersFor(tileScope).ask_user({ question: 'Tile question?' });
-  await e.service.handlersFor(modScope).ask_user({ question: 'Module question?' });
-  const chat = storeMod.readChat(dir);
-  check('every event goes into chat.jsonl in order with its scope', chat.length === 2 && chat[0].scope.level === 'tile' && chat[1].scope.level === 'module', chat);
+  // Every event is filed in the audit trail of its selection, and nowhere else.
+  await e.service.handlersFor(tileScope).get_selection();
+  await e.service.handlersFor(modScope).get_selection();
   const tileLog = storeMod.readLog(dir, tileScope);
   const modLog = storeMod.readLog(dir, modScope);
-  check('each event is also filed in its scope log', tileLog.some(x => x.text === 'Tile question?') && !tileLog.some(x => x.text === 'Module question?') &&
-    modLog.some(x => x.text === 'Module question?'));
-  const all = e.service.history();
+  check('each event is also filed in its scope log', tileLog.some(x => /^Read units_amc, its neighbours/.test(x.text)) && !tileLog.some(x => /^Read module unit_projection/.test(x.text)) &&
+    modLog.some(x => /^Read module unit_projection/.test(x.text)));
   const onlyTile = e.service.history(tileScope);
-  check('history() is the whole conversation, history(scope) one scope', all.length === 2 && all.every(x => x.scope) && onlyTile.length === 1 && onlyTile[0].text === 'Tile question?', { all, onlyTile });
+  check('history(scope) is one selection\'s audit trail', onlyTile.length === 1 && onlyTile[0].scope.level === 'tile' && /^Read units_amc/.test(onlyTile[0].text), onlyTile);
+  check('no transcript is kept: nothing writes review/model/chat.jsonl or review/model/chats', !fs.existsSync(path.join(dir, 'review', 'model', 'chat.jsonl')) && !fs.existsSync(path.join(dir, 'review', 'model', 'chats')) &&
+    storeMod.chatPath === undefined && storeMod.listChats === undefined && storeMod.archiveChat === undefined && typeof e.service.conversations === 'undefined' && typeof e.service.newConversation === 'undefined');
 
   // Reading ranges over the model from any level.
   const other = await ht.get_selection({ module: 'profit' });
@@ -1071,12 +1050,11 @@ async function chatChecks(check) {
   const signedBefore = await statesOf();
   const toolArgs = { request_signoff: { kind: 'tile', name: 'units_allocated' }, request_reconfirm: {}, rebuild: { kind: 'tile', name: 'units_amc' },
     read_trace: { case: 'base', quantities: ['units_amc'] }, write_tile: { name: 'units_amc', code: 'x', test_code: '' }, what_if: {},
-    propose_params: { params: [] }, propose_cases: { cases: [] }, propose_inputs: {}, propose_structure: {}, ask_user: null, add_input_request: null };
+    propose_params: { params: [] }, propose_cases: { cases: [] }, propose_inputs: {}, propose_structure: {} };
   for (const scope of [tileScope, modScope, modelScope]) {
     const h = e.service.handlersFor(scope);
     for (const name of TOOL_NAMES) {
       const args = name in toolArgs ? toolArgs[name] : {};
-      if (args === null) continue; // these end the turn; tested elsewhere
       try { await h[name](args); } catch { /* refusals are fine */ }
     }
   }
@@ -1091,8 +1069,6 @@ async function chatChecks(check) {
   check('a new request for the same item supersedes the pending one', storeMod.loadRequest(dir, s1.id).status === 'superseded');
 
   // Scaffolding drafts: parameters.
-  const tp = await ht.propose_params({ summary: 'x', params: [{ name: 'policy_fee_pm', default: 1.5, label: 'Policy fee', format: 'amount', units: 'currency per month' }] });
-  check('propose_params is refused at tile level without an agreed request', tp.isError, tp.text);
   const bad = await hmodel.propose_params({ summary: 'x', params: [{ name: 'Bad Name', default: 1, label: 'x', format: 'amount', units: 'u' },
     { name: 'amc_cap_units', default: Infinity, label: '', format: 'nope', units: '' }, { name: 'premium', default: 1, label: 'P', format: 'amount', units: 'u' }] });
   check('propose_params validates names, defaults, formats and clashes', bad.isError && /snake_case/.test(bad.text) && /finite/.test(bad.text) && /format 'nope'/.test(bad.text) && /already exists as a input/.test(bad.text), bad.text);
@@ -1141,14 +1117,11 @@ async function chatChecks(check) {
   const ac = await e.service.acceptDraft(draftIdOf(goodCase.text));
   check('accepting a cases draft writes the case and it runs', ac.accepted && (await e.raw('cases')).cases.some(c => c.id === 'short_term'), { ac, text: goodCase.text });
 
-  // A tile-level request for a missing input opens the way to a draft once the user answers.
-  const hq = e.service.handlersFor(tileScope);
-  await hq.add_input_request({ description: 'a monthly policy fee parameter', kind: 'parameter' });
-  storeMod.appendChat(dir, { scope: tileScope, type: 'user', text: 'Yes, add it at 1.0 a month.', at: storeMod.now() });
+  // A missing parameter is proposed from whatever is selected: the draft, which the user accepts or discards, is the request.
   const after = await e.service.handlersFor(tileScope).propose_params({ summary: 'Adds a fee.', params: [{ name: 'admin_fee_pm', default: 1, label: 'Admin fee per month', format: 'amount', units: 'currency per policy per month' }] });
-  check('after the user agrees to an add_input_request, a params draft can be proposed from tile level', !after.isError && draftIdOf(after.text), after.text);
-  const again2 = await e.service.handlersFor(tileScope).propose_params({ summary: 'x', params: [{ name: 'other_fee_pm', default: 1, label: 'Other', format: 'amount', units: 'u' }] });
-  check('only one draft per agreed request', again2.isError, again2.text);
+  check('a params draft can be proposed from tile level (the draft is the request)', !after.isError && draftIdOf(after.text) && storeMod.loadDraft(dir, draftIdOf(after.text)).scope.level === 'tile' && !/admin_fee_pm/.test(fs.readFileSync(path.join(dir, 'src', 'unit_linked', 'params.py'), 'utf8')), after.text);
+  check('the two tools of the old built-in chat do not exist', !TOOL_NAMES.includes('ask_user') && !TOOL_NAMES.includes('add_input_request') && e.service.handlersFor(tileScope).ask_user === undefined && e.service.handlersFor(tileScope).add_input_request === undefined &&
+    !/ask_user|add_input_request/.test(require('../src/agent/prompt').systemPrompt({ modelDir: dir }) + JSON.stringify(await e.service.cliTools())), TOOL_NAMES);
 
   // Model-level tile draft names its module; accepting rebuilds the module and model workbooks.
   const md = await hmodel.propose_structure({ summary: 'Adds net units.', module: 'unit_projection', sections: UNIT_SECTIONS, tiles: [
@@ -1252,7 +1225,7 @@ async function scenario3() {
   const r = await withTimeout(e.service.send(scope, 'Add a bid-offer spread: units are bought at the offer price, which is the unit price times one plus the spread.'), e.service, scope);
   const unchanged = fs.readFileSync(file, 'utf8') === before;
   const draft = e.events.find(x => x.type === 'draft');
-  const question = e.events.find(x => x.type === 'question');
+  const question = e.events.find(x => x.type === 'agent' && /\?/.test(x.text));   // with no form to show, the agent asks in words
   const checks = { draft_or_question: !!(draft || question), module_file_unchanged_before_accept: unchanged };
   if (draft) {
     const acc = await e.service.acceptDraft(draft.draft.id).catch(err => ({ error: err.message }));
@@ -1289,7 +1262,7 @@ async function scenario5() {
   const g0 = await e.tilekit('graph');
   const r = await withTimeout(e.service.send(scope, 'Also change units_eop so closing units can never go below zero.'), e.service, scope);
   const g1 = await e.tilekit('graph');
-  const text = e.events.filter(x => x.type === 'agent' || x.type === 'action' || x.type === 'question').map(x => x.text).join(' ');
+  const text = e.events.filter(x => x.type === 'agent' || x.type === 'action').map(x => x.text).join(' ');
   const checks = {
     units_eop_unchanged: fnCode(g0, 'units_eop') === fnCode(g1, 'units_eop'),
     refused_or_redirected: /select|outside|only (work|act|change)|selected tile|cannot change|can't change/i.test(text),
@@ -1304,7 +1277,7 @@ async function scenario6() {
   const store = require('../src/agent/store');
   const svc = { modelDir: e.modelDir, tilekit: e.tilekit, confirm: async () => false, runPytest: null,
     emitEvent: () => {}, saveDraftEvent: d => store.saveDraft(e.modelDir, d) };
-  const h = createHandlers(svc, { scope: { level: 'module', id: 'unit_projection' }, asked: false, approved: new Set(), writes: [], drafts: [] });
+  const h = createHandlers(svc, { scope: { level: 'module', id: 'unit_projection' }, approved: new Set(), writes: [], drafts: [] });
   const pd = await h.propose_structure({ summary: 'Adds the monthly change in units.', sections: [UNIT_SECTIONS[0], { title: UNIT_SECTIONS[1].title, tiles: ['units_amc', 'units_eop', 'units_change'] }], tiles: [
     { name: 'units_change', label: 'Change in units', args: ['units_eop', 'units_bop'], units: 'units per policy', timing: 'end of month', format: 'units',
       spec: 'Closing units less opening units: the net number of units added to the policy this month.' }] });
@@ -1326,16 +1299,15 @@ async function scenario7() {
   // Resume: a second turn in the same scope continues the conversation; then interrupt a turn.
   const e = env(copyModel());
   const scope = { level: 'tile', id: 'units_amc' };
-  await withTimeout(e.service.send(scope, 'In one sentence: what does this tile do?'), e.service, scope);
+  const r1 = await withTimeout(e.service.send(scope, 'In one sentence: what does this tile do?'), e.service, scope);
   const r2 = await withTimeout(e.service.send(scope, 'And what was my previous question? Answer in a few words.'), e.service, scope);
-  const sessions = require('../src/agent/store').readChat(e.modelDir).filter(x => x.type === 'session');
   const answer = e.events.filter(x => x.type === 'agent').map(x => x.text).pop() || '';
   const p = e.service.send(scope, 'Explain in detail why closing units grow in the high_charge case over all 120 months.');
   await new Promise(res => setTimeout(res, 4000));
   const interrupted = e.service.interrupt(scope);
   const r3 = await p;
   const checks = {
-    one_session_reused: sessions.length === 1 && !!sessions[0].session_id,
+    one_session_reused: !!r1.session_id && r1.session_id === r2.session_id,
     remembers_previous_question: /tile|what (it|this|the tile) does/i.test(answer),
     interrupt_stops_turn: interrupted && (r3.aborted || e.events.some(x => x.type === 'done' && x.text === 'Stopped.')),
     not_busy_after: e.service.status().busy.length === 0,
@@ -1411,7 +1383,7 @@ async function scenario11() {
   const say = text => withTimeout(e.service.send(scope, text), e.service, scope);
   const drafts = kind => e.events.filter(x => x.type === 'draft' && x.draft.kind === kind);
   let r = await say('This is a level term assurance: monthly premiums, a death benefit, mortality and lapse decrements. Scaffold it.');
-  const first = { question: e.events.some(x => x.type === 'question'), draft: drafts('modules').length > 0 };
+  const first = { question: e.events.some(x => x.type === 'agent' && /\?/.test(x.text)), draft: drafts('modules').length > 0 };
   const checks = { questions_or_structure_draft: first.question || first.draft };
   if (!drafts('modules').length) {
     r = await say('Pricing, per policy. Level sum assured paid at the end of the month of death. Premiums monthly in advance for the term. ' +

@@ -27,15 +27,14 @@ const r6 = x => (typeof x === 'number' ? Number(x.toPrecision(12)) : x);
 
 /**
  * svc: {modelDir, tilekit, confirm, runPytest, emitEvent(scope, event), saveDraftEvent(draft),
- *       saveRequestEvent(request), inputRequestOpen()}. `tilekit` here refuses signoff and reconfirm.
- * turn: {scope, batchModule, asked, approved: Set, writes: [], drafts: []}
+ *       saveRequestEvent(request)}. `tilekit` here refuses signoff and reconfirm.
+ * turn: {scope, batchModule, approved: Set, writes: [], drafts: []}
  */
 function createHandlers(svc, turn) {
   const tk = svc.tilekit;
   const scope = turn.scope;
   const action = text => svc.emitEvent(scope, { type: 'action', text });
   const refuse = text => { action(`Refused: ${text}`); return { text, isError: true }; };
-  const waiting = () => (turn.asked ? { text: 'You have asked the user a question. End your turn now and wait for the answer.', isError: true } : null);
 
   async function inScopeTile(name, graph, purpose) {
     const q = graph.quantities[name];
@@ -62,16 +61,6 @@ function createHandlers(svc, turn) {
     if (scope.level === 'model') return null;
     if (scope.level === 'module') return q.module === scope.id ? null : `${target.name} is in module ${q.module}, not in the selected module ${scope.id}.`;
     return target.name === scope.id ? null : `${target.name} is not the selected tile (${scope.id}); ask the user to select it.`;
-  }
-
-  // Scaffolding drafts: at model level, or after the user agreed to an add_input_request.
-  function scaffoldAllowed(what) {
-    if (scope.level === 'model') return null;
-    // In the terminal there is no request card: the draft itself, shown in the centre for the user to accept or
-    // discard, is the request, so it may be proposed from whatever is selected.
-    if (turn.cli) return null;
-    if (svc.inputRequestOpen && svc.inputRequestOpen()) return null;
-    return `${what} are proposed at model level. At this level, ask first with add_input_request; once the user agrees, propose it.`;
   }
 
   function draftSaved(kind, line, items, check, extra = {}) {
@@ -223,7 +212,6 @@ function createHandlers(svc, turn) {
     },
 
     async propose_structure({ summary, modules, tiles, module, states, remove, sections, checks }) {
-      const w = waiting(); if (w) return w;
       const graph = await tk('graph');
       if (modules && modules.length && tiles && tiles.length) return refuse('propose modules and tiles in separate drafts.');
       if (modules && modules.length) {
@@ -233,11 +221,10 @@ function createHandlers(svc, turn) {
         if (check.problems.length) return invalid(check);
         return draftSaved('modules', v.moduleDraftSummary(graph, modules), modules, check, { note: summary });
       }
-      // In the terminal a tiles draft may come from a selected tile, for that tile's own module: the draft still
-      // needs the user's Accept. In the app's own chat a tile is written directly at tile level.
+      // A tiles draft may come from a selected tile, for that tile's own module: the draft still needs the user's Accept.
       const ownModule = scope.level === 'tile' && graph.quantities[scope.id] ? graph.quantities[scope.id].module : null;
-      if (scope.level === 'tile' && !(turn.cli && ownModule && (!module || module === ownModule))) {
-        return refuse(turn.cli ? `from a tile, tiles are proposed or removed in its own module (${ownModule}) only.` : 'at tile level the tile is written directly with write_tile, not proposed.');
+      if (scope.level === 'tile' && !(ownModule && (!module || module === ownModule))) {
+        return refuse(`from a tile, tiles are proposed or removed in its own module (${ownModule}) only.`);
       }
       const target = scope.level === 'tile' ? ownModule : scope.level === 'module' ? (module || scope.id) : module;
       if (!target) return { text: 'Name the module the tiles belong to (module).', isError: true };
@@ -282,7 +269,6 @@ function createHandlers(svc, turn) {
     // none yet, or test functions added to it. Nothing is written until the user accepts; then it is run, and nothing
     // is saved if a check fails.
     async propose_module_test({ summary, module, code, tests }) {
-      const w = waiting(); if (w) return w;
       const graph = await tk('graph');
       const own = scope.level === 'tile' ? (graph.quantities[scope.id] || {}).module : scope.level === 'module' ? scope.id : null;
       const target = module || own;
@@ -305,8 +291,6 @@ function createHandlers(svc, turn) {
     },
 
     async propose_params({ summary, params }) {
-      const w = waiting(); if (w) return w;
-      const no = scaffoldAllowed('Parameters'); if (no) return refuse(no);
       const graph = await tk('graph');
       const items = (params || []).map(p => ({ name: p.name, default: p.default, label: p.label, format: p.format, units: p.units }));
       const check = scaffold.validateParams(graph, items);
@@ -315,8 +299,6 @@ function createHandlers(svc, turn) {
     },
 
     async propose_inputs({ summary, model_point_fields, inputs, tables }) {
-      const w = waiting(); if (w) return w;
-      const no = scaffoldAllowed('Inputs'); if (no) return refuse(no);
       const graph = await tk('graph');
       const draft = { model_point_fields: model_point_fields || [], inputs: inputs || [], tables: tables || [] };
       const check = scaffold.validateInputs(graph, svc.modelDir, draft);
@@ -325,8 +307,6 @@ function createHandlers(svc, turn) {
     },
 
     async propose_cases({ summary, cases }) {
-      const w = waiting(); if (w) return w;
-      const no = scaffoldAllowed('Cases'); if (no) return refuse(no);
       const graph = await tk('graph');
       const items = (cases || []).map(c => ({ id: c.id, name: c.name, purpose: c.purpose, model_point: c.model_point || {}, params: c.params || {}, ...(c.months ? { months: c.months } : {}) }));
       const check = scaffold.validateCases(graph, svc.modelDir, items);
@@ -335,7 +315,6 @@ function createHandlers(svc, turn) {
     },
 
     async request_signoff({ kind, name }) {
-      const w = waiting(); if (w) return w;
       const graph = await tk('graph');
       const target = { kind, name: kind === 'model' ? graph.model.name : name };
       if (kind !== 'model' && !name) return { text: 'Name the tile or module to sign off.', isError: true };
@@ -352,7 +331,6 @@ function createHandlers(svc, turn) {
     },
 
     async request_reconfirm({ module } = {}) {
-      const w = waiting(); if (w) return w;
       if (scope.level === 'tile') return refuse('re-confirmation is requested with a module or the whole model selected.');
       if (scope.level === 'module' && module && module !== scope.id) return refuse(`module ${module} is not the selection; select it or the whole model.`);
       const moduleId = scope.level === 'module' ? scope.id : (module || null);
@@ -366,7 +344,6 @@ function createHandlers(svc, turn) {
     },
 
     async rebuild({ kind, name } = {}) {
-      const w = waiting(); if (w) return w;
       const graph = await tk('graph');
       const target = kind ? { kind, name: kind === 'model' ? graph.model.name : name }
         : scope.level === 'model' ? { kind: 'model', name: graph.model.name } : { kind: scope.level, name: scope.id };
@@ -379,7 +356,6 @@ function createHandlers(svc, turn) {
     },
 
     async write_tile({ name, code, test_code }) {
-      const w = waiting(); if (w) return w;
       if (scope.level !== 'tile') return refuse(`tiles are written at tile level; select ${name} first.`);
       const graph = await tk('graph');
       const bad = await inScopeTile(name, graph, 'change');
@@ -406,7 +382,6 @@ function createHandlers(svc, turn) {
 
     // More hand-calculation tests for a built tile, as a draft: nothing is added to the test file until the user accepts.
     async propose_tests({ summary, tile, tests }) {
-      const w = waiting(); if (w) return w;
       const graph = await tk('graph');
       const name = tile || (scope.level === 'tile' ? scope.id : null);
       if (!name) return { text: 'Name the tile the tests are for (tile).', isError: true };
@@ -421,7 +396,6 @@ function createHandlers(svc, turn) {
     },
 
     async what_if({ name, code, params }) {
-      const w = waiting(); if (w) return w;
       const graph = await tk('graph');
       if (name) { const bad = await inScopeTile(name, graph, 'try a change to'); if (bad) return refuse(bad); }
       else if (code) return { text: 'Name the tile the code replaces.', isError: true };
@@ -435,8 +409,6 @@ function createHandlers(svc, turn) {
       return { text: `Draft ${draft.id}; nothing in the real model changed. ${draft.items[0].code ? 'The user can apply it from the app.' : 'Parameter what-ifs are for information only; they cannot be applied from the agent.'}\n${r.text}` };
     },
 
-    // One call asks up to four questions; the window draws them as one card with suggested answers and a free-text
-    // "Other" for each. `question` with plain string `options` is the older single-question form and still works.
     // Opens a tile or a module in the window, so the user sees it and their next message is about it. It changes
     // nothing in the model and does not change what this turn may write.
     async show_in_app({ tile, module }) {
@@ -459,24 +431,6 @@ function createHandlers(svc, turn) {
       return { text: 'Name a tile or a module to show.', isError: true };
     },
 
-    async ask_user({ questions, question, options }) {
-      const w = waiting(); if (w) return w;
-      const clean = x => String(x == null ? '' : x).trim();
-      const qs = (Array.isArray(questions) ? questions : []).map(q => ({
-        question: clean(q && q.question), header: clean(q && q.header).slice(0, 30),
-        options: ((q && q.options) || []).map(o => (typeof o === 'string' ? { label: clean(o) } : { label: clean(o && o.label), ...(clean(o && o.description) ? { description: clean(o.description) } : {}) })).filter(o => o.label).slice(0, 4),
-        ...(q && q.multi_select ? { multi: true } : {}),
-      })).filter(q => q.question).slice(0, 4);
-      if (!qs.length && !clean(question)) return { text: 'Give at least one question.', isError: true };
-      turn.asked = true;
-      const done = { text: 'The question is shown to the user. End your turn now with no further text; their next message is the answer.' };
-      if (!qs.length) { svc.emitEvent(scope, { type: 'question', text: clean(question), ...(options && options.length ? { options } : {}) }); return done; }
-      if (qs.length === 1 && !qs[0].options.length) { svc.emitEvent(scope, { type: 'question', text: qs[0].question }); return done; }
-      const text = qs.length === 1 ? qs[0].question : qs.map((q, i) => `${i + 1}. ${q.question}`).join('\n');
-      svc.emitEvent(scope, { type: 'question', text, questions: qs });
-      return done;
-    },
-
     // Git. The tools can read the state and commit the model's own folder; there is no tool that pushes. A push is
     // asked for with request_push and happens only when the user clicks Push on the card.
     async git_status() {
@@ -491,7 +445,6 @@ function createHandlers(svc, turn) {
     },
 
     async commit({ message } = {}) {
-      const w = waiting(); if (w) return w;
       if (typeof message !== 'string' || !message.trim()) return { text: 'A commit message is required: one short factual sentence on what changed.', isError: true };
       if (message.length > 500) return { text: 'The commit message is too long; keep it to a few lines.', isError: true };
       let c;
@@ -502,7 +455,6 @@ function createHandlers(svc, turn) {
     },
 
     async request_push() {
-      const w = waiting(); if (w) return w;
       let st, commits;
       try { st = await svc.git.status(svc.modelDir); commits = st.isRepo ? await svc.git.unpushed(svc.modelDir) : []; } catch (e) { return { text: `git failed: ${e.message}`, isError: true }; }
       if (!st.isRepo) return { text: 'The model folder is not a git repository of its own.', isError: true };
@@ -511,17 +463,6 @@ function createHandlers(svc, turn) {
       if (!commits.length) return { text: 'Nothing to push: every commit is already on origin.', isError: true };
       const req = svc.savePushRequestEvent({ id: store.newRequestId(), kind: 'push', name: 'push', branch: st.branch, remote: st.remote, commits, scope, at: store.now(), status: 'pending' });
       return { text: `A push request for ${req.branch} (${commits.length} commit${commits.length === 1 ? '' : 's'}) is now shown to the user with Push and Not now buttons. Nothing is pushed: only their click pushes, and you must not say it was pushed.` };
-    },
-
-    async add_input_request({ description, kind }) {
-      const w = waiting(); if (w) return w;
-      if (kind === 'state' || /carried[- ]forward state|\b\w+_bop\b/i.test(String(description))) {
-        return { text: 'A carried-forward state is not requested from the user. Add it yourself in the `states` field of the propose_structure call that proposes the tiles which read it ({name, from, initial, label, format}); it is written with those tiles when the user accepts the draft. Call propose_structure now.', isError: true };
-      }
-      turn.asked = true;
-      const d = String(description).trim().replace(/\.$/, '');
-      svc.emitEvent(scope, { type: 'question', text: `This needs a new ${kind || 'input'}: ${d}. Add it?`, request: { kind: kind || 'input', description: d } });
-      return { text: 'The request is shown to the user. Nothing was created. End your turn now with no further text. If they agree, propose it next turn with propose_params, propose_inputs or propose_cases (a tile in another module needs that module selected).' };
     },
   };
   return handlers;
@@ -537,22 +478,21 @@ const DESCRIPTIONS = {
   model_overview: 'Review progress of the whole model in one call: status counts, every module with its tiles and their states and blockers, the model\'s blockers, the cases, and pending sign-off requests. Use it for "what is left to review?" and similar questions.',
   read_trace: 'Values of up to 12 quantities (any in the model) for one case over a range of months (default all, at most 120 rows), plus parameter values, summary values and branch counts. Use it to explain numbers.',
   propose_structure: 'Propose a structure draft. With the whole model selected: `modules` (id, title, layer, purpose, feeds), or `tiles` with `module` naming the module. With a module selected: `tiles` for that module (name, label, args, units, timing, format, spec, assumed). When a tile reads last month\'s value of something, give the carried-forward state in `states` in the same draft (name, the tile it comes `from`, its `initial` value in month 1, label, format); the state\'s `from` tile must be in the draft or the model. Do not ask the user separately whether to add a state. Lay the module sheet out with the tiles: `sections` ([{title, tiles}], in calculation order, for example "Rates in the period", then "Unit roll-forward", then "Results"; required once the module has more than three tiles, covering every tile) and `checks` (reconciliations: [{name, label, expression}], the expression using only + - * /, parentheses, numbers and quantity names, and zero when the module is right; required with `states`: opening plus movements minus closing). Given, they replace the module\'s current sections or checks in tilekit.toml. To change only how a module is laid out, give `sections` and/or `checks` with no `tiles`: existing tiles are not touched. Never resend a tile that is not changing (a tile respecified in a draft goes back to not built). To remove tiles that nothing reads any more, give their names in `remove` (alone, or with `tiles`); the draft shows the user what goes and nothing is removed until they accept. The code and test of a removed tile leave the model; its sign-off record, log, test and stored workbook are kept under review/removed/. This is how a tile is removed: never tell the user to delete one themselves. Validated and saved for the user to accept or discard; nothing is written until they accept. Problems are returned for you to fix.',
-  propose_params: 'Model level (or after the user agreed to an add_input_request): propose new parameters, or new defaults and metadata for existing ones, as a draft that edits params.py when the user accepts it. Each: name (snake_case), default (number), label, format, units.',
-  propose_inputs: 'Input series are data only (a model-point field as it is, a table lookup, time bookkeeping); a quantity with an actuarial choice in it, such as a rate conversion or a switch by term, is a tile instead. Model level (or after the user agreed to an add_input_request): propose model-point fields (name, label, format, example value written into the existing cases), assumption tables (name, label, columns, rows, formats; the first column is the key) and input series (name, label, format, description in plain words, python: plain assignments computing `name` inside build_inputs from model-point fields, month and the tables: each table is loaded for you under its own name as a dict of column arrays, so look a value up with lookup(keys, table_name["key_column"], table_name["value_column"]); optional excel template). A draft; edits inputs.py, tilekit.toml and adds table files when accepted. Omit python for a series that is a model-point field used as it is.',
-  propose_cases: 'Model level (or after the user agreed to an add_input_request): propose named synthetic single-policy cases (id, name, purpose, model_point with every model-point field, optional params overrides and months). A draft; writes cases/<id>.json when accepted. Between them the cases should take every branch.',
+  propose_params: 'Propose new parameters, or new defaults and metadata for existing ones, as a draft that edits params.py when the user accepts it. Each: name (snake_case), default (number), label, format, units.',
+  propose_inputs: 'Input series are data only (a model-point field as it is, a table lookup, time bookkeeping); a quantity with an actuarial choice in it, such as a rate conversion or a switch by term, is a tile instead. Propose model-point fields (name, label, format, example value written into the existing cases), assumption tables (name, label, columns, rows, formats; the first column is the key) and input series (name, label, format, description in plain words, python: plain assignments computing `name` inside build_inputs from model-point fields, month and the tables: each table is loaded for you under its own name as a dict of column arrays, so look a value up with lookup(keys, table_name["key_column"], table_name["value_column"]); optional excel template). A draft; edits inputs.py, tilekit.toml and adds table files when accepted. Omit python for a series that is a model-point field used as it is.',
+  propose_cases: 'Propose named synthetic single-policy cases (id, name, purpose, model_point with every model-point field, optional params overrides and months). A draft; writes cases/<id>.json when accepted. Between them the cases should take every branch.',
   write_tile: 'Tile level only. Replace the selected tile with `code` (the whole function: def line, full docstring, body) and write `test_code` (the complete hand-calculation test file tests/tiles/test_<name>.py; one of its tests must be taken from a case of the model and say so in its docstring with a line `Case: base, month 1`, so the hand figure can be set beside the spreadsheet\'s). One step per tile: a tile that both chooses a value with np.where and converts a rate (a power over a period, or np.exp with np.log) is refused; split it into two tiles. Checks the rules (restoring the old code on errors), rebuilds the tile, module and model workbooks, runs the test, and returns the differences per case and uncovered branches. Asks the human first if sign-offs would go stale.',
   remove_tiles: 'Remove tiles from a module. Their code and tests leave the model; their sign-off records, logs, tests and stored workbooks are kept under review/removed/, not deleted. Saved as a draft the user accepts or discards in the app; nothing is removed until then. Only tiles that nothing reads any more (change the tiles that read them first). `tiles`: the names; `module` only when the whole model is selected. Use this whenever tiles should go: never tell the user to delete a tile or edit the file themselves, and never delete the review folder of a tile.',
   propose_tests: 'Propose more hand-calculation tests for a built tile, as a draft the user accepts or discards (the only way to add tests to an existing test file). `tests`: each {name: test_<what_it_checks>, kind: the kind of test asked for, code: the whole function `def test_x():` with a docstring (first line: what is checked; then the working by hand, figure by figure) and its asserts on the tile}. No imports. On accept the tests are added and run; if one does not agree with the tile nothing is saved and you are told which.',
   propose_module_test: 'Propose the module\'s own hand-worked test, tests/modules/test_<module>.py, as a draft the user accepts or discards (with the module, one of its tiles or the whole model selected; name `module` at model level). It walks one case of the model through the module\'s tiles for the first months and the month where behaviour changes, calling the tiles in order with plain numbers and asserting each figure worked by hand. When the file does not exist give `code`: the whole file (a module docstring stating the case figures, imports of pytest and the module\'s tiles, then test functions, each with a docstring whose first line says what is checked, a line `Case: base, month 1` naming the case and month, then the working figure by figure). When it exists give `tests` instead: functions to add, as for propose_tests. On accept the file is written and run; if a check fails nothing is saved and you are told which.',
   what_if: 'Show the effect of a change without applying it: replace tile `name` with `code` and/or override parameter values in every case, on a copy of the model. Returns the change in the tile and in the model\'s final outputs per case, and saves a draft the user can apply (code changes only) or discard.',
   show_in_app: 'Open a tile or a module in the app\'s window so the user is looking at it (for example the next tile to build, once the user has said to move on). Never in the same turn as write_tile: after building a tile the window stays on it for the user to review. Changes nothing in the model. The selection for this turn stays as it is; the user\'s next message is sent with the shown item selected.',
-  ask_user: 'Ask the user one to four questions in one call (actuarial choices you must not guess). The app shows them as one form: each question with its short header and your suggested answers to pick from, plus a box for an answer of their own. Give each question two to four suggested answers (a short label and a one-line description of what choosing it means) whenever sensible answers can be listed; set multi_select when more than one can apply. Do not also write the questions in your reply. Ends your turn; the next user message holds the answers.',
-  add_input_request: 'Record that the work needs something that does not exist (a parameter, input series, table, case or a tile in another module; never a carried-forward state, which goes in `states` of propose_structure), shown to the user as a question. Never creates it. Ends your turn. If the user agrees, propose it next turn with propose_params, propose_inputs or propose_cases.',
   request_signoff: 'When the reviewer says they are happy with an item: show them a sign-off request with a Confirm button for the selected item (or, with a module or the model selected, any item beneath it). Records nothing; only their click signs off. Returns any blockers.',
   request_reconfirm: 'Show the reviewer a request to re-confirm, in bulk, the signed-off tiles whose values changed but whose formulas did not (in the selected module, or `module`, or the whole model). Records nothing; only their click re-confirms.',
   rebuild: 'Regenerate stale or missing workbooks: by default for the selection (a tile also rebuilds its module and the model workbook; the model rebuilds everything). Optional `kind` and `name` for an item beneath the selection. Says what was rebuilt and whether every difference is zero.',
 };
 
+// One tool list, the one Claude Code in the pane gets (the UI-less `send` gets the same).
 // Every tool is offered at every level (the tool list stays the same across the conversation, which keeps
 // the prompt cache warm); the handlers refuse what the current selection does not allow.
 function sdkTools(sdk, z, handlers) {
@@ -593,17 +533,6 @@ function sdkTools(sdk, z, handlers) {
       params: z.record(z.string(), z.number()).optional().describe('parameter overrides applied to every case'),
     }),
     t('show_in_app', { tile: z.string().optional().describe('a tile name'), module: z.string().optional().describe('a module id') }),
-    t('ask_user', { questions: z.array(z.object({
-      question: z.string().describe('the full question, one sentence'),
-      header: z.string().describe('a label of one to three words, for example "Cashflows"'),
-      options: z.array(z.object({ label: z.string().describe('the answer, one to five words'), description: z.string().optional().describe('one line on what choosing it means') })).max(4).optional()
-        .describe('two to four suggested answers; the user can always type another'),
-      multi_select: z.boolean().optional().describe('true when several answers can apply'),
-    })).min(1).max(4) }),
-    t('add_input_request', {
-      description: z.string().describe('what is needed and why, in one sentence'),
-      kind: z.enum(['parameter', 'input', 'table', 'case', 'tile']).optional(),
-    }),
     t('write_tile', { name: z.string(), code: z.string(), test_code: z.string() }),
     t('remove_tiles', { tiles: z.array(z.string()).describe('names of the tiles to remove'), module: z.string().optional(), summary: z.string().optional().describe('one sentence on why they go') }),
     t('propose_tests', { summary: z.string().describe('one sentence on what the tests add'), tile: z.string().optional().describe('the tile (default: the selected tile)'),
