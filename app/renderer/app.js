@@ -185,11 +185,11 @@ async function paintCentre() {
   if (seg === 'spreadsheet' || !S.graph || !S.status) return;
   try {
     await paintSource($('codewrap'), { seg, level, id: route.id, S, api, changed: codeWas, busy: () => S.busy || working > 0 || agent.isBusy(), repaint: paintCentre,
-      build: api.agent ? name => { void agent.send(`Build the tile ${name}.`); } : null,
+      build: agent.canType() ? name => { void agent.send(`Build the tile ${name}.`); } : null,
       working: name => { const w = agent.workingOn(); return !!w && w.level === 'tile' && w.id === name; },
-      askTests: api.agent ? (name, kinds, extra) => { void agent.send(`Propose more tests for the tile ${name} with propose_tests.${kinds.length ? ` Kinds wanted: ${kinds.join('; ')}.` : ''}${extra ? ` Also: ${extra}` : ''}`); } : null,
+      askTests: agent.canType() ? (name, kinds, extra) => { void agent.send(`Propose more tests for the tile ${name} with propose_tests.${kinds.length ? ` Kinds wanted: ${kinds.join('; ')}.` : ''}${extra ? ` Also: ${extra}` : ''}`); } : null,
       // the module's own hand-worked test: asks the agent to propose it as a draft (nothing is written until accepted)
-      askModuleTest: api.agent ? (id, exists) => { void agent.send(exists
+      askModuleTest: agent.canType() ? (id, exists) => { void agent.send(exists
         ? `Propose more tests for the module test of ${id} with propose_module_test.`
         : `Propose the module test for ${id} with propose_module_test: walk one case through the module's tiles for the first months and the month where behaviour changes, every figure worked by hand.`); } : null });
   } catch (e) { $('codewrap').replaceChildren(h('p', { class: 'grey' }, 'Could not show this: ' + e.message)); }
@@ -501,7 +501,6 @@ async function boot() {
   $('leftstrip').addEventListener('click', () => setBar('left', true));
   $('rightstrip').addEventListener('click', () => setBar('right', true));
   $('rightbar').insertBefore(agent.section, $('rightstrip'));
-  $('rightbar').insertBefore(agent.unavailable, $('rightstrip'));
   agent.onLogChange(paintStrips);
   for (const b of document.querySelectorAll('button.seg')) b.addEventListener('click', () => setCentre(b.dataset.seg));
   $('gitline').addEventListener('click', () => { if (openModel && openModel.id) void commitDialog(openModel.id, async () => { await paintGit(); }); });
@@ -523,11 +522,11 @@ async function boot() {
   if (!location.hash || (!openModel && !location.hash.startsWith('#/launch'))) location.hash = openModel ? '#/model' : '#/launch';
   grid = createGrid($('gridhost'), { author: await reviewer(), settings: () => settings, onError: m => { S.actionError = m; render(); }, onEdit: info => spec && spec.onEdit(info), onInspect: ins => trace && trace.onInspect(ins) });
   spec = createSpecLine({
-    bar: $('sheetbar'), grid, enabled: () => !!api.agent,
+    bar: $('sheetbar'), grid, enabled: () => agent.canType(),
     tile: () => { const r = parseRoute(); return r.view === 'tile' && !S.real ? r.id : null; },
     caseId: sheet => (S.cases.find(c => (c.name || c.id) === sheet) || {}).id || null,
-    canSend: () => !!api.agent && !agent.isBusy(),
-    send: (text, extra) => agent.send(text, extra),
+    canSend: () => agent.canType() && !agent.isBusy(),
+    send: text => agent.send(text),
   });
   // The trace line (trace.js): where the selected row's value comes from. The other lines come first.
   trace = createTrace({
@@ -542,7 +541,6 @@ async function boot() {
     afterTurn: async () => { await refresh(); await render(); },
     draftsChanged: async () => { await refresh(); await render(); },
     onBusy: () => { render(); },
-    titleOf: sc => sc.level === 'model' ? 'Model' : sc.level === 'module' ? ((L.moduleOf(S, sc.id) || {}).title || sc.id) : sc.id,
     reviewer: () => reviewer(),
   });
   window.__app = { S, RD, queue, current: () => openModel, render, bars, setBar, setCentre, centre: () => centreOf(levelNow()), settings: () => settings, refresh, grid, route: parseRoute, ready: false, idle: () => chain };
@@ -553,7 +551,7 @@ async function boot() {
   if (openModel) await refresh();
   await render();
   window.__app.ready = true;
-  if (new URLSearchParams(location.search).get('scaffold') === '1') agent.prefill(PREFILL);   // a new, empty model: the chat starts with the scaffolding request
+  if (new URLSearchParams(location.search).get('scaffold') === '1') agent.prefill(PREFILL);   // a new, empty model: the scaffolding request is typed at Claude Code's prompt, not sent
   let timer = null;
   api.onChanged(() => {
     realCache.clear(); clearTimeout(timer);

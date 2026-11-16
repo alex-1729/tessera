@@ -11,19 +11,12 @@ async function call(channel, ...args) {
 // The agent API exists only when main created the service (not in fixture mode).
 const hasAgent = ipcRenderer.sendSync('agent:available') === true;
 const agentApi = hasAgent ? {
+  // UI-less: nothing in the window sends through this (messages are typed into Claude Code in the pane); tests do
   send: (scope, text, extra) => call('agent:send', scope, String(text), extra),
-  interrupt: () => call('agent:interrupt'),
-  history: scope => call('agent:history', scope),   // no scope: the whole conversation of the model
   drafts: () => call('agent:drafts'),
-  // conversations: [{id, current, title, started, last, messages}] (null when the agent keeps only one)
-  conversations: () => call('agent:conversations'),
-  newConversation: () => call('agent:newConversation'),
-  openConversation: id => call('agent:openConversation', String(id)),
-  deleteConversation: id => call('agent:deleteConversation', String(id)),
   requests: () => call('agent:requests'),
   acceptDraft: id => call('agent:acceptDraft', String(id)),
   discardDraft: id => call('agent:discardDraft', String(id)),
-  buildModule: id => call('agent:buildModule', String(id)),
   status: () => call('agent:status'),
   confirmSignoff: (id, values) => call('agent:confirmSignoff', String(id), values),
   declineSignoff: id => call('agent:declineSignoff', String(id)),

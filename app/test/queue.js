@@ -13,6 +13,8 @@ fs.mkdirSync(OUT, { recursive: true });
 const REAL_MODEL = path.resolve(__dirname, '../../model');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'tessera-queue-'));
 const copy = path.join(tmp, 'model');
+// The right-hand pane runs Claude Code whenever a model is open: here a stand-in that calls no model (test/fake-claude.js).
+require('./stand-in')(tmp);
 
 const summary = { checks: [], shots: [], errors: [] };
 let ctl = null, finished = false;

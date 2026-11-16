@@ -1,6 +1,8 @@
 'use strict';
-// The embedded modelling agent: one Claude Agent SDK conversation per model, in-process tiles tools,
-// drafts that apply only when accepted, sign-off requests that only the reviewer's click records.
+// The modelling agent's side of the app: the tiles tools that Claude Code in the pane calls (through
+// cli-bridge.js), drafts that apply only when accepted, sign-off and push requests that only the reviewer's click
+// settles, and the audit trail (review/.../log.jsonl). `send` runs a turn with the Agent SDK and no window: nothing in
+// the app sends through it; the real-agent tests do. It gets the same prompt and the same tools as the pane.
 // Plain Node; no Electron imports.
 const fs = require('fs');
 const path = require('path');
@@ -20,16 +22,6 @@ const STRONG_MODEL = 'claude-opus-5-5';
 const MAX_TURNS = 40;
 const NOT_SIGNED_IN = 'The agent is not signed in. Sign in to Claude Code on this Mac, or set ANTHROPIC_API_KEY.';
 const BUILTIN = new Set(['Read', 'Glob', 'Grep']);
-// Tools the terminal does not get: Claude Code asks with its own question form, and a missing parameter, input or
-// case is proposed directly as a draft (the app's own chat shows a request card for it instead).
-const CLI_HIDDEN = new Set(['ask_user', 'add_input_request']);
-// The tools' own words name the app chat's request step; in the terminal the draft is the request.
-const cliWords = text => String(text)
-  .replace(/Model level \(or after the user agreed to an add_input_request\): /g, '')
-  .replace(/ask the user to add it \(add_input_request\)/g, 'propose it as a draft (propose_params, propose_inputs or propose_cases)')
-  .replace(/ask first with add_input_request; once the user agrees, propose it/g, 'propose it as a draft')
-  .replace(/\badd_input_request\b/g, 'a draft');
-
 let sdkPromise = null;
 function loadSdk() {
   if (!sdkPromise) {
@@ -132,6 +124,8 @@ function builtinSentence(name, input, modelDir) {
 const SCAFFOLD_KINDS = new Set(['params', 'inputs', 'cases']);
 const FORBIDDEN_FOR_TOOLS = new Set(['signoff', 'reconfirm']);
 
+const pushSentence = r => { const n = (r.commits || []).length; return `Push ${n} commit${n === 1 ? '' : 's'} on ${r.branch} to GitHub? Click Push to do it.`; };
+
 // The parts of a sign-off request the window shows (no stamps or scope).
 function publicPush(r) {
   return { id: r.id, kind: 'push', name: 'push', branch: r.branch, remote: r.remote, commits: r.commits, status: r.status };
@@ -155,9 +149,10 @@ function createAgentService(options) {
   const modelName = options.modelName || DEFAULT_MODEL;
   const runPytest = options.runPytest === undefined ? tilekitPytest(tilekit) : options.runPytest;
   let active = null; // {controller, scope, started}
-  let selection = null;   // what the window has selected now (terminal mode: the scope of the next message)
-  let cliGreeted = false; // the first terminal message after the app starts carries a note that tools may have changed
-  let cliTurn = null;     // the running terminal turn's state, shared by its tool calls
+  let selection = null;   // what the window has selected now: the scope of the next message typed in the pane
+  let cliGreeted = false; // the first message after the app starts carries a note that tools may have changed
+  let cliTurn = null;     // the running turn's state in the pane, shared by its tool calls
+  let sdkSession = null;  // the Agent SDK session of `send` (UI-less), kept only while this service lives
   const notes = []; // what happened outside the chat since the model's last turn (confirmations, drafts accepted)
   const totals = { turns: 0, cost_usd: 0, last: null };
   let signedIn = null;
@@ -176,18 +171,8 @@ function createAgentService(options) {
     ? Promise.reject(new Error('The agent cannot sign off or re-confirm; only the reviewer can, with the button in the app.'))
     : tilekit(command, args));
 
-  // After the reviewer agreed to an add_input_request, a scaffolding draft may be proposed from any level.
-  function inputRequestOpen() {
-    const chat = store.readChat(modelDir);
-    let q = -1;
-    for (let i = chat.length - 1; i >= 0; i--) if (chat[i].type === 'question' && chat[i].request) { q = i; break; }
-    if (q < 0) return false;
-    const after = chat.slice(q + 1);
-    return after.some(e => e.type === 'user') && !after.some(e => e.type === 'draft' && e.draft && SCAFFOLD_KINDS.has(e.draft.kind));
-  }
-
   const svc = {
-    modelDir, repoRoot, tilekit: toolTilekit, confirm, runPytest, emitEvent, inputRequestOpen,
+    modelDir, repoRoot, tilekit: toolTilekit, confirm, runPytest, emitEvent,
     // tell the window to open an item (not part of the conversation's record)
     showInApp(route) { try { emit({ type: 'navigate', route, at: store.now() }); } catch { /* listener errors are theirs */ } },
     // what the tools may do with git: read and commit. Pushing is not here; see confirmPush.
@@ -197,8 +182,7 @@ function createAgentService(options) {
         if (old.status === 'pending' && old.kind === 'push') { old.status = 'superseded'; old.superseded_by = req.id; store.saveRequest(modelDir, old); }
       }
       store.saveRequest(modelDir, req);
-      const n = req.commits.length;
-      emitEvent(req.scope, { type: 'push_request', text: `Push ${n} commit${n === 1 ? '' : 's'} on ${req.branch} to GitHub? Click Push to do it.`, request: publicPush(req) });
+      emitEvent(req.scope, { type: 'push_request', text: pushSentence(req), request: publicPush(req) });
       return req;
     },
     saveDraftEvent(draft) {
@@ -227,8 +211,8 @@ function createAgentService(options) {
 
   const scopeWords = s => (s.level === 'model' ? 'the model' : `${s.level} ${s.id}`);
 
-  // One agent turn in the model's conversation, with `scope` selected.
-  // Returns {ok, asked, writes, drafts, cost_usd, ms, num_turns, error}.
+  // One agent turn run with the Agent SDK (no window), with `scope` selected.
+  // Returns {ok, writes, drafts, cost_usd, ms, num_turns, session_id, error}.
   async function runTurn(scope, text, { batchModule = null } = {}) {
     if (active) {
       const msg = `The agent is busy with ${scopeWords(active.scope)}. Wait for it or stop it first.`;
@@ -237,14 +221,14 @@ function createAgentService(options) {
     }
     const controller = new AbortController();
     active = { controller, scope, started: Date.now() };
-    const turn = { scope, batchModule, asked: false, approved: new Set(), writes: [], drafts: [] };
+    const turn = { scope, batchModule, approved: new Set(), writes: [], drafts: [] };
     const started = Date.now();
     let outcome = { ok: false };
     try {
       const { sdk, z } = await loadSdk();
       const handlers = createHandlers(svc, turn);
       const prompt = `${turnPreamble(scope, { batchModule, notes: notes.splice(0) })}\n${text}`;
-      let resume = store.lastSession(modelDir);
+      let resume = sdkSession;
       for (let attempt = 0; attempt < 2; attempt++) {
         const server = sdk.createSdkMcpServer({ name: 'tiles', version: '0.2.0', tools: sdkTools(sdk, z, handlers) });
         const q = sdk.query({
@@ -268,8 +252,7 @@ function createAgentService(options) {
         });
         const r = await consume(q, scope, resume);
         if (r.resumeFailed && attempt === 0) {
-          store.appendChat(modelDir, { type: 'session', session_id: null, at: store.now(), note: 'previous session could not be resumed' });
-          resume = null;
+          resume = sdkSession = null;
           continue;
         }
         outcome = r;
@@ -293,7 +276,7 @@ function createAgentService(options) {
     totals.last = { scope, ms, cost_usd: outcome.cost_usd || 0, num_turns: outcome.num_turns || 0 };
     emitEvent(scope, { type: 'done', text: outcome.aborted ? 'Stopped.' : '', ms, cost_usd: outcome.cost_usd || 0,
       num_turns: outcome.num_turns || 0, usage: outcome.usage || null, ok: !!outcome.ok });
-    return { ...outcome, asked: turn.asked, writes: turn.writes, drafts: turn.drafts, ms };
+    return { ...outcome, writes: turn.writes, drafts: turn.drafts, ms };
   }
 
   async function consume(q, scope, resumed) {
@@ -304,7 +287,7 @@ function createAgentService(options) {
     for await (const m of q) {
       if (m.type === 'system' && m.subtype === 'init') {
         sessionId = m.session_id;
-        if (sessionId && sessionId !== resumed) store.appendChat(modelDir, { type: 'session', session_id: sessionId, model: m.model, scope, at: store.now() });
+        if (sessionId) sdkSession = sessionId;
       } else if (m.type === 'assistant') {
         if (m.error) {
           if (m.error === 'authentication_failed' || m.error === 'oauth_org_not_allowed') signedIn = false;
@@ -355,6 +338,8 @@ function createAgentService(options) {
   const doneEvent = (scope, ok = true) => emitEvent(scope, { type: 'done', text: '', ms: 0, cost_usd: 0, num_turns: 0, usage: null, ok });
 
   return {
+    // The UI-less way to give the agent a message: one Agent SDK turn. Nothing in the window calls it (the pane is
+    // Claude Code); the real-agent tests do (test/agent-harness.js, test/live-agent.js).
     async send(scopeIn, text, extra) {
       const scope = store.checkScope(scopeIn);
       if (typeof text !== 'string' || !text.trim()) throw new Error('Say something to the agent.');
@@ -374,9 +359,8 @@ function createAgentService(options) {
       return true;
     },
 
-    // The whole conversation (every event with its scope), or one scope's audit trail.
+    // One selection's audit trail (review/.../log.jsonl).
     history(scopeIn) {
-      if (scopeIn === undefined || scopeIn === null) return store.readChat(modelDir).filter(e => e.type !== 'session');
       return store.readLog(modelDir, store.checkScope(scopeIn)).filter(e => e.type !== 'session');
     },
 
@@ -386,20 +370,20 @@ function createAgentService(options) {
     setSelection(scopeIn) { selection = store.checkScope(scopeIn); return selection; },
     async cliTools() {
       const { z } = await loadSdk();
-      const fake = { tool: (name, description, shape) => ({ name, description: cliWords(description), inputSchema: z.toJSONSchema(z.object(shape)) }) };
-      return sdkTools(fake, z, {}).filter(t => !CLI_HIDDEN.has(t.name));
+      const fake = { tool: (name, description, shape) => ({ name, description, inputSchema: z.toJSONSchema(z.object(shape)) }) };
+      return sdkTools(fake, z, {});
     },
-    // The user sent a message in the terminal: a turn starts on the current selection. Returns the bracketed lines
+    // The user sent a message in the pane: a turn starts on the current selection. Returns the bracketed lines
     // that tell the model what is selected and what happened in the app since its last message.
     cliPrompt() {
       const scope = selection || { level: 'model', id: 'model' };
-      cliTurn = { scope, cli: true, batchModule: null, asked: false, approved: new Set(), writes: [], drafts: [] };
+      cliTurn = { scope, batchModule: null, approved: new Set(), writes: [], drafts: [] };
       active = { controller: { abort() {} }, scope, started: Date.now(), cli: true };
       // A conversation carried over from before the app started may hold conclusions about tools that have since
       // changed ("I can only do that at model level"). Say so once, on the first message after each start.
       if (!cliGreeted) {
         cliGreeted = true;
-        notes.unshift(`The app has been restarted and its tools and rules may have changed. Anything said earlier in this conversation about what a tool allows or refuses, or about a tool not existing, may be out of date: do not repeat it from memory. Your tools now are: ${TOOL_NAMES.filter(n => !CLI_HIDDEN.has(n)).join(', ')}. Read their descriptions again before saying something cannot be done.`);
+        notes.unshift(`The app has been restarted and its tools and rules may have changed. Anything said earlier in this conversation about what a tool allows or refuses, or about a tool not existing, may be out of date: do not repeat it from memory. Your tools now are: ${TOOL_NAMES.join(', ')}. Read their descriptions again before saying something cannot be done.`);
       }
       try { emit({ type: 'turn_start', scope, at: store.now() }); } catch { /* listener errors are theirs */ }
       return turnPreamble(scope, { notes: notes.splice(0) });
@@ -417,40 +401,18 @@ function createAgentService(options) {
       const handlers = createHandlers(svc, cliTurn);
       let found = null;
       sdkTools({ tool: (n, _d, _s, fn) => { if (n === name) found = fn; return null; } }, z, handlers);
-      if (!found || CLI_HIDDEN.has(name)) return { content: [{ type: 'text', text: `There is no tool ${name}.` }], isError: true };
-      const r = await found(args || {});
-      for (const c of (r && r.content) || []) if (c && typeof c.text === 'string') c.text = cliWords(c.text);
-      return r;
+      if (!found) return { content: [{ type: 'text', text: `There is no tool ${name}.` }], isError: true };
+      return found(args || {});
     },
-    cliSystemPrompt() { return systemPrompt({ cli: true, modelDir }); },
-
-    // Conversations: the one on show and the earlier ones. None of these touch the review record (sign-offs, stamps,
-    // drafts, requests and the per-item audit trails stay as they are), and none can run while a turn is running.
-    conversations() {
-      return store.listChats(modelDir);
-    },
-    newConversation() {
-      if (active) throw new Error('Wait for the agent to finish, or stop it, before starting a new conversation.');
-      store.archiveChat(modelDir);
-      return store.listChats(modelDir);
-    },
-    openConversation(id) {
-      if (active) throw new Error('Wait for the agent to finish, or stop it, before opening another conversation.');
-      store.restoreChat(modelDir, String(id));
-      return store.listChats(modelDir);
-    },
-    deleteConversation(id) {
-      if (active) throw new Error('Wait for the agent to finish, or stop it, before deleting a conversation.');
-      store.deleteChat(modelDir, String(id));
-      return store.listChats(modelDir);
-    },
+    cliSystemPrompt() { return systemPrompt({ modelDir }); },
 
     drafts() {
       return store.listDrafts(modelDir);
     },
 
     requests() {
-      return store.listRequests(modelDir).map(r => ({ ...publicRequest(r), scope: r.scope, at: r.at,
+      // `text` is the sentence the card opens with, so the window can draw a waiting card again after a reload
+      return store.listRequests(modelDir).map(r => ({ ...publicRequest(r), scope: r.scope, at: r.at, text: r.kind === 'push' ? pushSentence(r) : signoff.requestSentence(r),
         ...(r.reviewer ? { reviewer: r.reviewer } : {}), ...(r.reason ? { reason: r.reason } : {}) }));
     },
 
@@ -615,7 +577,7 @@ function createAgentService(options) {
           emitEvent(scope, { type: 'action', text: `Built ${name}: ${edits.caseResultsSentence(entry)}.` });
           continue;
         }
-        const why = r.asked ? 'it needs an answer to a question' : r.aborted ? 'it was stopped' : r.error ? r.error.replace(/\.$/, '') : 'it was not written';
+        const why = r.aborted ? 'it was stopped' : r.error ? r.error.replace(/\.$/, '') : 'it was not written';
         emitEvent(scope, { type: 'action', text: `Stopped at ${name}: ${why}.` });
         return { built, stoppedAt: name, reason: why };
       }
@@ -625,7 +587,7 @@ function createAgentService(options) {
     // The tools exactly as the model gets them, for a selection (tests call handlers directly; no model).
     handlersFor(scopeIn, { batchModule = null } = {}) {
       const scope = store.checkScope(scopeIn);
-      return createHandlers(svc, { scope, batchModule, asked: false, approved: new Set(), writes: [], drafts: [] });
+      return createHandlers(svc, { scope, batchModule, approved: new Set(), writes: [], drafts: [] });
     },
 
     status() {

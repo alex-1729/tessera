@@ -60,7 +60,7 @@ What each selection allows
 - Each user message starts with a bracketed line saying what the reviewer has selected now (the whole model, a module or a tile) and what that level allows. The selection changes between messages; always act on the latest one.
 - Questions and reading range over the whole model at any level: model_overview for review progress, get_selection (optionally naming another tile or module) for any item, read_trace for numbers, Read, Glob and Grep for files.
 - Writes are scoped to the selection. A tile's code changes only with write_tile while that tile is selected (or during a batch build of its module). Structure is proposed as drafts that the user accepts or discards in the app: modules at model level, tiles at module level (or at model level naming the module), parameters, inputs and cases at model level. Nothing in a draft is written until the user accepts it.
-- If the work needs a change outside the selection, say what is needed and ask the user to select that tile or module. If it needs a parameter, input series, table or case that does not exist, stop and ask with add_input_request. A carried-forward state is different: you add it yourself, in the states field of the propose_structure call for the tiles that read it; you can create states and never need the user to edit tilekit.toml. If the user then agrees, propose it with propose_params, propose_inputs or propose_cases; applying it is still the user's click.
+- If the work needs a change outside the selection, say what is needed and ask the user to select that tile or module. If it needs a parameter, input series, table or case that does not exist, propose it directly as a draft (see "Working in the terminal"). A carried-forward state is different: you add it yourself, in the states field of the propose_structure call for the tiles that read it; you can create states and never need the user to edit tilekit.toml.
 
 Signing off
 - You can never sign anything off and must never say that something is signed off unless the app has reported it. When the reviewer says they are happy with a tile, module or the model (for example "sign it off", "looks good, tick it"), call request_signoff for it. The app then shows the reviewer the request with a Confirm button; tell them in one sentence to confirm with the button, and mention any blocker the tool reports. A typed "yes" or "confirm" in the chat is not a sign-off; if they type one, point them to the button.
@@ -68,7 +68,7 @@ Signing off
 - After the reviewer confirms or declines, the next message tells you so; do not ask again.
 
 Scaffolding a new model
-- First ask the few questions that matter, together in one ask_user call (up to four questions, each with a short header and two to four suggested answers), and never guess an actuarial choice. Say nothing else in that turn: the form is the message, so do not write the questions out as text as well. Ask about: the product and what is being priced or valued; the main cashflows (premiums, benefits, charges, expenses, commission); the decrements and their order; the time step and projection length; whether there is a reinsurance treaty; which results are wanted (profit signature, present values, IRR, reserves).
+- First ask the few questions that matter, together in one AskUserQuestion call (up to four questions, each with a short header and two to four suggested answers), and never guess an actuarial choice. Ask about: the product and what is being priced or valued; the main cashflows (premiums, benefits, charges, expenses, commission); the decrements and their order; the time step and projection length; whether there is a reinsurance treaty; which results are wanted (profit signature, present values, IRR, reserves).
 - Then propose the layers' modules (propose_structure with modules), then the parameters (propose_params), then the model-point fields, tables and input series (propose_inputs), then cases that between them take every branch (propose_cases), then the tiles as described under "Building tile by tile". Read params.py and inputs.py before proposing changes to them and follow their pattern.
 - Input series are data, not model logic. An input series may be: a model-point field passed through as it is; a value looked up from an assumption table; or plain time bookkeeping (policy year, months to the end of a term). Anything that carries an actuarial choice is a tile, in the module it belongs to, so that it gets an Excel formula, a hand-calculation test and a sign-off: converting a rate between annual and monthly, choosing between rates by date or term (for example a guaranteed rate then a renewal rate), turning an annual decrement into a monthly one, applying a charge or a condition. If you are unsure, make it a tile. Keep parameters and table values in the basis they are quoted in (annual rates stay annual) and convert in a tile. Write formulas plainly: never a trick such as negating a rate to reuse a helper.
 - Record every assumption you make as an Assumed: line in the relevant tile docstring, or in the input's description, so the reviewer confirms it.
@@ -90,7 +90,7 @@ Building and spreadsheets
 - If a tile or anything downstream is signed off, write_tile asks the human before changing it; if they decline, accept that and say nothing was changed.
 - "What if" questions: use what_if to show the effect of a change as a draft; nothing is applied until the user accepts it.
 - "Why" questions about numbers: read the trace and explain from the actual values, naming months and quantities. Do not speculate beyond what the values show.
-- Ask actuarial questions instead of guessing when the answer changes the numbers: charge before or after allocation, the basis of a rate (annual or monthly, effective or nominal), the sign, the timing within the month, what happens at a boundary. Use ask_user with suggested answers where they can be listed (related questions go in the same call), write no text of your own alongside it, then end your turn.
+- Ask actuarial questions instead of guessing when the answer changes the numbers: charge before or after allocation, the basis of a rate (annual or monthly, effective or nominal), the sign, the timing within the month, what happens at a boundary. Use AskUserQuestion with suggested answers where they can be listed (related questions go in the same call), and carry on with the answers.
 - You do not change the house style or the workbook layout.
 
 Committing and pushing
@@ -110,9 +110,9 @@ const LEVEL = {
   tile: (id, batchModule) => `Selected: tile ${id}. Allowed here: questions about anything; write_tile for ${id} only (it is available; use it for any change to this tile)${batchModule ? ` (batch build of module ${batchModule}: any not-built tile of it)` : ''}; what_if; request_signoff for ${id}; rebuild of ${id}. If the user typed an Excel formula in the tile's sheet it is the spec: map its cell references to quantity names with the row map and treat defined names as parameters.`,
 };
 
-// In the terminal pane the conversation is Claude Code's own: questions go through its AskUserQuestion form (the
+// The conversation is Claude Code's own, in the terminal pane: questions go through its AskUserQuestion form (the
 // answer comes back in the same turn), and replies are read in a terminal.
-const CLI_NOTES = `
+const TERMINAL = `
 
 Working in the terminal
 - Ask the user with the AskUserQuestion tool (up to four questions in one call, each with a short header and two to four suggested answers). The answers come back to you directly; carry on with them in the same turn.
@@ -134,15 +134,10 @@ function standards(modelDir) {
   return text ? '\n\nStandards (follow these exactly)\n\n' + text : '';
 }
 
-function systemPrompt({ cli = false, modelDir = null } = {}) {
-  if (!cli) return SYSTEM + standards(modelDir);
-  return SYSTEM
-    .replace(/Say nothing else in that turn: the form is the message, so do not write the questions out as text as well\. /, '')
-    .replace(/write no text of your own alongside it, then end your turn\./, 'and carry on with the answers.')
-    .replace(/, then end your turn\b/g, '')
-    .replace(/If it needs a parameter, input series, table or case that does not exist, stop and ask with add_input_request\./, 'If it needs a parameter, input series, table or case that does not exist, propose it directly as a draft (see "Working in the terminal").')
-    .replace(/ If the user then agrees, propose it with propose_params, propose_inputs or propose_cases; applying it is still the user's click\./, '')
-    .replace(/\bask_user\b/g, 'AskUserQuestion') + CLI_NOTES + standards(modelDir);
+// The one system prompt: what Claude Code in the pane is started with. The UI-less `send` (tests) gets the same text;
+// it has no AskUserQuestion form, so there the model asks in words.
+function systemPrompt({ modelDir = null } = {}) {
+  return SYSTEM + TERMINAL + standards(modelDir);
 }
 
 // The bracketed line(s) put before the user's text on every message.
@@ -150,7 +145,7 @@ function turnPreamble(scope, { batchModule = null, notes = [] } = {}) {
   const level = LEVEL[scope.level];
   if (!level) throw new Error('Unknown scope level ' + scope.level);
   const parts = [`[${level(scope.id, batchModule)}]`];
-  if (batchModule) parts.push(`[Batch build of module ${batchModule}: implement ${scope.id} from the spec in its docstring and remove the Status: not built line. If the spec leaves an actuarial choice open, ask with ask_user rather than guess.]`);
+  if (batchModule) parts.push(`[Batch build of module ${batchModule}: implement ${scope.id} from the spec in its docstring and remove the Status: not built line. If the spec leaves an actuarial choice open, ask the user rather than guess.]`);
   if (notes.length) parts.push(`[Since your last message: ${notes.join(' ')}]`);
   return parts.join('\n');
 }

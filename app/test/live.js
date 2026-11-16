@@ -13,6 +13,8 @@ fs.mkdirSync(OUT, { recursive: true });
 const REAL_MODEL = path.resolve(__dirname, '../../model');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'tilekit-live-'));
 const copy = path.join(tmp, 'model');
+// The right-hand pane runs Claude Code whenever a model is open: here a stand-in that calls no model (test/fake-claude.js).
+const pane = require('./stand-in')(tmp);
 
 const summary = { checks: [], shots: [], errors: [] };
 let ctl = null, finished = false;
@@ -253,8 +255,8 @@ function listFiles(dir) {   // path -> mtime, for "nothing was written here"
   await seg('code');
   check('Code on the model: tilekit.toml', await ev(`document.getElementById('srcpath').innerText.includes('tilekit.toml') && document.querySelector('#codewrap .src').dataset.code.includes('[model]')`), await inner('codewrap'));
   await seg('spreadsheet');
-  // the real agent has no whole-conversation history yet or does: either way the chat loads without an error line
-  check('chat: the real agent service is behind the right bar and the input is pinned', await ev(`!document.getElementById('agentlog').hidden && !!document.querySelector('#rightbar #agentlog-input') && !document.getElementById('agentlog-log').innerText.includes('Invalid scope')`));
+  check('the real agent service is behind the right bar: Claude Code runs in the pane (a stand-in here), started in the model folder, with no card waiting', await ev(`!document.getElementById('agentlog').hidden && !!window.api.agent && !!window.api.term && !!document.querySelector('#rightbar #agentlog #termhost') && !document.getElementById('termnone') && !document.getElementById('agentlog-input') && !document.querySelector('#agentlog-log .alog-line')`)
+    && await waitFor(`/fake claude: ready/.test(document.getElementById('termhost').innerText)`, 30000) && fs.realpathSync(pane.records().find(r => r.start).cwd) === fs.realpathSync(copy), JSON.stringify(pane.records().filter(r => r.start).map(r => r.cwd)));
   await go('#/tile/units_amc');
 
   // sign off
@@ -507,7 +509,7 @@ function listFiles(dir) {   // path -> mtime, for "nothing was written here"
   check('Open model: the window reloads at the model view with the model on show', reopened, await ev('location.href'));
   await idle();
   check('Open model: the folder is remembered as the last model', JSON.parse(fs.readFileSync(settingsFile, 'utf8')).lastModel === copy);
-  check('Open model: the new model is on screen, chat and bars intact', await ev(`document.getElementById('title').textContent.includes('Unit-linked') && !!document.querySelector('#rightbar #agentlog-input') && !!document.querySelector('#left #lpin #signoff')`));
+  check('Open model: the new model is on screen, the pane and bars intact', await ev(`document.getElementById('title').textContent.includes('Unit-linked') && !!document.querySelector('#rightbar #agentlog #termhost') && !!document.querySelector('#left #lpin #signoff')`));
   check('Open model: the model is in the list of models (opening registers it)', !!ctl.models.byDir(copy) && JSON.parse(fs.readFileSync(settingsFile, 'utf8')).models.some(m => m.dir === copy));
   check('the old New model path (folder and name only) is gone from the window API', await ev(`typeof window.api.newModel === 'undefined' && typeof window.api.launch.newModel === 'function'`));
 

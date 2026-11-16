@@ -23,6 +23,8 @@ process.env.GIT_CONFIG_GLOBAL = '/dev/null'; process.env.GIT_CONFIG_NOSYSTEM = '
 Object.assign(process.env, { GIT_AUTHOR_NAME: 'Test', GIT_AUTHOR_EMAIL: 't@example.com', GIT_COMMITTER_NAME: 'Test', GIT_COMMITTER_EMAIL: 't@example.com' });
 const git = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
 const uv = require('../src/tilekit').findUv();
+// The right-hand pane runs Claude Code whenever a model is open: here a stand-in that calls no model (test/fake-claude.js).
+const pane = require('./stand-in')(tmp);
 
 // ---- the GitHub command-line tool for the tests: test/fake-gh.js behind a wrapper script, never the real `gh`
 const ghDir = path.join(tmp, 'fake-gh');
@@ -97,7 +99,13 @@ function copyExample(dst) {
   const cancel = async () => { await ev(`document.getElementById('cancel') && document.getElementById('cancel').click()`); await waitFor(`!document.getElementById('dialog')`, 5000); };
   const clickBtn = (name, act) => ev(`[...document.querySelectorAll('.mtile[data-id]')].find(t => t.querySelector('.mname').textContent===${JSON.stringify(name)}).closest('.mcell').querySelector('button[data-act=${act}]').click()`);
   const settingsOnDisk = () => JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
-  const chatLines = () => ev(`[...document.querySelectorAll('#agentlog-log .alog-line:not(.alog-working)')].map(l => l.querySelector('.alog-txt').innerText)`);
+  // the cards above the terminal, and what is on the terminal's screen (spaces and line breaks taken out: a long line wraps)
+  const cards = () => ev(`[...document.querySelectorAll('#agentlog-log .alog-line')].map(l => l.innerText.replace(/\\s+/g, ' ').slice(0, 160))`);
+  const paneReady = () => waitFor(`/fake claude: ready/.test(document.getElementById('termhost').innerText)`, 30000);
+  const paneText = () => ev(`document.getElementById('termhost').innerText.replace(/\\s+/g, '')`);
+  const SCAFFOLD = 'Scaffold this model with me. Ask me what you need to know.';
+  const paneStarts = () => pane.records().filter(r => r.start);
+  const sameDir = (a, b) => { try { return fs.realpathSync(a) === fs.realpathSync(b); } catch { return false; } };
 
   // The example model's status cache may already exist (the real app writes it once the model has been opened).
   // What matters is that the launch page neither creates nor changes it.
@@ -171,7 +179,8 @@ function copyExample(dst) {
   check('New model (empty repository): created in a new subfolder named from the model name, with tilekit.toml and .gitignore', fs.existsSync(path.join(B, 'tilekit.toml')) && /real-data\//.test(fs.readFileSync(path.join(B, '.gitignore'), 'utf8')));
   check('New model (empty repository): git init on main, origin is the link, one local commit "Start Empty one"', git(B, 'branch', '--show-current') === 'main' && git(B, 'remote', 'get-url', 'origin') === remoteEmpty && git(B, 'log', '--format=%s') === 'Start Empty one');
   check('New model (empty repository): nothing was pushed', remoteLog(remoteEmpty).length === 0);
-  check('New model (empty repository): the chat input holds the scaffolding request, the conversation is empty', await ev(`document.getElementById('agentlog-input').value`) === 'Scaffold this model with me. Ask me what you need to know.' && (await chatLines()).length === 0);
+  check('New model (empty repository): Claude Code starts in the new model\'s folder', await paneReady() && sameDir(paneStarts().pop().cwd, B), JSON.stringify(paneStarts().map(r => r.cwd)));
+  check('New model (empty repository): the scaffolding request is typed at Claude Code\'s prompt and not sent, and no card is waiting', await waitFor(`document.getElementById('termhost').innerText.replace(/\\s+/g, '').includes(${JSON.stringify(SCAFFOLD.replace(/\s+/g, ''))})`, 20000) && !pane.records().some(r => r.command) && (await cards()).length === 0, (await paneText()).slice(0, 300));
   check('New model (empty repository): registered in the list with its GitHub link', settingsOnDisk().models.some(m => m.dir === B && m.github === remoteEmpty && m.name === 'Empty one'));
   check('the header shows the model name as a link back to the launch page', await ev(`document.getElementById('modelname').textContent==='Empty one' && document.getElementById('modelname').getAttribute('href')==='#/launch'`));
 
@@ -216,7 +225,8 @@ function copyExample(dst) {
   check('New model (non-empty repository with tilekit.toml): cloned, registered and opened', opened && await onModel('Seeded model'), await dialogText().catch(() => ''));
   const C = path.join(parent2, 'seeded-model');
   check('New model (non-empty repository): the clone is in the subfolder and has the remote as origin', fs.existsSync(path.join(C, '.git')) && git(C, 'remote', 'get-url', 'origin') === remoteFull);
-  check('New model (non-empty repository): the chat is not prefilled (no scaffolding)', await ev(`document.getElementById('agentlog-input').value`) === '');
+  await paneReady(); await sleep(3000);   // a prefill is typed 1.5 s after Claude Code first prints
+  check('New model (non-empty repository): nothing is typed at Claude Code\'s prompt (no scaffolding)', sameDir(paneStarts().pop().cwd, C) && !(await paneText()).includes(SCAFFOLD.replace(/\s+/g, '')) && !pane.records().some(r => r.command), (await paneText()).slice(0, 300));
 
   // ------------------------------------------------------------ 5. switching re-points everything, including the conversation
   await ev(`location.hash='#/launch'`); await onLaunch();
@@ -224,43 +234,40 @@ function copyExample(dst) {
   await shot('launch-three-models');
   await ev(`document.querySelector('.mtile[data-id="${(await tileOf('Unit-linked pricing')).id}"]').click()`);
   check('clicking a tile opens that model (model A)', await onModel('Unit-linked pricing') && ctl.cfg.modelDir === A);
-  await ctl.agent.handlersFor({ level: 'model', id: 'model' }).ask_user({ question: 'Question in model A?' });
-  check('model A: its conversation shows its own question', await waitFor(`document.getElementById('agentlog-log').innerText.includes('Question in model A?')`, 8000));
-  check('model A: the tooling points at A (status has 26 tiles) and the watcher/agent are A\'s', (await ctl.run('status')).counts.tiles.total === 26 && fs.existsSync(path.join(A, 'review/model/chat.jsonl')));
+  const cardOf = name => `document.querySelector('#agentlog-log .alog-card[data-kind="tile"][data-name="${name}"] button[data-act=decline]')`;
+  const rqA = await ctl.agent.handlersFor({ level: 'model', id: 'model' }).request_signoff({ kind: 'tile', name: 'units_amc' });
+  check('model A: a sign-off request made there shows its card above the terminal', !rqA.isError && await waitFor(`!!${cardOf('units_amc')}`, 15000), JSON.stringify([rqA, await cards()]).slice(0, 400));
+  check('model A: the tooling points at A (status has 26 tiles), the request and the audit trail are A\'s, and Claude Code runs in A', (await ctl.run('status')).counts.tiles.total === 26 && fs.readdirSync(path.join(A, 'review/requests')).length === 1
+    && fs.existsSync(path.join(A, 'review/model/log.jsonl')) && await paneReady() && sameDir(paneStarts().pop().cwd, A), JSON.stringify(paneStarts().map(r => r.cwd)));
   await ev(`location.hash='#/launch'`); await onLaunch();
   await ev(`document.querySelector('.mtile[data-id="${(await tileOf('Seeded model')).id}"]').click()`);
   check('switch to the seeded model: the window reloads on it', await onModel('Seeded model') && ctl.cfg.modelDir === C);
-  check('switch: the chat shows no conversation of model A', !(await chatLines()).some(l => /Question in model A/.test(l)), JSON.stringify(await chatLines()));
+  check('switch: Claude Code is started again in the seeded model\'s folder, and model A\'s card is not shown', await paneReady() && sameDir(paneStarts().pop().cwd, C) && (await cards()).length === 0, JSON.stringify([paneStarts().map(r => r.cwd), await cards()]));
   check('switch: the tooling runner now points at the seeded model', (await ctl.run('graph')).model.name === 'Seeded model');
-  await ctl.agent.handlersFor({ level: 'model', id: 'model' }).ask_user({ question: 'Question in the seeded model?' });
+  await ctl.agent.handlersFor({ level: 'model', id: 'model' }).model_overview();     // writes a line in the seeded model's audit trail
   await ev(`location.hash='#/launch'`); await onLaunch();
   await ev(`document.querySelector('.mtile[data-id="${(await tileOf('Unit-linked pricing')).id}"]').click()`);
   await onModel('Unit-linked pricing');
-  await waitFor(`document.getElementById('agentlog-log').innerText.includes('Question in model A?')`, 8000);
-  const lA = await chatLines();
-  check('back on A: only A\'s conversation is shown', lA.some(l => /Question in model A/.test(l)) && !lA.some(l => /seeded model/.test(l)), JSON.stringify(lA));
-  check('the seeded model\'s conversation is in its own folder and stays out of git', fs.existsSync(path.join(C, 'review/model/chat.jsonl')) && git(C, 'status', '--porcelain').split('\n').every(l => !/chat\.jsonl|log\.jsonl/.test(l)));
+  check('back on A: its waiting card is shown again (read from A\'s request files), and Claude Code runs in A', await waitFor(`!!${cardOf('units_amc')}`, 15000) && (await cards()).length === 1 && await paneReady() && sameDir(paneStarts().pop().cwd, A), JSON.stringify(await cards()));
+  check('the seeded model\'s audit trail is in its own folder and stays out of git, and A\'s requests are not in it', fs.existsSync(path.join(C, 'review/model/log.jsonl')) && !fs.existsSync(path.join(C, 'review/requests')) && git(C, 'status', '--porcelain').split('\n').every(l => !/chat\.jsonl|log\.jsonl/.test(l)));
+  await ev(`${cardOf('units_amc')}.click()`);
+  check('declining the card on A settles it and it goes a few seconds later', await waitFor(`document.querySelectorAll('#agentlog-log .alog-line').length===0`, 12000) && !fs.existsSync(path.join(A, 'review/tiles/units_amc/signoff.json')), JSON.stringify(await cards()));
 
-  // ------------------------------------------------------------ conversations (the real service, on model A's files)
+  // ------------------------------------------------------------ transcripts of the old built-in chat in an older model
   {
+    // The app used to keep its own chat in review/model/chat.jsonl and review/model/chats/. It no longer reads or
+    // writes them, and it never deletes them: an older model keeps its files exactly as they were.
     const chatFile = path.join(A, 'review/model/chat.jsonl'), chatsDir = path.join(A, 'review/model/chats');
-    const first = fs.readFileSync(chatFile, 'utf8');
-    const l1 = ctl.agent.conversations();
-    check('conversations: the one on show is listed with its first line and message count', l1.length === 1 && l1[0].current && l1[0].title === 'Question in model A?' && l1[0].messages === 1, JSON.stringify(l1));
-    const l2 = ctl.agent.newConversation();
-    const kept = fs.existsSync(chatsDir) ? fs.readdirSync(chatsDir).filter(n => n.endsWith('.jsonl')) : [];
-    check('conversations: a new one moves the old file aside unchanged, and the folder ignores itself in git', !fs.existsSync(chatFile) && kept.length === 1 && fs.readFileSync(path.join(chatsDir, kept[0]), 'utf8') === first
-      && l2.length === 1 && !l2[0].current && fs.readFileSync(path.join(chatsDir, '.gitignore'), 'utf8') === '*\n' && !/chats/.test(git(A, 'status', '--porcelain')), JSON.stringify(l2));
-    check('conversations: a new one with nothing said makes no second copy', ctl.agent.newConversation().length === 1);
-    await ctl.agent.handlersFor({ level: 'model', id: 'model' }).ask_user({ question: 'Second conversation?' });
-    const oldId = l2[0].id;
-    const l3 = ctl.agent.openConversation(oldId);
-    check('conversations: opening the earlier one swaps the two', fs.readFileSync(chatFile, 'utf8') === first && l3.length === 2 && l3[0].current && l3[0].title === 'Question in model A?' && l3[1].title === 'Second conversation?', JSON.stringify(l3));
-    const l4 = ctl.agent.deleteConversation(l3[1].id);
-    check('conversations: deleting an earlier one removes only its file', l4.length === 1 && l4[0].current && fs.readFileSync(chatFile, 'utf8') === first && fs.readdirSync(chatsDir).filter(n => n.endsWith('.jsonl')).length === 0);
-    let refused = ''; try { ctl.agent.deleteConversation('../chat'); } catch (e) { refused = e.message; }
-    check('conversations: an id that is not a conversation is refused', /Unknown conversation/.test(refused), refused);
-    check('conversations: the audit trail of the model is untouched', fs.readFileSync(path.join(A, 'review/model/log.jsonl'), 'utf8').includes('Question in model A?'));
+    const oldLine = JSON.stringify({ scope: { level: 'model', id: 'model' }, type: 'signoff_request', text: 'An old request.', request: { id: 'r20250101000000-abcdef', kind: 'tile', name: 'units_eop' }, at: '2025-01-01T00:00:00Z' }) + '\n';
+    fs.mkdirSync(chatsDir, { recursive: true });
+    fs.writeFileSync(chatFile, oldLine); fs.writeFileSync(path.join(chatsDir, 'c20250101000000-abcdef.jsonl'), oldLine);
+    await ctl.agent.handlersFor({ level: 'model', id: 'model' }).model_overview();
+    await ev('window.__old = true'); win.webContents.reload(); await sleep(500);
+    await waitFor('!window.__old && window.__app && window.__app.ready', 60000); await idle();
+    check('an older model\'s chat.jsonl and chats/ are not read: nothing from them is shown', (await cards()).length === 0 && !(await ev(`document.getElementById('rightbar').innerText`)).includes('An old request.'), JSON.stringify(await cards()));
+    check('an older model\'s chat.jsonl and chats/ are not written or deleted', fs.readFileSync(chatFile, 'utf8') === oldLine && fs.readdirSync(chatsDir).join() === 'c20250101000000-abcdef.jsonl' && fs.readFileSync(path.join(chatsDir, 'c20250101000000-abcdef.jsonl'), 'utf8') === oldLine);
+    check('the audit trail of the model is still written (review/model/log.jsonl)', fs.readFileSync(path.join(A, 'review/model/log.jsonl'), 'utf8').includes('Read the review status of the whole model.'));
+    fs.rmSync(chatFile); fs.rmSync(chatsDir, { recursive: true });
   }
 
   // ------------------------------------------------------------ 6. real-data folder per model
@@ -353,13 +360,13 @@ function copyExample(dst) {
   const unp = await waitTile('Unit-linked pricing', t => /not pushed/.test(t.git), 30000);
   check('the tile says "1 commit not pushed"', unp && unp.git === 'main: 1 commit not pushed', unp && unp.git);
 
-  // ------------------------------------------------------------ 8. the push card from the chat (the real service, no model call)
+  // ------------------------------------------------------------ 8. the push card above the terminal (the real service, no model call)
   await ev(`document.querySelector('.mtile[data-id="${(await tileOf('Unit-linked pricing')).id}"]').click()`);
   await onModel('Unit-linked pricing');
   const modelScope = { level: 'model', id: 'model' };
   const hh = ctl.agent.handlersFor(modelScope);
   const rp = await hh.request_push();
-  check('request_push: the push card appears in the chat with the commit that would go, Push and Not now', !rp.isError && await waitFor(`!!document.querySelector('#agentlog-log .pushcard button[data-act=push]') && !!document.querySelector('#agentlog-log .pushcard button[data-act=decline-push]') && document.querySelector('#agentlog-log .pushcard').innerText.includes('More notes')`, 10000), JSON.stringify(rp));
+  check('request_push: the push card appears above the terminal with the commit that would go, Push and Not now', !rp.isError && await waitFor(`!!document.querySelector('#agentlog-log .pushcard button[data-act=push]') && !!document.querySelector('#agentlog-log .pushcard button[data-act=decline-push]') && document.querySelector('#agentlog-log .pushcard').innerText.includes('More notes')`, 10000), JSON.stringify(rp));
   check('request_push: nothing is pushed by asking', !remoteLog(remoteA).includes('More notes'));
   await shot('launch-push-card');
   await ev(`document.querySelector('#agentlog-log .pushcard button[data-act=push]').click()`);
@@ -369,9 +376,11 @@ function copyExample(dst) {
   const cm = await hh.commit({ message: 'Third notes line' });
   check('the chat commit tool commits locally and says nothing was pushed', !cm.isError && /Committed 1 file/.test(cm.text) && /Nothing was pushed/.test(cm.text) && !remoteLog(remoteA).includes('Third notes line'), cm.text);
   await hh.request_push();
-  await waitFor(`document.querySelectorAll('#agentlog-log .pushcard').length===2`, 8000);
-  await ev(`document.querySelectorAll('#agentlog-log .pushcard')[1].querySelector('button[data-act=decline-push]').click()`);
-  check('Not now: nothing is pushed and the card says Not pushed', await waitFor(`/Not pushed/.test(document.querySelectorAll('#agentlog-log .pushcard')[1].innerText)`, 8000) && !remoteLog(remoteA).includes('Third notes line'));
+  // (the first card, settled, goes a few seconds after the push; the new one is the card with its buttons)
+  await waitFor(`!!document.querySelector('#agentlog-log .pushcard button[data-act=decline-push]')`, 8000);
+  await ev(`(()=>{const b=document.querySelector('#agentlog-log .pushcard button[data-act=decline-push]'); window.__declined=b.closest('.pushcard'); b.click()})()`);
+  check('Not now: nothing is pushed and the card says Not pushed', await waitFor(`/Not pushed/.test(window.__declined.innerText) && !window.__declined.querySelector('button')`, 3000) && !remoteLog(remoteA).includes('Third notes line'));
+  check('settled push cards go a few seconds later', await waitFor(`!document.querySelector('#agentlog-log .alog-line')`, 12000), JSON.stringify(await cards()));
   check('File > Commit and push… is enabled for the open model', require('electron').Menu.getApplicationMenu().getMenuItemById('commitPush').enabled === true);
   ctl.win.webContents.send('menu', 'commit');
   check('File > Commit and push… opens the dialog for the open model (the unpushed commit can be pushed)', await waitFor(`!!document.getElementById('nochanges') && document.getElementById('confirm').textContent==='Push'`, 8000), await dialogText());
@@ -448,7 +457,7 @@ function copyExample(dst) {
   const newBare = ghRepo('ada-test/term-assurance-2026');
   check('create (private): the model exists locally on main with one commit "Start Term assurance 2026" and origin is the new repository', fs.existsSync(path.join(createdDir, 'tilekit.toml')) && git(createdDir, 'branch', '--show-current') === 'main' && git(createdDir, 'remote', 'get-url', 'origin') === newBare && git(createdDir, 'log', '--format=%s') === 'Start Term assurance 2026');
   check('create (private): nothing was pushed (the new repository has no commits)', fs.existsSync(path.join(newBare, 'HEAD')) && remoteLog(newBare).length === 0 && git(newBare, 'for-each-ref') === '');
-  check('create (private): the chat input holds the scaffolding request', await ev(`document.getElementById('agentlog-input').value`) === 'Scaffold this model with me. Ask me what you need to know.');
+  check('create (private): the scaffolding request is typed at Claude Code\'s prompt and not sent', await paneReady() && sameDir(paneStarts().pop().cwd, createdDir) && await waitFor(`document.getElementById('termhost').innerText.replace(/\\s+/g, '').includes(${JSON.stringify(SCAFFOLD.replace(/\s+/g, ''))})`, 20000) && !pane.records().some(r => r.command), (await paneText()).slice(0, 300));
   check('create (private): registered in the list with the new repository as its link', settingsOnDisk().models.some(m => m.dir === createdDir && m.github === newBare && m.name === 'Term assurance 2026'));
 
   // public, owned by an organisation

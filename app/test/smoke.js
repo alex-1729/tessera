@@ -78,7 +78,7 @@ const check = (name, ok, detail) => { summary.checks.push({ name, ok: !!ok, ...(
   const sheets = () => gc('async g => (await g.docInspect()).sheets.map(s => s.name)');
 
 
-  // ---------------------------------------------------------------- the bars, the centre switch and the chat
+  // ---------------------------------------------------------------- the bars, the centre switch and the right-hand pane
   const rect = id => ev(`(()=>{const r=document.getElementById(${JSON.stringify(id)}).getBoundingClientRect(); return {x:r.x,y:r.y,w:r.width,h:r.height,r:r.right,b:r.bottom}})()`);
   const gridW = () => ev(`document.querySelector('#gridhost iframe').getBoundingClientRect().width`);
   const menuItem = id => require('electron').Menu.getApplicationMenu().getMenuItemById(id);
@@ -210,15 +210,7 @@ const check = (name, ok, detail) => { summary.checks.push({ name, ok: !!ok, ...(
     check('the pinned signature block did not move across the refresh', Math.abs(await ev(`document.getElementById('signoff').getBoundingClientRect().top`) - pin.so[0]) <= 1);
     await ev(`document.getElementById('panel').scrollTop=0`); await sleep(100);
     check('the signature block does not move when the left content scrolls', Math.abs(await ev(`document.getElementById('signoff').getBoundingClientRect().top`) - pin.so[0]) <= 1);
-    // chat: the input stays at the very bottom of the right bar and the log scrolls on its own
-    if (await ev('!!window.api.agent')) {
-      for (let i = 0; i < 14; i++) ctl.agent.inject({ type: 'agent', scope: { level: 'tile', id: tileName }, text: 'Filler line ' + i + ' to make the log long enough to scroll in a short window.' });
-      await sleep(400);
-      const cs = await ev(`(()=>{const l=document.getElementById('agentlog-log'); l.scrollTop=0; const i=document.getElementById('agentlog-input').getBoundingClientRect(), bar=document.getElementById('rightbar').getBoundingClientRect(); return {scrolls:l.scrollHeight>l.clientHeight, inputBottom:i.bottom, barBottom:bar.bottom, inputTop:i.top, logBottom:l.getBoundingClientRect().bottom, h:innerHeight}})()`);
-      check('chat: the log scrolls on its own while the input stays pinned at the bottom of the bar', cs.scrolls && cs.inputBottom <= cs.barBottom + 1 && cs.inputBottom >= cs.barBottom - 40 && cs.logBottom <= cs.inputTop + 1 && cs.inputBottom <= cs.h, JSON.stringify(cs));
-      await shot('layout-short-window' + SFX);
-      ctl.agent.log.length = 0; await ev('window.__app.render()');
-    } else await shot('layout-short-window' + SFX);
+    await shot('layout-short-window' + SFX);
     await ev(`document.querySelector('button.sectog[data-sec="feeds"]').click()`);
     win.setSize(1500, 950); await sleep(600);
 
@@ -370,16 +362,10 @@ const check = (name, ok, detail) => { summary.checks.push({ name, ok: !!ok, ...(
     await shot('module-test');
     const mtFile = path.join(fixturesCopy, 'tests/modules', `test_${M}.py`), mtText = fs.readFileSync(mtFile, 'utf8');
     fs.rmSync(mtFile); await ev(`window.__app.render()`); await settle();
-    check('module Test: with no file, a plain "No module test yet" panel and a button that asks the agent', await ev(`(()=>{const p=document.getElementById('nomoduletest'); return !!p && p.innerText.includes('No module test yet') && !!document.getElementById('askmoduletest')})()`),
+    // (the button that asks the agent types into Claude Code: test/terminal.js covers it, where Claude Code runs)
+    check('module Test: with no file, a plain "No module test yet" panel; with no Claude Code to type into there is no button', await ev(`(()=>{const p=document.getElementById('nomoduletest'); return !!p && p.innerText.includes('No module test yet') && !document.getElementById('askmoduletest')})()`),
       await ev(`document.getElementById('codewrap').innerText.slice(0,300)`));
     await shot('module-test-none');
-    if (ctl.agent) {
-      const stub = ctl.agent, before = stub.calls.send.length;
-      await ev(`document.getElementById('askmoduletest').click()`);
-      await waitFor(`window.__app && !document.querySelector('#agentlog-log .alog-working')`, 3000); await sleep(400); await settle();
-      const sent = stub.calls.send[before] || {};
-      check('module Test: the button asks the agent, with the module selected, to propose the module test', sent.scope && sent.scope.level === 'module' && sent.scope.id === M && /propose_module_test/.test(sent.text || ''), JSON.stringify(sent));
-    }
     fs.writeFileSync(mtFile, mtText);
     await ev(`window.__app.setCentre(${JSON.stringify('spreadsheet')})`); await settle();
 
@@ -412,34 +398,32 @@ const check = (name, ok, detail) => { summary.checks.push({ name, ok: !!ok, ...(
     await ev(`window.__app.setCentre(${JSON.stringify(centreWas)})`); await settle();
   }
 
-  // The rest of the chat contract: reconfirm cards, request outcomes after a reload, refusals, draft kinds, questions with
-  // a request, interrupt, and File > New model. Driven by the stub (the real backend is covered by live-agent.js).
-  async function chatMore(tileName) {
+  // More of the cards above the terminal: reconfirm cards, what shows after a reload, refusals, and drafts that belong
+  // in the centre. Driven by the stub's test hook (inject); the real backend is covered by terminal.js and live-agent.js.
+  async function cardsMore(tileName) {
     const stub = ctl.agent;
     const scope = { level: 'tile', id: tileName };
     const cardText = id => ev(`(()=>{const c=document.querySelector('.alog-card[data-request="${id}"]'); return c ? c.innerText : null})()`);
     const hasBtn = id => ev(`!!document.querySelector('.alog-card[data-request="${id}"] button[data-act]')`);
     await go('#/tile/' + tileName); await settle();
-    check('chat: window.api.agent has requests(), interrupt() without a scope, confirmSignoff and declineSignoff', await ev(`typeof window.api.agent.requests==='function' && window.api.agent.interrupt.length===0 && typeof window.api.agent.confirmSignoff==='function' && typeof window.api.agent.declineSignoff==='function'`));
-    await ev(`window.api.agent.interrupt()`);
-    check('chat: interrupt takes no scope', stub.calls.interrupt === 1);
+    check('cards: window.api.agent has requests(), confirmSignoff and declineSignoff', await ev(`typeof window.api.agent.requests==='function' && typeof window.api.agent.confirmSignoff==='function' && typeof window.api.agent.declineSignoff==='function'`));
 
     // a reconfirm card: the tiles that would be renewed, what is skipped and why, no assumption boxes
     stub.inject({ type: 'signoff_request', scope: { level: 'module', id: 'm' }, text: 'Two tiles can be renewed.', request: { id: 'req-rc', kind: 'reconfirm', name: 'unit_projection', module: 'unit_projection', label: 'Unit projection', spec: '', formula: '', assumed: ['ignored'], cases: [], blockers: [], values_only: false, tiles: [{ name: 'deaths', label: 'Deaths' }, { name: 'lapses', label: 'Lapses' }], skipped: [{ name: 'irr_pm', reason: 'values-only tile; sign it off again on its own' }], status: 'pending' } });
     await waitFor(`!!document.querySelector('.alog-card[data-request="req-rc"]')`, 5000);
     await waitFor(`document.querySelector('.alog-card[data-request="req-rc"] [data-f=reviewer]').value.length>0`, 5000);
     const rc = (await cardText('req-rc')).toLowerCase();
-    check('chat: a reconfirm card lists the tiles to renew and those skipped with reasons, and has no assumption boxes', rc.includes('tiles that would be renewed') && rc.includes('deaths') && rc.includes('lapses') && rc.includes('not renewed') && rc.includes('irr_pm: values-only tile') && await ev(`!document.querySelector('.alog-card[data-request="req-rc"] input.assume')`), rc);
-    check('chat: its button is "Re-confirm" and is enabled once there is a reviewer name', await ev(`(()=>{const b=document.querySelector('.alog-card[data-request="req-rc"] button[data-act=signoff]'); return b.textContent==='Re-confirm' && !b.disabled})()`));
+    check('cards: a reconfirm card lists the tiles to renew and those skipped with reasons, and has no assumption boxes', rc.includes('tiles that would be renewed') && rc.includes('deaths') && rc.includes('lapses') && rc.includes('not renewed') && rc.includes('irr_pm: values-only tile') && await ev(`!document.querySelector('.alog-card[data-request="req-rc"] input.assume')`), rc);
+    check('cards: its button is "Re-confirm" and is enabled once there is a reviewer name', await ev(`(()=>{const b=document.querySelector('.alog-card[data-request="req-rc"] button[data-act=signoff]'); return b.textContent==='Re-confirm' && !b.disabled})()`));
     await ev(`document.querySelector('.alog-card[data-request="req-rc"] button[data-act=signoff]').click()`);
-    check('chat: re-confirming calls confirmSignoff and says "Re-confirmed by NAME."', await waitFor(`document.querySelector('.alog-card[data-request="req-rc"]').innerText.includes('Re-confirmed by ')`, 5000) && stub.calls.confirm.some(c => c.id === 'req-rc'));
+    check('cards: re-confirming calls confirmSignoff and says "Re-confirmed by NAME."', await waitFor(`document.querySelector('.alog-card[data-request="req-rc"]').innerText.includes('Re-confirmed by ')`, 5000) && stub.calls.confirm.some(c => c.id === 'req-rc'));
 
     // a newer request for the same thing supersedes an older pending card at once
     const rq = (id, extra = {}) => ({ type: 'signoff_request', scope, text: 'Ready.', request: { id, kind: 'tile', name: tileName, label: 'Gross profit', spec: 's', formula: '=a', assumed: ['One'], cases: [{ id: 'base', name: 'Base', pass: true }], blockers: [], values_only: false, status: 'pending', ...extra } });
     stub.inject(rq('req-s1')); await waitFor(`!!document.querySelector('.alog-card[data-request="req-s1"]')`, 5000);
     stub.reqStatus['req-s1'] = 'superseded';
     stub.inject(rq('req-s2')); await waitFor(`!!document.querySelector('.alog-card[data-request="req-s2"]')`, 5000);
-    check('chat: a newer request supersedes the older card: no buttons, says so', await waitFor(`document.querySelector('.alog-card[data-request="req-s1"]').innerText.includes('Superseded') && !document.querySelector('.alog-card[data-request="req-s1"] button')`, 5000) && await hasBtn('req-s2'));
+    check('cards: a newer request supersedes the older card: no buttons, says so', await waitFor(`document.querySelector('.alog-card[data-request="req-s1"]').innerText.includes('Superseded') && !document.querySelector('.alog-card[data-request="req-s1"] button')`, 5000) && await hasBtn('req-s2'));
     // an expired request, and one the backend refuses
     stub.reqStatus['req-exp'] = 'expired'; stub.inject(rq('req-exp'));
     stub.inject(rq('req-ref', { name: 'other_tile' })); await waitFor(`!!document.querySelector('.alog-card[data-request="req-ref"]')`, 5000);
@@ -447,37 +431,28 @@ const check = (name, ok, detail) => { summary.checks.push({ name, ok: !!ok, ...(
     await ev(`(()=>{const c=document.querySelector('.alog-card[data-request="req-ref"]'); c.querySelector('input.assume').click()})()`);
     await waitFor(`document.querySelector('.alog-card[data-request="req-ref"] [data-f=reviewer]').value.length>0`, 5000);
     await ev(`document.querySelector('.alog-card[data-request="req-ref"] button[data-act=signoff]').click()`);
-    check('chat: a refused sign-off shows the reason in the card and leaves it pending', await waitFor(`document.querySelector('.alog-card[data-request="req-ref"]').innerText.includes('the model changed after this was asked')`, 5000) && await hasBtn('req-ref'), await cardText('req-ref'));
+    check('cards: a refused sign-off shows the reason in the card and leaves it pending', await waitFor(`document.querySelector('.alog-card[data-request="req-ref"]').innerText.includes('the model changed after this was asked')`, 5000) && await hasBtn('req-ref'), await cardText('req-ref'));
     stub.refuse = null;
     await ev(`document.querySelector('.alog-card[data-request="req-ref"] button[data-act=decline]').click()`);
     await waitFor(`!document.querySelector('.alog-card[data-request="req-ref"] button')`, 5000);
 
-    // draft kinds: a plain list of what would be added, and "Working…" while a slow accept runs
-    stub.inject({ type: 'draft', scope, text: 'A parameter and an input.', draft: { id: 'dr-params', kind: 'params', items: [{ name: 'surrender_rate', label: 'Surrender rate', default: 0.05 }], warnings: [] } });
-    await waitFor(`!!document.querySelector('[data-draft="dr-params"]')`, 5000);
-    check('chat: a params draft shows the label, name and default of the parameter in a table above Accept and Discard', await ev(`(()=>{const d=document.querySelector('[data-draft="dr-params"]'); return d.querySelector('.cardsec').textContent==='Parameters to add' && [...d.querySelectorAll('.draftitem td')].map(x=>x.textContent).join('|')==='Surrender rate|surrender_rate|0.05' && d.querySelector('.draftitem .dval') && [...d.querySelectorAll('button')].map(b=>b.textContent).join('|')==='Accept|Discard' && d.querySelector('.cardsec').compareDocumentPosition(d.querySelector('button'))&4})()`));
-    await ev(`document.querySelector('[data-draft="dr-params"] button[data-act=accept]').click()`);
-    check('chat: accepting a params draft shows "Working…" in the chat while it runs', await waitFor(`document.querySelector('[data-draft="dr-params"] .alog-done').innerText==='Working…'`, 600));
-    check('chat: and then "Accepted."', await waitFor(`document.querySelector('[data-draft="dr-params"]').innerText.includes('Accepted.') && !document.querySelector('[data-draft="dr-params"] button')`, 8000));
-    stub.inject({ type: 'draft', scope, text: 'Two tiles.', draft: { id: 'dr-tiles', kind: 'tiles', module: 'unit_projection', items: [{ name: 'surrender_charge', label: 'Surrender charge', formula: '=a*b' }, { name: 'second_tile', label: 'Second' }] } });
-    stub.inject({ type: 'draft', scope, text: 'An input.', draft: { id: 'dr-inputs', kind: 'inputs', items: [{ type: 'model_point', name: 'sum_assured', label: 'Sum assured' }, { type: 'table', name: 'mortality' }] } });
-    stub.inject({ type: 'draft', scope, text: 'A case.', draft: { id: 'dr-cases', kind: 'cases', items: [{ id: 'young', name: 'Young policyholder' }] } });
-    await waitFor(`!!document.querySelector('[data-draft="dr-cases"]')`, 5000);
-    check('chat: tiles, inputs and cases drafts are tables too', await ev(`(()=>{const t=d=>document.querySelector('[data-draft="'+d+'"]').innerText.toLowerCase(); return t('dr-tiles').includes('tiles to add (in unit_projection)') && /surrender charge\\s+surrender_charge/.test(t('dr-tiles')) && t('dr-tiles').includes('=a*b') && t('dr-inputs').includes('inputs to add') && /sum assured\\s+sum_assured\\s+model_point/.test(t('dr-inputs')) && /mortality\\s+table/.test(t('dr-inputs')) && /young policyholder\\s+young/.test(t('dr-cases'))})()`));
-    for (const d of ['dr-tiles', 'dr-inputs', 'dr-cases']) await ev(`document.querySelector('[data-draft="${d}"] button[data-act=discard]').click()`);
-    await waitFor(`!document.querySelector('#agentlog-log .alog-draft button')`, 5000);
+    // a draft that is not a what-if is approved in the centre pane, not in the bar
+    stub.addDraft({ id: 'dr-params', kind: 'params', scope, summary: 'Draft: adds one parameter.', items: [{ name: 'surrender_rate', label: 'Surrender rate', default: 0.05 }], warnings: [] });
+    stub.inject({ type: 'draft', scope, text: 'A parameter.', draft: { id: 'dr-params', kind: 'params', items: [{ name: 'surrender_rate', label: 'Surrender rate', default: 0.05 }], warnings: [] } });
+    check('cards: a draft that is not a what-if is not drawn in the bar; it opens in the centre as "Draft to approve"', await waitFor(`!document.getElementById('seg-draft').hidden && !!document.getElementById('draftview') && /surrender_rate/.test(document.getElementById('draftview').innerText)`, 8000) && await ev(`!document.querySelector('#agentlog-log [data-draft="dr-params"]') && !document.querySelector('#agentlog-log .alog-draft')`));
+    await ev(`document.querySelector('[data-dv=accept]').click()`);
+    check('draft view: accepting says "Applying…" while it runs', await waitFor(`/^Applying…/.test((document.getElementById('dv-working') || { textContent: '' }).textContent)`, 600), await ev(`(document.getElementById('dv-working') || { textContent: 'none' }).textContent`));
+    check('draft view: and then the draft is accepted and the tab goes', await waitFor(`document.getElementById('seg-draft').hidden`, 8000) && stub.calls.accept.includes('dr-params'));
+    await settle();
 
-    // a question that carries a request is an ordinary question
-    stub.inject({ type: 'question', scope, text: 'I need a surrender rate. What should it be?', request: { kind: 'parameter', description: 'The annual surrender rate' } });
-    await waitFor(`document.querySelector('#agentlog-log .alog-question:last-child, #agentlog-log .alog-line:last-child.alog-question')`, 5000);
-    check('chat: a question with a request is drawn as a normal question and counts as waiting', await ev(`[...document.querySelectorAll('#agentlog-log .alog-question')].pop().innerText.includes('I need a surrender rate')`));
-
-    // after a reload every card shows its outcome (from requests()), pending ones keep their buttons
+    // after a reload only what still waits for a click is drawn (from requests()), with its buttons
     await reloadWin(); await settle();
-    const o = id => cardText(id);
-    check('chat: after a reload the cards show what became of them, rebuilt from the request files', (await o('req-one')).includes('Signed off by ') && !(await hasBtn('req-one')) && (await o('req-two')).includes('Not signed.') && !(await hasBtn('req-two')) && (await o('req-exp')).includes('Expired') && !(await hasBtn('req-exp')) && (await o('req-s1')).includes('Superseded') && !(await hasBtn('req-s1')) && (await o('req-rc')).includes('Re-confirmed by ') && await hasBtn('req-s2'), JSON.stringify(await ev(`[...document.querySelectorAll('.alog-card')].map(c=>c.dataset.request+': '+c.innerText.slice(-60).replace(/\\s+/g,' '))`)));
+    const shownCards = () => ev(`[...document.querySelectorAll('#agentlog-log .alog-card')].map(c=>c.dataset.request)`);
+    check('cards: after a reload the request still waiting is back with its buttons, rebuilt from the request files', await waitFor(`!!document.querySelector('.alog-card[data-request="req-s2"] button[data-act=signoff]')`, 8000) && await hasBtn('req-s2') && (await cardText('req-s2')).includes('Gross profit'), JSON.stringify(await shownCards()));
+    check('cards: after a reload settled requests (signed, declined, expired, superseded, re-confirmed) are not drawn', (await shownCards()).join() === 'req-s2', JSON.stringify(await shownCards()));
     await ev(`document.querySelector('.alog-card[data-request="req-s2"] button[data-act=decline]').click()`);
     await waitFor(`!document.querySelector('.alog-card button')`, 5000);
+    check('cards: a settled card goes a few seconds later and the cards area closes', await waitFor(`!document.querySelector('#agentlog-log .alog-line') && getComputedStyle(document.getElementById('agentlog-log')).display==='none'`, 9000));
   }
 
   // File > New model: the dialog (name, local folder with Choose…, GitHub link); a bad link is refused plainly, before anything runs.
@@ -492,7 +467,7 @@ const check = (name, ok, detail) => { summary.checks.push({ name, ok: !!ok, ...(
     check('New model: Create is enabled', await ev(`!document.getElementById('confirm').disabled`));
     await ev(`document.getElementById('confirm').click()`);
     check('New model: a link that is not a GitHub link is refused plainly and the dialog stays open', await waitFor(`document.getElementById('dialogerrors') && /not a GitHub link/.test(document.getElementById('dialogerrors').innerText) && !!document.getElementById('dialog')`, 10000), await ev(`document.getElementById('dialog').innerText`));
-    check('New model: no chat prefill is left behind after a failure', await ev(`sessionStorage.getItem('tessera.prefill')===null && document.getElementById('agentlog-input').value===''`));
+    check('New model: no scaffolding prefill is left behind after a failure', await ev(`sessionStorage.getItem('tessera.prefill')===null && !/scaffold=1/.test(location.search)`));
     await shot('new-model-dialog' + SFX);
     await ev(`document.getElementById('cancel').click()`);
     check('New model: Cancel closes it', await waitFor(`!document.getElementById('dialog')`, 3000));
@@ -505,69 +480,43 @@ const check = (name, ok, detail) => { summary.checks.push({ name, ok: !!ok, ...(
     await ev(`(()=>{const a=window.__app; a.S.graph={...a.S.graph, modules:[], quantities:{}, order:[], edges:[]}; a.S.status={...a.S.status, tiles:{}, modules:{}}; a.S.cases=[]; a.render()})()`); await settle();
     check('empty model: "No modules yet. Use the chat to scaffold the model." replaces the map', await ev(`document.getElementById('nomodules') && document.getElementById('nomodules').innerText==='No modules yet. Use the chat to scaffold the model.' && !document.querySelector('#panel svg.map')`));
     check('empty model: row 2 (the tile strip) is hidden and only the Model tab is there', await ev(`document.getElementById('tiles').hidden && document.querySelectorAll('#mods a').length===1`));
-    check('empty model: the chat starters and the page itself are intact', await ev(`!document.getElementById('error').hidden===false && !!document.getElementById('agentlog-input')`));
+    check('empty model: the page itself is intact (no error line, the right bar still there)', await ev(`document.getElementById('error').hidden && !!document.querySelector('#rightbar #agentlog')`));
     await shot('empty-model' + SFX);
     await ev(`window.__app.refresh().then(()=>window.__app.render())`); await settle();
     check('empty model: refreshing restores the real model', await ev(`window.__app.S.graph.modules.length>0 && !document.getElementById('nomodules')`));
   }
 
-  // The chat bar, driven by the test agent stub.
-  async function chatSet(tileName, moduleId, moduleTitle) {
+  // The right-hand pane where no Claude Code runs (here: a stand-in agent passed by the test), and the cards that need a
+  // click. The cards are raised through the stub's test hook (inject), as the real service emits them.
+  async function paneSet(tileName, moduleId) {
     const stub = ctl.agent;
-    const lines = () => ev(`[...document.querySelectorAll('#agentlog-log .alog-line:not(.alog-working)')].map(l => ({ lab: l.querySelector('.alog-lab').textContent, txt: l.querySelector('.alog-txt').innerText }))`);
-    const dividers = () => ev(`[...document.querySelectorAll('#agentlog-log .alog-divider')].map(d => d.textContent)`);
-    const say = async text => { const before = stub.calls.send.length; await ev(`(()=>{const i=document.getElementById('agentlog-input'); i.value=${JSON.stringify(text)}; i.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}));})()`); await waitFor(`!document.getElementById('agentlog-input').disabled && document.getElementById('agentlog-log').innerText.includes(${JSON.stringify('Answer to: ' + text)}) || ${JSON.stringify(/question|draft/.test(text))}`, 8000); await waitFor(`!document.getElementById('agentlog-input').disabled`, 8000); return stub.calls.send.length - before; };
     stub.log.length = 0; stub.calls.send.length = 0;
     await go('#/tile/' + tileName); await settle(); await ev('window.__app.render()'); await settle();
-    check('chat: the input is a multi-line textarea, two rows, in the right bar', await ev(`(()=>{const i=document.getElementById('agentlog-input'); return i.tagName==='TEXTAREA' && i.rows===2 && !!i.closest('#rightbar')})()`));
-    check('chat: tile placeholder is a real example', await ev('document.getElementById("agentlog-input").placeholder') === 'Cap the charge at 1.00 unit a month');
-    check('chat: empty conversation shows the tile starters as links above the input', await ev(`(()=>{const s=document.getElementById('starters'); const i=document.getElementById('agentlog-input'); return !s.hidden && [...s.querySelectorAll('a')].map(a=>a.textContent).join('|')==='What does this tile do?|Why does it change in month 37?|Sign this off' && s.getBoundingClientRect().bottom<=i.getBoundingClientRect().top+1})()`));
-    await ev(`document.querySelector('#starters a').click()`);
-    check('chat: clicking a starter fills the input and does not send', await ev(`document.getElementById('agentlog-input').value==='What does this tile do?'`) && stub.calls.send.length === 0);
-    await ev(`(()=>{const i=document.getElementById('agentlog-input'); i.value='first line'; i.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',shiftKey:true,bubbles:true,cancelable:true}));})()`); await sleep(200);
-    check('chat: Shift+Enter does not send', stub.calls.send.length === 0);
-    check('chat: the input grows with several lines, to a limit', await (async () => { await ev(`(()=>{const i=document.getElementById('agentlog-input'); i.value=Array(12).fill('line').join('\\n'); i.dispatchEvent(new Event('input',{bubbles:true}))})()`); const h2 = await ev(`document.getElementById('agentlog-input').getBoundingClientRect().height`); await ev(`(()=>{const i=document.getElementById('agentlog-input'); i.value='x'; i.dispatchEvent(new Event('input',{bubbles:true}))})()`); const h1 = await ev(`document.getElementById('agentlog-input').getBoundingClientRect().height`); return h2 > h1 && h2 <= 200; })());
-    let n = await say('hello about the tile');
-    check('chat: Enter sends with the current selection as the scope', n === 1 && stub.calls.send[0].scope.level === 'tile' && stub.calls.send[0].scope.id === tileName, JSON.stringify(stub.calls.send));
-    const l1 = await lines();
-    check('chat: You and Agent lines with a label column, no starters once there is a conversation', l1.some(l => l.lab === 'You' && l.txt === 'hello about the tile') && l1.some(l => l.lab === 'Agent') && await ev(`document.getElementById('starters').hidden`), JSON.stringify(l1));
-    check('chat: a divider names the tile before its first message', (await dividers()).join('|') === tileName, JSON.stringify(await dividers()));
-    // other selections: dividers name them; same selection again adds none
+    // the empty state
+    const none = await ev(`(()=>{const n=document.getElementById('termnone'); if(!n) return null; const cs=getComputedStyle(n), r=n.getBoundingClientRect(), bar=document.getElementById('rightbar').getBoundingClientRect(); return {text:n.textContent, tag:n.tagName, colour:cs.color, radius:cs.borderTopLeftRadius, shadow:cs.boxShadow, bg:cs.backgroundColor, inBar:!!n.closest('#rightbar > #agentlog'), visible:r.height>0 && r.left>=bar.left && r.right<=bar.right+1, children:n.children.length}})()`);
+    check('no Claude Code in this mode: the pane says so in one plain grey line', none && none.text === 'Claude Code is not running in this mode.' && none.tag === 'P' && none.inBar && none.visible && none.children === 0
+      && none.colour === await ev(`(()=>{const p=document.createElement('span'); p.style.color='var(--slate)'; document.body.append(p); const c=getComputedStyle(p).color; p.remove(); return c})()`) && none.radius === '0px' && none.shadow === 'none' && none.bg === 'rgba(0, 0, 0, 0)', JSON.stringify(none));
+    check('no Claude Code in this mode: no terminal, no input box, no conversation buttons, and the cards area takes no room while empty', await ev(`!document.getElementById('termhost') && !document.getElementById('term-top') && !document.getElementById('termnew') && !document.getElementById('termresume') && !document.querySelector('#rightbar textarea, #rightbar input') && !window.api.term && getComputedStyle(document.getElementById('agentlog-log')).display==='none'`));
+    check('the built-in chat is gone: no input box, Stop button, starters, conversation list or history call, and no chatMode setting', await ev(`!document.getElementById('agentlog-input') && !document.getElementById('agentlog-stop') && !document.getElementById('starters') && !document.getElementById('chatnew') && !document.getElementById('chatlist') && !document.getElementById('agentlog-working') && window.api.agent.conversations===undefined && window.api.agent.newConversation===undefined && window.api.agent.openConversation===undefined && window.api.agent.deleteConversation===undefined && window.api.agent.history===undefined && window.api.agent.interrupt===undefined && window.api.agent.buildModule===undefined`)
+      && !('chatMode' in ctl.settings) && !('chatMode' in saved()) && !fs.existsSync(path.join(__dirname, '../renderer/markdown.js')));
     await go('#/module/' + moduleId); await settle();
-    check('chat: module placeholder', await ev('document.getElementById("agentlog-input").placeholder') === 'Add a surrender charge that falls to zero over five years');
-    check('chat: the whole conversation stays on screen when the selection changes (no new divider until a message is sent)', (await lines()).length === l1.length && (await dividers()).length === 1);
-    await say('hello about the module');
-    check('chat: a divider names the module by its title when a message is sent there', (await dividers()).join('|') === `${tileName}|${moduleTitle}`, JSON.stringify(await dividers()));
-    await go('#/model'); await settle();
-    await say('hello about the model'); await say('and again about the model');
-    check('chat: a divider names the model, and a second message there adds none', (await dividers()).join('|') === `${tileName}|${moduleTitle}|Model`, JSON.stringify(await dividers()));
-    check('chat: scopes sent are tile, module and model', stub.calls.send.map(c => c.scope.level).join() === 'tile,module,model,model');
-    const all = await lines();
-    check('chat: every exchange is in one log, in order', all.filter(l => l.lab === 'You').map(l => l.txt).join('|') === 'hello about the tile|hello about the module|hello about the model|and again about the model', JSON.stringify(all));
-    await shot('chat-conversation' + SFX);
-    await reloadWin(); await settle();
-    check('chat: after a reload the whole conversation and its three dividers are back (history with no scope)', (await dividers()).join('|') === `${tileName}|${moduleTitle}|Model` && (await lines()).length === all.length, JSON.stringify(await dividers()));
-    stub.onlyScoped = true;
-    await reloadWin(); await settle();
-    check('chat: a backend that only answers history(scope) still works (fallback)', (await lines()).length > 0 && (await lines()).every(l => !/Invalid scope/.test(l.txt)) && (await dividers()).length === 1, JSON.stringify([await lines(), await dividers()]));
-    stub.onlyScoped = false;
-    await reloadWin(); await settle();
-
-    // starters per level
-    stub.log.length = 0; await reloadWin(); await settle();
-    const starters = async () => ev(`[...document.querySelectorAll('#starters a')].map(a=>a.textContent).join('|')`);
-    check('chat: model starters', (await starters()) === 'What is left to review?|Add a module', await starters());
-    await go('#/module/' + moduleId); await settle();
-    check('chat: module starters', (await starters()) === 'Build the tiles that are not built|What is left to review here?', await starters());
+    check('no Claude Code in this mode: the same line on a module and on the model', await ev(`document.getElementById('termnone').getBoundingClientRect().height>0`) && await (async () => { await go('#/model'); await settle(); return ev(`document.getElementById('termnone').getBoundingClientRect().height>0 && document.querySelectorAll('#termnone').length===1`); })());
+    check('no Claude Code in this mode: the buttons that type into it are not offered', await ev(`!document.getElementById('buildnotbuilt') && !document.getElementById('buildtile') && !document.getElementById('askmoduletest') && !document.getElementById('mt-go')`));
+    // the UI-less send: nothing in the window uses it, a test may
+    await go('#/tile/' + tileName); await settle();
+    const sent = await ev(`window.api.agent.send({ level: 'tile', id: ${JSON.stringify(tileName)} }, 'hello about the tile').then(r => r, e => ({ error: String(e && e.message || e) }))`);
+    check('window.api.agent.send is a UI-less call that reaches the agent with its scope, and what is said is not drawn in the pane', sent && sent.ok && stub.calls.send.length === 1 && stub.calls.send[0].scope.level === 'tile' && stub.calls.send[0].scope.id === tileName && stub.calls.send[0].text === 'hello about the tile'
+      && await ev(`!document.querySelector('#agentlog-log .alog-line') && !document.getElementById('rightbar').innerText.includes('hello about the tile') && !document.getElementById('rightbar').innerText.includes('Answer to:')`), JSON.stringify([sent, stub.calls.send]));
 
     // sign-off card
-    await go('#/tile/' + tileName); await settle();
+    // sign-off card
     const scope = { level: 'tile', id: tileName };
     const req = (id, extra = {}) => ({ type: 'signoff_request', scope, text: 'This is ready for your review.', request: { id, kind: 'tile', name: tileName, label: 'Gross profit', spec: 'Allocation margin less expenses.', formula: '=a+b', assumed: ['The charge is monthly', 'Rates are annual'], cases: [{ id: 'base', name: 'Base', pass: true }, { id: 'high', name: 'High charge', pass: false }], blockers: [], values_only: false, ...extra } });
     stub.inject(req('req-one'));
     await waitFor(`!!document.querySelector('.alog-card[data-request="req-one"]')`, 5000);
     const card = () => ev(`(()=>{const c=document.querySelector('.alog-card[data-request="req-one"]'); const cs=getComputedStyle(c); return {border:cs.borderTopWidth, radius:cs.borderTopLeftRadius, title:c.querySelector('.cardtitle').textContent, formula:c.querySelector('.formula').textContent, boxes:c.querySelectorAll('input.assume').length, cases:[...c.querySelectorAll('.row')].map(r=>r.innerText.replace(/\\s+/g,' ')), reviewer:c.querySelector('[data-f=reviewer]').value, hasComment:!!c.querySelector('[data-f=comment]'), reason:!!c.querySelector('[data-f=reason]'), signDisabled:c.querySelector('button[data-act=signoff]').disabled, buttons:[...c.querySelectorAll('button')].map(b=>b.textContent).join('|')}})()`);
     let c1 = await card();
+    check('cards: a card sits in the right bar above the "not running" line', await ev(`(()=>{const c=document.querySelector('.alog-card[data-request="req-one"]').getBoundingClientRect(), n=document.getElementById('termnone').getBoundingClientRect(); return c.height>0 && c.bottom<=n.top+1 && n.height>0})()`));
     check('chat: sign-off card is a plain bordered card with label and code name, formula, two tick boxes', c1.border === '1px' && c1.radius === '0px' && c1.title === `Gross profit, ${tileName}` && c1.formula === '=a+b' && c1.boxes === 2, JSON.stringify(c1));
     check('chat: the card lists cases as agrees / differs, a prefilled reviewer, a comment field, no reason field', c1.cases.join('|') === 'Base agrees|High charge differs' && c1.reviewer.trim().length > 0 && c1.hasComment && !c1.reason, JSON.stringify(c1));
     check('chat: Sign off is disabled until every assumption is ticked; buttons are Sign off and Not now', c1.signDisabled && c1.buttons === 'Sign off|Not now', JSON.stringify(c1));
@@ -597,61 +546,19 @@ const check = (name, ok, detail) => { summary.checks.push({ name, ok: !!ok, ...(
     check('chat: a values-only request has a required reason field and Sign off waits for it', await ev(`(()=>{const c=document.querySelector('.alog-card[data-request="req-three"]'); const b=c.querySelector('button[data-act=signoff]'); const r=c.querySelector('[data-f=reason]'); if(!r||!b.disabled) return false; r.value='Tests cover it'; r.dispatchEvent(new Event('input',{bubbles:true})); return !b.disabled})()`));
     await ev(`document.querySelector('.alog-card[data-request="req-three"] button[data-act=decline]').click()`); await waitFor(`!document.querySelector('.alog-card button[data-act]')`, 5000);
 
-    // a question with options, and a draft: the collapsed strip names each
-    stub.inject({ type: 'question', scope, text: 'Which case should I use?', options: ['Base', 'High charge'] });
-    await waitFor(`!!document.querySelector('#agentlog-log .alog-question .alog-opts button')`, 5000);
-    check('chat: a question shows its options as small buttons', await ev(`[...document.querySelectorAll('#agentlog-log .alog-question:last-of-type .alog-opts button, #agentlog-log .alog-opts button')].map(b=>b.textContent).join('|')==='Base|High charge' && document.querySelector('.alog-opts button').classList.contains('small')`));
-    await ev(`document.getElementById('hideright').click()`); await settle();
-    check('chat: collapsed right strip says "question"', (await stripText('rightstrip')) === 'Chat question', await stripText('rightstrip'));
-    await ev(`document.getElementById('rightstrip').click()`); await settle();
-    const nb = stub.calls.send.length;
-    await ev(`document.querySelector('.alog-opts button').click()`);
-    check('chat: clicking an option sends it as the answer', await waitFor(`!document.getElementById('agentlog-input').disabled`, 8000) && stub.calls.send.length === nb + 1 && stub.calls.send[nb].text === 'Base');
-    check('chat: once answered the options are gone and the strip is quiet', await ev(`!document.querySelector('.alog-opts')`));
-    // markdown in an agent reply is drawn as structure, never as markup
-    stub.inject({ type: 'agent', scope, text: '## Plan\n\nUse the **monthly** rate, not `annual_rate`.\n\n1. First step\n2. Second step\n   - a nested point\n\n| Month | Units |\n|---|---:|\n| 1 | 10.5 |\n\n```python\nx = a * b  # **not bold**\n```\n\n<img src=x onerror=alert(1)> 2 * 3 * 4 and snake_case_name stay as typed.' });
-    await waitFor(`!!document.querySelector('#agentlog-log .md table')`, 5000);
-    check('chat: an agent reply shows markdown as headings, bold, code, lists and a table', await ev(`(()=>{const m=[...document.querySelectorAll('#agentlog-log .md')].pop(); const t=q=>[...m.querySelectorAll(q)].map(x=>x.textContent).join('|');
-      return t('.md-h')==='Plan' && t('strong')==='monthly' && t('p code')==='annual_rate' && m.querySelectorAll('ol > li').length===2 && t('ol ul li')==='a nested point'
-        && t('th')==='Month|Units' && t('td')==='1|10.5' && m.querySelector('td.r').textContent==='10.5' && m.querySelector('pre').textContent==='x = a * b  # **not bold**'})()`));
-    check('chat: markup and stray symbols in a reply stay as plain text', await ev(`(()=>{const m=[...document.querySelectorAll('#agentlog-log .md')].pop(); const p=[...m.querySelectorAll('p')].pop();
-      return !m.querySelector('img') && !p.querySelector('em,strong') && p.textContent==='<img src=x onerror=alert(1)> 2 * 3 * 4 and snake_case_name stay as typed.'})()`));
-    await ev(`(()=>{const l=document.getElementById('agentlog-log'); l.scrollTop=l.scrollHeight})()`); await settle();
-    await shot('chat-markdown');
-    // several questions at once: one form, suggested answers, a box for another answer, one Send
-    stub.inject({ type: 'question', scope, text: '1. What is being priced?\n2. Which results?', questions: [
-      { question: 'What is being priced?', header: 'Purpose', options: [{ label: 'Profit', description: 'Profit on a block of policies' }, { label: 'Reserve' }] },
-      { question: 'Which results?', header: 'Results', multi: true, options: [{ label: 'IRR' }, { label: 'Present values' }] }] });
-    await waitFor(`!!document.querySelector('#agentlog-log .qcard')`, 5000);
-    check('chat: several questions show as one form with headers, choices and a box for another answer', await ev(`(()=>{const c=document.querySelector('.qcard'); return [...c.querySelectorAll('.cardsec')].map(x=>x.textContent).join('|')==='Purpose|Results' && c.querySelectorAll('input[type=radio]').length===2 && c.querySelectorAll('input[type=checkbox]').length===2 && c.querySelectorAll('.qother').length===2 && getComputedStyle(document.querySelector('.alog-qtext')).display==='none' && c.querySelector('.alog-btns button').disabled})()`));
-    await ev(`(()=>{const c=document.querySelector('.qcard'); const fire=(el,t)=>el.dispatchEvent(new Event(t,{bubbles:true})); const r=c.querySelector('input[type=radio]'); r.checked=true; fire(r,'change'); return 1})()`);
-    await shot('chat-question-form');
-    check('chat: Send answers waits until every question has an answer', await ev(`document.querySelector('.qcard .alog-btns button').disabled`));
-    await ev(`(()=>{const c=document.querySelector('.qcard'); const fire=(el,t)=>el.dispatchEvent(new Event(t,{bubbles:true})); const k=c.querySelector('input[type=checkbox]'); k.checked=true; fire(k,'change'); const o=c.querySelectorAll('.qother')[1]; o.value='Reserves'; fire(o,'input'); return 1})()`);
-    const nq = stub.calls.send.length;
-    await ev(`document.querySelector('.qcard .alog-btns button').click()`);
-    check('chat: the answers go as one message, a line per question', await waitFor(`!document.getElementById('agentlog-input').disabled`, 8000) && stub.calls.send.length === nq + 1 && stub.calls.send[nq].text === 'Purpose: Profit\nResults: IRR, Reserves', stub.calls.send[nq] && stub.calls.send[nq].text);
-    check('chat: once answered the form is gone and the questions stay as text', await ev(`!document.querySelector('.qcard') && [...document.querySelectorAll('.alog-qtext')].pop().querySelectorAll('ol > li').length===2 && [...document.querySelectorAll('.alog-qtext li')].pop().textContent==='Which results?' && getComputedStyle([...document.querySelectorAll('.alog-qtext')].pop()).display!=='none'`));
-    // conversations: start a new one, find the earlier one in the list, open it again, delete one
-    const linesNow = () => ev(`document.querySelectorAll('#agentlog-log .alog-line:not(.alog-working)').length`);
-    const before = await linesNow();
-    check('chat: New conversation and Conversations are offered above the chat', await waitFor(`!document.getElementById('agentlog-top').hidden && /^Conversations \\(1\\)…$/.test(document.getElementById('chatlist').textContent) && !document.getElementById('chatnew').disabled`, 5000), await ev(`document.getElementById('chatlist').textContent`));
-    await ev(`document.getElementById('chatnew').click()`);
-    check('chat: New conversation empties the chat and keeps the old one in the list', await waitFor(`document.querySelectorAll('#agentlog-log .alog-line:not(.alog-working)').length===0 && document.getElementById('chatnew').disabled`, 5000) && stub.conversations().length === 1 && !stub.conversations()[0].current);
-    await say('second conversation');
-    await waitFor(`/\\(2\\)/.test(document.getElementById('chatlist').textContent)`, 5000);
-    await ev(`document.getElementById('chatlist').click()`);
-    await waitFor(`document.querySelectorAll('#chats .chatrow').length===2`, 5000);
-    await shot('chat-conversations');
-    check('chat: the list shows the conversation on show first, then the earlier one with Open and Delete', await ev(`(()=>{const r=[...document.querySelectorAll('#chats .chatrow')]; return r[0].dataset.id==='current' && /on show/.test(r[0].innerText) && r[0].querySelector('.chattitle').textContent==='second conversation' && !!r[1].querySelector('[data-act=open]') && !!r[1].querySelector('[data-act=delete]')})()`));
-    await ev(`document.querySelector('#chats .chatrow[data-id=current] [data-act=delete]').click()`);
-    check('chat: Delete asks once more before anything goes', await ev(`!!document.querySelector('#chats [data-act=reallydelete]') && !!document.querySelector('#chats [data-act=keep]')`) && stub.conversations().length === 2);
-    await ev(`document.querySelector('#chats [data-act=reallydelete]').click()`);
-    check('chat: deleting the conversation on show empties the chat and the list drops it', await waitFor(`document.querySelectorAll('#chats .chatrow').length===1 && document.querySelectorAll('#agentlog-log .alog-line:not(.alog-working)').length===0`, 5000) && stub.conversations().length === 1);
-    await ev(`document.querySelector('#chats [data-act=open]').click()`);
-    check('chat: Open brings the earlier conversation back and closes the list', await waitFor(`!document.getElementById('dialog') && document.querySelectorAll('#agentlog-log .alog-line:not(.alog-working)').length===${before}`, 8000) && stub.conversations().length === 1 && stub.conversations()[0].current, await linesNow());
-    await say('give me a draft');
-    check('chat: a draft shows Apply draft and Discard', await ev(`[...document.querySelectorAll('#agentlog-log .alog-draft button')].map(b=>b.textContent).join('|')==='Apply draft|Discard'`));
+    // many cards: the cards area scrolls on its own and the line under it stays in view
+    for (let i = 0; i < 6; i++) stub.inject(req('req-many-' + i, { name: 'tile_' + i, label: 'Tile ' + i }));
+    await waitFor(`document.querySelectorAll('#agentlog-log .alog-card').length>=6`, 5000);
+    const many = await ev(`(()=>{const l=document.getElementById('agentlog-log'), n=document.getElementById('termnone').getBoundingClientRect(), bar=document.getElementById('rightbar').getBoundingClientRect(); return {scrolls:l.scrollHeight>l.clientHeight+1, logBottom:l.getBoundingClientRect().bottom, noneTop:n.top, noneBottom:n.bottom, barBottom:bar.bottom}})()`);
+    check('cards: with many waiting the cards area scrolls on its own and the line under it stays in view', many.scrolls && many.logBottom <= many.noneTop + 1 && many.noneBottom <= many.barBottom + 1, JSON.stringify(many));
+    await shot('pane-cards-not-running' + SFX);
+    for (let i = 0; i < 6; i++) await ev(`document.querySelector('.alog-card[data-request="req-many-${i}"] button[data-act=decline]').click()`);
+    await waitFor(`!document.querySelector('.alog-card button[data-act]')`, 5000);
+
+    // a what-if draft is a card in the bar; the collapsed strip names it
+    await ev(`window.api.agent.send({ level: 'tile', id: ${JSON.stringify(tileName)} }, 'give me a draft')`);
+    await waitFor(`!!document.querySelector('#agentlog-log .alog-draft button[data-act=discard]')`, 8000);
+    check('chat: a what-if draft shows Apply draft and Discard', await ev(`[...document.querySelectorAll('#agentlog-log .alog-draft button')].map(b=>b.textContent).join('|')==='Apply draft|Discard'`));
     await ev(`document.getElementById('hideright').click()`); await settle();
     check('chat: collapsed right strip says "draft"', (await stripText('rightstrip')) === 'Chat draft', await stripText('rightstrip'));
     await ev(`document.getElementById('rightstrip').click()`); await settle();
@@ -661,6 +568,7 @@ const check = (name, ok, detail) => { summary.checks.push({ name, ok: !!ok, ...(
     check('chat: nothing waiting: the collapsed strip says only Chat', (await stripText('rightstrip')) === 'Chat', await stripText('rightstrip'));
     await ev(`document.getElementById('rightstrip').click()`); await settle();
     await shot('chat-after' + SFX);
+    await waitFor(`!document.querySelector('#agentlog-log .alog-line')`, 9000);   // settled cards go after a few seconds
   }
 
   async function fullSet() {
@@ -752,7 +660,7 @@ const check = (name, ok, detail) => { summary.checks.push({ name, ok: !!ok, ...(
     // (scroll positions across a refresh are checked in layoutSet, in a window short enough for the left bar to scroll)
 
     // agent log mount point
-    check('chat region exists in the right bar: log, textarea input, starters', await ev(`(()=>{const s=document.getElementById('agentlog');return !!s && !s.hidden && !!s.querySelector('#agentlog-log') && s.querySelector('#agentlog-input').tagName==='TEXTAREA' && !!s.querySelector('#starters') && s.parentElement.id==='rightbar'})()`));
+    check('the pane exists in the right bar: the cards area and, with no Claude Code in this mode, the line saying so', await ev(`(()=>{const s=document.getElementById('agentlog');return !!s && !s.hidden && !!s.querySelector('#agentlog-log') && !!s.querySelector('#termnone') && !s.querySelector('textarea') && s.parentElement.id==='rightbar'})()`));
     for (const hh of ['#/model', '#/module/profit', '#/tile/deaths']) { await go(hh); check('chat present in ' + hh, await ev(`!!document.querySelector('#rightbar > #agentlog')`)); }
 
     // settings: ribbon and formula bar, remembered
@@ -979,7 +887,7 @@ const check = (name, ok, detail) => { summary.checks.push({ name, ok: !!ok, ...(
   }
 
   if (process.env.SMOKE_ONLY === 'trace') { await traceSet(); return finish(0); }   // for working on one set
-  if (FULL) { await fullSet(); await layoutSet('gross_profit', 'allocation_margin', 'fund_value_eop'); await centreSet('gross_profit', 'allocation_margin'); await chatSet('gross_profit', 'cashflows', 'Cashflows'); await chatMore('gross_profit'); await traceSet(); await newModelSet(); await emptyModelSet(); await coveredSet('gross_profit'); return finish(0); }
+  if (FULL) { await fullSet(); await layoutSet('gross_profit', 'allocation_margin', 'fund_value_eop'); await centreSet('gross_profit', 'allocation_margin'); await paneSet('gross_profit', 'cashflows'); await cardsMore('gross_profit'); await traceSet(); await newModelSet(); await emptyModelSet(); await coveredSet('gross_profit'); return finish(0); }
 
   // model
   await go('#/model');
@@ -1096,8 +1004,8 @@ const check = (name, ok, detail) => { summary.checks.push({ name, ok: !!ok, ...(
 
   await layoutSet('units_amc', null, 'units_amc');
   await centreSet('units_amc', 'units_eop');
-  await chatSet('units_amc', 'unit_projection', 'Unit projection');
-  await chatMore('units_amc');
+  await paneSet('units_amc', 'unit_projection');
+  await cardsMore('units_amc');
   await moduleSheetSet();
   await traceSet();
   await newModelSet();

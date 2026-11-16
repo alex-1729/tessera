@@ -1,6 +1,10 @@
 'use strict';
-// Live test of the agent log: real model calls (a handful of turns, a few cents each), real tilekit, on a temporary
-// COPY of model/ (the real model directory is only the Python project). Run from app/:
+// Live test of the agent: real model calls (a handful of turns, a few cents each), real tilekit, on a temporary
+// COPY of model/ (the real model directory is only the Python project). Each message goes to the agent through the
+// UI-less call window.api.agent.send(scope, text): the same service, prompt and tools as Claude Code in the pane, run
+// with the Agent SDK. The pane itself holds a stand-in (test/fake-claude.js), so no second Claude Code is started.
+// What the agent raises is checked where the reviewer sees it: cards above the terminal, drafts in the centre.
+// Run from app/:
 //   ./node_modules/.bin/electron test/live-agent.js
 // If the Claude login is missing, the test says so and exits with code 3 instead of failing obscurely.
 process.env.APP_NO_AUTOSTART = '1';
@@ -16,6 +20,7 @@ fs.mkdirSync(OUT, { recursive: true });
 const REAL_MODEL = path.resolve(__dirname, '../../model');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-live-'));
 const copy = path.join(tmp, 'model');
+const pane = require('./stand-in')(tmp);
 process.env.APP_ALLOW_LOCAL_REMOTE = '1';      // a local bare repository stands in for GitHub (the real dialog takes only GitHub links)
 process.env.GIT_CONFIG_GLOBAL = '/dev/null'; process.env.GIT_CONFIG_NOSYSTEM = '1';
 Object.assign(process.env, { GIT_AUTHOR_NAME: 'Test', GIT_AUTHOR_EMAIL: 't@example.com', GIT_COMMITTER_NAME: 'Test', GIT_COMMITTER_EMAIL: 't@example.com' });
@@ -95,19 +100,20 @@ function hashTree(...dirs) {
   };
   const click = id => ev(`document.getElementById(${JSON.stringify(id)}).click()`);
   const S = () => ev('JSON.parse(JSON.stringify({tiles: window.__app.S.status.tiles, modules: window.__app.S.status.modules, graph: {q: window.__app.S.graph.quantities, modules: window.__app.S.graph.modules}, drafts: window.__app.S.drafts}))');
-  const logText = () => ev('document.getElementById("agentlog-log").innerText');
-  const lines = () => ev(`[...document.querySelectorAll('#agentlog-log .alog-line:not(.alog-working)')].map(l => ({ lab: l.querySelector('.alog-lab').textContent, txt: l.querySelector('.alog-txt').innerText, cls: l.className }))`);
+  // what the agent did, as the events the app received (each is also a line in an audit trail, review/.../log.jsonl)
+  const events = () => ev('window.__ev.map(e => ({ type: e.type, text: e.text || "", scope: e.scope, extra: e.extra }))');
+  const logText = async () => (await events()).filter(e => e.type !== 'turn_start').map(e => `${e.type}: ${e.text}`).join('\n').slice(-3000);
+  const scopeNow = () => ev('(()=>{const r=window.__app.route(); return r.view==="tile" ? {level:"tile",id:r.id} : r.view==="module" ? {level:"module",id:r.id} : {level:"model",id:"model"}})()');
   const doneCount = () => ev('window.__ev.filter(e => e.type === "done").length');
   const gc = js => ev(`(async()=>{const g=document.querySelector('#gridhost iframe').contentWindow.gridcraft; return await (${js})(g)})()`);
 
-  // One turn: type into the agent input, press Enter, wait for the turn to end.
-  async function say(label, text, ms = 150000) {
+  // One turn: send the message about what the window shows (the UI-less call), wait for the turn to end.
+  async function say(label, text, ms = 150000, extra) {
     const before = await doneCount();
     const t0 = Date.now();
-    await ev(`(()=>{const i=document.getElementById('agentlog-input'); i.value=${JSON.stringify(text)}; i.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));})()`);
-    check(label + ': input is disabled and Working… shows while the turn runs', await waitFor(`document.getElementById('agentlog-input').disabled && !document.getElementById('agentlog-stop').hidden && document.getElementById('agentlog-log').innerText.includes('Working…')`, 5000), await logText());
+    const scope = await scopeNow();
+    await ev(`void window.api.agent.send(${JSON.stringify(scope)}, ${JSON.stringify(text)}${extra ? ', ' + JSON.stringify(extra) : ''}).catch(e => window.__ev.push({ type: 'error', text: String(e && e.message || e) })); true`);
     const ok = await waitFor(`window.__ev.filter(e => e.type === "done").length > ${before}`, ms);
-    await waitFor(`!document.getElementById('agentlog-input').disabled`, 20000);
     await idle();
     const done = await ev('window.__ev.filter(e => e.type === "done").slice(-1)[0]');
     summary.turns.push({ label, seconds: Math.round((Date.now() - t0) / 1000), cost_usd: done && done.cost_usd, num_turns: done && done.num_turns });
@@ -118,34 +124,27 @@ function hashTree(...dirs) {
   check('app ready', await waitFor('window.__app && window.__app.ready', 30000));
   check('agent api exposed', await ev('!!(window.api && window.api.agent)'));
   await ev('window.__ev = []; window.api.agent.onEvent(e => window.__ev.push(e)); true');
-  check('agent log section visible', await ev('!document.getElementById("agentlog").hidden'));
+  check('the pane is in the right bar, with the stand-in for Claude Code in it and no input box of the app\'s own', await ev('!document.getElementById("agentlog").hidden && !!document.querySelector("#rightbar #termhost") && !document.getElementById("agentlog-input")'));
 
   const srcHash0 = hashTree('src', 'tests', 'cases');
 
   // ------------------------------------------------------------ 1. a tile edit by typing
   await go('#/tile/units_amc');
-  check('tile placeholder is a real example', await ev('document.getElementById("agentlog-input").placeholder') === 'Cap the charge at 1.00 unit a month');
-  check('chat is the right bar: the log fills it and the textarea input is pinned at the very bottom', await ev(`(()=>{const b=document.getElementById('rightbar'), i=document.getElementById('agentlog-input'), l=document.getElementById('agentlog-log'); const ir=i.getBoundingClientRect(), br=b.getBoundingClientRect(); return b.contains(i) && i.tagName==='TEXTAREA' && br.bottom-ir.bottom<=40 && l.getBoundingClientRect().bottom<=ir.top+1 && !document.getElementById('left').contains(document.getElementById('agentlog'))})()`));
-  const wholeHistory = await ev(`window.api.agent.history().then(() => true, () => false)`);
-  summary.wholeConversationHistory = wholeHistory;   // false until the backend answers history() with no scope
   const toggleSide = async (id, want) => { await ev(`document.getElementById(${JSON.stringify(id)}).click()`); await sleep(300); };
   const stripWord = () => ev(`document.getElementById('rightstrip').innerText.replace(/\\s+/g,' ').trim()`);
-  const dividers = () => ev(`[...document.querySelectorAll('#agentlog-log .alog-divider')].map(d => d.textContent)`);
-  const expectedDividers = () => ev(`(()=>{const out=[]; let last=null; for (const e of window.__ev) { if (e.type!=='user'||!e.scope) continue; const k=e.scope.level==='model'?'model':e.scope.level+':'+e.scope.id; if (k===last) continue; last=k; out.push(e.scope.level==='model'?'Model':e.scope.level==='module'?(window.__app.S.graph.modules.find(m=>m.id===e.scope.id)||{}).title:e.scope.id);} return out})()`);
   const q0 = (await S()).graph.q.units_amc;
   const ok1 = await say('turn 1', 'Remove the cap: the charge is units after allocation times the monthly rate.');
-  const l1 = await lines();
-  const notSigned = l1.find(l => /not signed in/i.test(l.txt));
+  const l1 = await events();
+  const notSigned = l1.find(l => l.type === 'error' && /not signed in/i.test(l.text));
   if (notSigned) {
-    summary.skipped = 'The agent is not signed in on this machine: ' + notSigned.txt;
+    summary.skipped = 'The agent is not signed in on this machine: ' + notSigned.text;
     console.error('NOT RUN: ' + summary.skipped);
     await shot('live-agent-not-signed-in');
-    check('not signed in: the single sentence is shown and the input stays enabled', await ev('!document.getElementById("agentlog-input").disabled') && l1.filter(l => /not signed in/i.test(l.txt)).length === 1, JSON.stringify(l1));
+    check('not signed in: the single sentence is reported once', l1.filter(l => /not signed in/i.test(l.text)).length === 1, JSON.stringify(l1));
     return finish(3);
   }
-  check('turn 1: log has a You line', l1.some(l => l.lab === 'You' && l.txt.startsWith('Remove the cap')), JSON.stringify(l1));
-  check('turn 1: log has an action line (blank label, grey)', l1.some(l => l.lab === '' && /alog-action/.test(l.cls)), JSON.stringify(l1));
-  check('turn 1: log has an Agent line', l1.some(l => l.lab === 'Agent'), JSON.stringify(l1));
+  check('turn 1: the events are the user\'s message with its selection, at least one action and a reply from the agent', l1.some(l => l.type === 'user' && l.text.startsWith('Remove the cap') && l.scope && l.scope.level === 'tile' && l.scope.id === 'units_amc') && l1.some(l => l.type === 'action') && l1.some(l => l.type === 'agent'), JSON.stringify(l1));
+  check('turn 1: nothing of the exchange is drawn in the pane (the conversation is Claude Code\'s, not the app\'s)', await ev(`!document.querySelector('#agentlog-log .alog-line')`));
   let s1 = await S();
   const q1 = s1.graph.q.units_amc;
   await ev(`window.__app.setCentre('code')`); await sleep(500);
@@ -160,7 +159,7 @@ function hashTree(...dirs) {
   await go('#/tile/units_eop');
   const hashBeforeWhatIf = hashTree('src', 'tests', 'cases');
   await say('turn 2', 'What if the closing units deducted the AMC units a second time (opening units plus units allocated, less units_amc twice)? Run a what-if on this tile with that code and show me the effect. Do not change anything.');
-  const l2 = await lines();
+  const l2 = await events();
   const draftLine = await ev(`(()=>{const d=document.querySelector('#agentlog-log .alog-draft'); return d ? {text: d.innerText, nums: d.querySelectorAll('.alog-num').length, buttons: [...d.querySelectorAll('button')].map(b => b.textContent)} : null})()`);
   check('turn 2: a draft line with numbers', draftLine && draftLine.nums >= 1, JSON.stringify(l2));
   check('turn 2: what-if buttons are Apply draft and Discard', draftLine && draftLine.buttons.join('|') === 'Apply draft|Discard', JSON.stringify(draftLine));
@@ -178,31 +177,35 @@ function hashTree(...dirs) {
 
   // ------------------------------------------------------------ 3. a module draft (or a question), then Accept
   await go('#/module/unit_projection');
-  check('module placeholder is a real example', await ev('document.getElementById("agentlog-input").placeholder') === 'Add a surrender charge that falls to zero over five years');
   const hash3 = hashTree('src', 'tests', 'cases');
-  const qBefore = await ev(`document.querySelectorAll('#agentlog-log .alog-question').length`), dBefore = await ev(`document.querySelectorAll('#agentlog-log .alog-draft button[data-act="accept"]').length`);
+  const draftsNow = async () => ((await S()).drafts || []).filter(d => d.kind !== 'what_if').length;
+  const agentSaid = async () => (await events()).filter(e => e.type === 'agent').length;
+  const dBefore = await draftsNow(), aBefore = await agentSaid();
   await say('turn 3', 'Add a tile for a surrender charge in units: a starting percentage of the units after allocation, falling to zero over five years. The starting percentage is a new parameter.');
-  let hasDraft = await ev(`document.querySelectorAll('#agentlog-log .alog-draft button[data-act="accept"]').length > ${dBefore}`);
-  let hasQuestion = await ev(`document.querySelectorAll('#agentlog-log .alog-question').length > ${qBefore}`);
-  check('turn 3: a question or a draft appears', hasDraft || hasQuestion, await logText());
+  let hasDraft = (await draftsNow()) > dBefore;
+  const hasQuestion = !hasDraft && (await agentSaid()) > aBefore;      // with no question form here, the agent asks in words
+  check('turn 3: a draft appears, or the agent asks in words', hasDraft || hasQuestion, await logText());
   check('turn 3: nothing is written before accepting', hashTree('src', 'tests', 'cases') === hash3);
   if (!hasDraft) {
     await shot('live-agent-question');
-    await toggleSide('hideright');
-    check('turn 3: with the chat collapsed, the strip says "question" while it waits', (await stripWord()) === 'Chat question', await stripWord());
-    await toggleSide('rightstrip');
     await say('turn 3b', 'No new parameter. Propose the tile as a draft now with propose_structure: name surrender_charge_units, arguments units_after_alloc and amc_pm only, spec: units after allocation times the monthly rate, as a placeholder until the real rate is agreed.');
-    hasDraft = await ev(`document.querySelectorAll('#agentlog-log .alog-draft button[data-act="accept"]').length > ${dBefore}`);
+    hasDraft = (await draftsNow()) > dBefore;
     check('turn 3b: a draft appears', hasDraft, await logText());
     check('turn 3b: nothing is written before accepting', hashTree('src', 'tests', 'cases') === hash3);
   }
   if (hasDraft) {
-    check('structure draft buttons are Accept and Discard', await ev(`[...[...document.querySelectorAll('#agentlog-log .alog-draft')].pop().querySelectorAll('button')].map(b => b.textContent).join('|')`) === 'Accept|Discard');
+    check('the draft opens in the centre (Draft to approve) with Accept draft and Discard, and is not a card in the bar', await waitFor(`!document.getElementById('seg-draft').hidden && !!document.getElementById('draftview')`, 15000) && await ev(`[...document.querySelectorAll('[data-dv]')].map(b => b.textContent).join('|')`) === 'Accept draft|Discard' && await ev(`!document.querySelector('#agentlog-log .alog-draft')`));
     check('proposed tiles are drawn on the tile strip, dotted and labelled "proposed"', await waitFor(`[...document.querySelectorAll('#tiles .t.notbuilt')].some(t => t.innerText.includes('proposed'))`, 10000));
     check('proposed boxes on the strip are not links, and the left bar has no map', await ev(`[...document.querySelectorAll('#tiles .t')].filter(t => t.innerText.includes('proposed')).every(t => t.tagName !== 'A') && !document.querySelector('#panel svg.map')`));
     await shot('live-agent-module-draft');
-    await ev(`document.querySelector('#agentlog-log .alog-draft button[data-act="accept"]').click()`);
-    check('Accept replaces the buttons with "Accepted."', await waitFor(`[...document.querySelectorAll('#agentlog-log .alog-draft')].some(d => !d.querySelector('button') && d.innerText.includes('Accepted.'))`, 60000), await logText());
+    // (the agent may have proposed a parameter draft as well as the tiles draft: accept each in turn, oldest first)
+    for (let i = 0; i < 3 && (await draftsNow()) > 0; i++) {
+      const left = await draftsNow();
+      await ev(`document.querySelector('[data-dv="accept"]').click()`);
+      await waitFor(`window.__app.S.drafts.filter(d => d.kind !== 'what_if').length < ${left} || !!(document.getElementById('dv-error') || { textContent: '' }).textContent`, 120000);
+      await idle();
+    }
+    check('Accept draft applies the draft and the Draft to approve tab goes', (await draftsNow()) === 0 && await ev(`document.getElementById('seg-draft').hidden`), await ev(`(document.getElementById('dv-error') || { textContent: '' }).textContent`) + ' | ' + await logText());
     await idle();
     check('accepted: files written', hashTree('src', 'tests', 'cases') !== hash3);
     check('accepted: a not-built tile is on the strip, dotted, labelled "not built"', await waitFor(`[...document.querySelectorAll('#tiles a.t.notbuilt')].some(t => t.innerText.includes('not built'))`, 30000), await ev('document.getElementById("left").innerText.slice(0,600)'));
@@ -256,7 +259,7 @@ function hashTree(...dirs) {
     const names = (await g.execute('sheet.read', { range: letter(col) + '1:' + letter(col) + m[2] })).values.map(r => r[0]);
     const r = names.indexOf('units_eop') + 1;
     const f = (await g.execute('sheet.read', { range: 'C' + r, formulas: true })).values[0][0];
-    return { sheet: sh.name, row: r, formula: f };
+    return { sheet: sh.name, row: r, formula: f, names };
   }`);
   check('turn 5: found the formula row', row && row.row > 0 && String(row.formula).startsWith('='), JSON.stringify(row));
   const typed = '=MAX(0,' + String(row.formula).slice(1) + ')';
@@ -266,27 +269,26 @@ function hashTree(...dirs) {
   await shot('live-agent-formula-line');
   await sleep(3500);
   check('turn 5: the typed formula was not saved to the workbook', hashTree('review/tiles/units_eop') === hash5);
-  const before5 = await doneCount();
-  await click('usespec');
-  const ok5 = await waitFor(`window.__ev.filter(e => e.type === "done").length > ${before5}`, 150000);
-  await idle();
+  // In the app "Use it as the spec" types its request into Claude Code. Here the typed formula goes to the agent with
+  // the UI-less call, carrying what the line knows: the formula, its cell, the case on show and the sheet's row map.
+  await click('undospec');
+  check('turn 5: Undo puts the sheet back and the line above it goes', await waitFor('document.getElementById("sheetbar").hidden', 20000));
+  const rows5 = Object.fromEntries(row.names.map((n, i) => [String(i + 1), n]).filter(([, n]) => typeof n === 'string' && /^[A-Za-z_][A-Za-z0-9_]*$/.test(n)));
+  const case5 = await ev(`(window.__app.S.cases.find(c => (c.name || c.id) === ${JSON.stringify(row.sheet)}) || {}).id || null`);
+  const ok5 = await say('turn 5', 'Use the typed formula as the spec.', 150000, { formula: typed, cell: 'C' + row.row, rows: rows5, ...(case5 ? { case: case5 } : {}) });
   const userEv = await ev('window.__ev.filter(e => e.type === "user" && e.text === "Use the typed formula as the spec.").slice(-1)[0]');
-  const done5 = await ev('window.__ev.filter(e => e.type === "done").slice(-1)[0]');
-  summary.turns.push({ label: 'turn 5', cost_usd: done5 && done5.cost_usd, num_turns: done5 && done5.num_turns });
   check('turn 5: the turn ran', ok5, await logText());
   check('turn 5: the event carries the formula, cell, case and row map', userEv && userEv.extra && userEv.extra.formula === typed && userEv.extra.cell === 'C' + row.row && !!userEv.extra.case && userEv.extra.rows && Object.values(userEv.extra.rows).includes('units_eop'), JSON.stringify(userEv));
-  check('turn 5: "Use the typed formula as the spec." is in the log', (await logText()).includes('Use the typed formula as the spec.'));
-  check('turn 5: the line above the sheet is gone', await ev('document.getElementById("sheetbar").hidden'));
   await shot('live-agent-formula-turn');
 
-  // ------------------------------------------------------------ 5b. sign-off through the chat: the card, and only its button records it
+  // ------------------------------------------------------------ 5b. a sign-off the agent asks for: the card above the terminal, and only its button records it
   await go('#/tile/deaths');
   const stD = (await S()).tiles.deaths;
   if (stD.state !== 'signed_off' && (stD.workbook_current === false || ['stale', 'unbuilt'].includes(stD.state))) { await click('rebuild'); await sleep(500); await idle(); }
   const hashSo = hashTree('src', 'tests', 'cases');
   await say('chat sign-off', "I'm happy with this tile, sign it off.");
   const cardUp = await waitFor(`!!document.querySelector('#agentlog-log .alog-card button[data-act="signoff"]')`, 20000);
-  check('chat sign-off: a sign-off card appears in the log', cardUp, await logText());
+  check('chat sign-off: a sign-off card appears above the terminal', cardUp && await ev(`(()=>{const c=[...document.querySelectorAll('#agentlog-log .alog-card')].pop().getBoundingClientRect(), t=document.getElementById('termhost').getBoundingClientRect(); return c.bottom<=t.top+1})()`), await logText());
   if (cardUp) {
     const info = await ev(`(()=>{const c=[...document.querySelectorAll('#agentlog-log .alog-card')].pop(); return {text:c.innerText, boxes:c.querySelectorAll('input.assume').length, disabled:c.querySelector('button[data-act=signoff]').disabled, title:c.querySelector('button[data-act=signoff]').title, buttons:[...c.querySelectorAll('button')].map(b=>b.textContent).join('|'), reviewer:c.querySelector('[data-f=reviewer]').value}})()`);
     check('chat sign-off: the card shows the tile, its formula, assumptions and cases, and the buttons Sign off / Not now', /deaths/.test(info.text) && info.buttons === 'Sign off|Not now' && /agrees|differs/.test(info.text), info.text);
@@ -308,28 +310,13 @@ function hashTree(...dirs) {
     }
   }
 
-  // ------------------------------------------------------------ 6. one conversation for the whole model
-  const hist = await lines();
-  await go('#/model');
-  check('model view: the same conversation is in the log (one per model) and the model placeholder is shown', (await lines()).length === hist.length && await ev('document.getElementById("agentlog-input").placeholder') === 'Add a module for surrender values after cashflows', JSON.stringify([hist.length, (await lines()).length]));
-  const want = await expectedDividers(), got = await dividers();
-  check('dividers name each selection when it changed between messages', want.length >= 3 && JSON.stringify(got) === JSON.stringify(want), JSON.stringify({ want, got }));
-  check('conversation covers tiles and a module in one log', hist.filter(l => l.lab === 'You').length >= 5, JSON.stringify(hist.map(l => l.lab)));
-  await go('#/tile/units_eop');
-  await sleep(500);
-  const hist2 = await lines();
-  check('the conversation is unchanged on another selection', hist2.length === hist.length && hist2.length >= 4 && hist2.some(l => l.lab === 'You'), `${hist.length} vs ${hist2.length}`);
-  check('starters are gone once there is a conversation', await ev(`document.getElementById('starters').hidden`));
-  await shot('live-agent-history');
-  if (wholeHistory) {
-    await ev('window.__old = true'); win.webContents.reload();
-    await sleep(500); await waitFor('!window.__old && window.__app && window.__app.ready', 30000); await idle();
-    check('after a reload the whole conversation is back, dividers included', (await lines()).length === hist.length && JSON.stringify(await dividers()) === JSON.stringify(want), JSON.stringify([await lines().then(x => x.length), await dividers()]));
-  } else summary.not_verified = (summary.not_verified || []).concat('whole-conversation history after a reload: the backend has no history() without a scope yet (fallback to the selection history was used)');
+  // ------------------------------------------------------------ 6. the record: each turn is in the audit trail of its selection
+  const trail = rel => { try { return fs.readFileSync(path.join(copy, 'review', rel, 'log.jsonl'), 'utf8'); } catch { return ''; } };
+  check('each turn is filed in the audit trail of what was selected (review/.../log.jsonl)', trail('tiles/units_amc').includes('Remove the cap') && trail('modules/unit_projection').includes('surrender charge') && trail('tiles/deaths').includes('sign it off'), JSON.stringify([trail('tiles/units_amc').length, trail('modules/unit_projection').length, trail('tiles/deaths').length]));
+  check('the app keeps no transcript of its own: no review/model/chat.jsonl and no review/model/chats', !fs.existsSync(path.join(copy, 'review/model/chat.jsonl')) && !fs.existsSync(path.join(copy, 'review/model/chats')));
 
   // ------------------------------------------------------------ 6b. "Commit this": the chat commits locally and never pushes
   await go('#/model');
-  await ev('if (!window.__ev) { window.__ev = []; window.api.agent.onEvent(e => window.__ev.push(e)); } true');   // the reload above dropped the listener
   git(copy, 'init', '-b', 'main'); git(copy, 'add', '-A'); git(copy, 'commit', '-m', 'Baseline');
   fs.writeFileSync(path.join(copy, 'notes.txt'), 'Reviewer notes from the AMC cap discussion.\n');
   const headBefore = git(copy, 'rev-parse', 'HEAD');
@@ -358,12 +345,11 @@ function hashTree(...dirs) {
     await ev('window.__ev = []; window.api.agent.onEvent(e => window.__ev.push(e)); true');
     const PRE = 'Scaffold this model with me. Ask me what you need to know.';
     check('new model: the model view shows the new model with an empty map message, no second row of tabs', await waitFor(`document.getElementById('title') && document.getElementById('title').textContent.includes('Fresh model') && !!document.getElementById('nomodules') && document.getElementById('tiles').hidden`, 30000), await ev('document.getElementById("left").innerText.slice(0, 400)'));
-    check('new model: the chat input holds "Scaffold this model with me. Ask me what you need to know." and the conversation is empty', await ev('document.getElementById("agentlog-input").value') === PRE && (await lines()).length === 0, await ev('document.getElementById("agentlog-input").value'));
-    check('new model: the chat starters for the model are offered', await ev(`!document.getElementById('starters').hidden`));
+    check('new model: the scaffolding request is typed at Claude Code\'s prompt (the stand-in) and not sent, and no card waits', await waitFor(`document.getElementById('termhost').innerText.replace(/\\s+/g, '').includes(${JSON.stringify(PRE.replace(/\s+/g, ''))})`, 30000) && !pane.records().some(r => r.command) && await ev(`!document.querySelector('#agentlog-log .alog-line')`), await ev(`document.getElementById('termhost').innerText.slice(0, 300)`));
     await shot('live-agent-new-model');
     const okS = await say('scaffold', PRE);
-    const ln = await lines();
-    check('new model: one scaffolding message gets a reply in the chat (an Agent line or a question) and no error line', okS && ln.some(l => l.lab === 'You' && l.txt === PRE) && ln.some(l => l.lab === 'Agent') && !ln.some(l => /^Could not/.test(l.txt)), JSON.stringify(ln));
+    const ln = await events();
+    check('new model: one scaffolding message gets a reply (the agent asks its questions in words) and no error', okS && ln.some(l => l.type === 'user' && l.text === PRE) && ln.some(l => l.type === 'agent') && !ln.some(l => l.type === 'error'), JSON.stringify(ln));
     await shot('live-agent-new-model-reply');
   }
 

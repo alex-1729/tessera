@@ -1,7 +1,7 @@
 'use strict';
-// The model's one conversation (review/model/chat.jsonl: every event in order, with its scope, and the
-// session id), the per-scope audit trails (review/.../log.jsonl), drafts (review/drafts/<id>.json) and
-// sign-off requests (review/requests/<id>.json).
+// The per-scope audit trails (review/.../log.jsonl), drafts (review/drafts/<id>.json) and sign-off and push requests
+// (review/requests/<id>.json). A model made with an earlier version may also hold review/model/chat.jsonl and
+// review/model/chats/ (the transcripts of the app's old built-in chat): nothing here reads or writes them.
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -53,102 +53,9 @@ function readJsonl(file) {
   return out;
 }
 
-// ---------------------------------------------------------------- the model's conversation
-
-function chatPath(modelDir) {
-  return path.join(modelDir, 'review', 'model', 'chat.jsonl');
-}
-
-function appendChat(modelDir, entry) {
-  const file = chatPath(modelDir);
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.appendFileSync(file, JSON.stringify(entry) + '\n');
-}
-
-function readChat(modelDir) {
-  return readJsonl(chatPath(modelDir));
-}
-
-// An event goes into the conversation and into its scope's audit trail.
+// An event is filed in its scope's audit trail.
 function appendEvent(modelDir, scope, event) {
-  appendChat(modelDir, event);
   appendLog(modelDir, scope, event);
-}
-
-// The conversation's last session id; a `session` entry with a null id starts a new one.
-// Without chat.jsonl there is no session yet (old per-scope sessions are not resumed).
-function lastSession(modelDir) {
-  const entries = readChat(modelDir).filter(e => e.type === 'session');
-  return entries.length ? entries[entries.length - 1].session_id || null : null;
-}
-
-// ---------------------------------------------------------------- earlier conversations
-// The conversation on show is chat.jsonl. Starting a new one moves it to review/model/chats/<id>.jsonl; opening an
-// earlier one swaps the two. The folder ignores itself in git (transcripts stay out of the model's repository).
-
-const CHAT_ID = /^c\d{14}-[0-9a-f]{6}$/;
-
-function chatsDir(modelDir) {
-  return path.join(modelDir, 'review', 'model', 'chats');
-}
-
-function archivedChatPath(modelDir, id) {
-  if (typeof id !== 'string' || !CHAT_ID.test(id)) throw new Error('Unknown conversation.');
-  return path.join(chatsDir(modelDir), id + '.jsonl');
-}
-
-function chatSummary(entries) {
-  const said = entries.filter(e => e.type === 'user' || e.type === 'agent' || e.type === 'question');
-  const first = entries.find(e => e.type === 'user' && e.text) || said.find(e => e.text) || null;
-  const line = first ? String(first.text).split('\n').find(l => l.trim()) || '' : '';
-  const ats = entries.map(e => e.at).filter(Boolean);
-  return { title: line.trim().slice(0, 80) || 'Conversation', started: ats[0] || null, last: ats[ats.length - 1] || null, messages: said.length };
-}
-
-// Move the conversation on show into the folder of earlier ones. Returns its id, or null when it was empty.
-function archiveChat(modelDir) {
-  const file = chatPath(modelDir);
-  const entries = readChat(modelDir);
-  if (!entries.some(e => e.type !== 'session')) { try { fs.unlinkSync(file); } catch { /* none */ } return null; }
-  const dir = chatsDir(modelDir);
-  fs.mkdirSync(dir, { recursive: true });
-  const ignore = path.join(dir, '.gitignore');
-  if (!fs.existsSync(ignore)) fs.writeFileSync(ignore, '*\n');
-  const at = entries.map(e => e.at).find(Boolean) || now();
-  const id = `c${String(at).replace(/[-:TZ.]/g, '').slice(0, 14).padEnd(14, '0')}-${crypto.randomBytes(3).toString('hex')}`;
-  fs.renameSync(file, archivedChatPath(modelDir, id));
-  return id;
-}
-
-function restoreChat(modelDir, id) {
-  const from = archivedChatPath(modelDir, id);
-  if (!fs.existsSync(from)) throw new Error('That conversation is no longer there.');
-  archiveChat(modelDir);
-  fs.mkdirSync(path.dirname(chatPath(modelDir)), { recursive: true });
-  fs.renameSync(from, chatPath(modelDir));
-}
-
-function deleteChat(modelDir, id) {
-  const file = id === 'current' ? chatPath(modelDir) : archivedChatPath(modelDir, id);
-  if (!fs.existsSync(file)) { if (id === 'current') return; throw new Error('That conversation is no longer there.'); }
-  fs.unlinkSync(file);
-}
-
-// The conversation on show first (when it has anything in it), then the earlier ones, newest first.
-function listChats(modelDir) {
-  const out = [];
-  const cur = readChat(modelDir);
-  if (cur.some(e => e.type !== 'session')) out.push({ id: 'current', current: true, ...chatSummary(cur) });
-  let names = [];
-  try { names = fs.readdirSync(chatsDir(modelDir)); } catch { /* none yet */ }
-  const old = [];
-  for (const n of names) {
-    const id = n.replace(/\.jsonl$/, '');
-    if (!n.endsWith('.jsonl') || !CHAT_ID.test(id)) continue;
-    old.push({ id, current: false, ...chatSummary(readJsonl(path.join(chatsDir(modelDir), n))) });
-  }
-  old.sort((a, b) => String(b.last || b.id).localeCompare(String(a.last || a.id)));
-  return out.concat(old);
 }
 
 // ---------------------------------------------------------------- sign-off requests
@@ -230,8 +137,7 @@ function listDrafts(modelDir) {
 }
 
 module.exports = {
-  now, checkScope, scopeKey, logPath, appendLog, readLog, lastSession,
-  chatPath, appendChat, readChat, appendEvent, listChats, archiveChat, restoreChat, deleteChat,
+  now, checkScope, scopeKey, logPath, appendLog, readLog, appendEvent,
   newDraftId, saveDraft, loadDraft, listDrafts, draftPath,
   newRequestId, saveRequest, loadRequest, listRequests, requestPath,
 };

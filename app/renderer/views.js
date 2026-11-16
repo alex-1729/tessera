@@ -259,7 +259,7 @@ export function moduleView(ctx, id) {
           if (lines.length) ctx.S.notice = 'Not re-confirmed:\n' + lines.join('\n');
         });
       } }, `Re-confirm values-only (${reconf.length})`),
-      ...(notBuilt.length && window.api.agent ? [h('button', { type: 'button', id: 'buildnotbuilt', disabled: busy, onclick: () => agent.buildModule(id) }, `Build not-built tiles (${notBuilt.length})`)] : []),
+      ...(notBuilt.length && agent.canType() ? [h('button', { type: 'button', id: 'buildnotbuilt', disabled: busy, onclick: () => agent.buildModule(id) }, `Build not-built tiles (${notBuilt.length})`)] : []),
     ],
     run: v => ctx.act(() => window.api.tk('signoff', ['--module', id, '--reviewer', v.reviewer, '--comment', v.comment])),
   });

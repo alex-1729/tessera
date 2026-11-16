@@ -1,145 +1,87 @@
-// The chat: the right bar. ONE conversation per model: the log shows every exchange, newest at the bottom, with a thin
-// divider naming the selection (a tile, a module, the model) whenever it changes between messages. The input is pinned
-// at the bottom. Every message is sent with the current selection as its scope. Views call mount(scope) when they render.
+// The right bar: Claude Code in a terminal (terminal.js) and, above it, the cards that need the reviewer's own click:
+// sign-off requests, re-confirm requests, push requests and what-if drafts. The conversation is Claude Code's own; the
+// app has no chat of its own. Other drafts are approved in the centre pane (the Draft to approve tab, draftview.js).
+// Views call mount(scope) when they render: the selection is what the next message typed in the pane is about.
 // scope: {level: 'model' | 'module' | 'tile', id}
 import { h, fmtNumber, plainFormula } from './util.js';
-import { markdown } from './markdown.js';
 import { formDialog } from './dialog.js';
 import * as terminal from './terminal.js';
 
 const agentApi = () => (window.api && window.api.agent) || null;
+// Claude Code runs in the pane whenever the open model has a real agent. It does not in fixtures mode, or when a test
+// passes a stand-in agent: the pane then shows the cards (if any) and one line saying so.
+const RUNS = terminal.available();
 
 export const logEl = h('div', { class: 'agentlog-log', id: 'agentlog-log' });
-export const inputEl = h('textarea', { class: 'agentlog-input', id: 'agentlog-input', rows: 2, autocomplete: 'off', maxlength: 8000, 'aria-label': 'Message to the agent' });
-const stopEl = h('button', { type: 'button', id: 'agentlog-stop', class: 'agent-stop', hidden: true, onclick: () => stop() }, 'Stop');
-const workingEl = h('div', { class: 'alog-line alog-working', id: 'agentlog-working' }, h('span', { class: 'alog-lab' }), h('span', { class: 'alog-txt grey' }, 'Working…'));
-const startersEl = h('div', { class: 'starters', id: 'starters' });
-const noneEl = h('div', { id: 'chatnone', hidden: true }, 'The agent is not available in this mode.');
-// New conversation and the list of earlier ones; shown when the agent keeps conversations.
-const newEl = h('button', { type: 'button', class: 'linkbtn', id: 'chatnew', onclick: () => newConversation() }, 'New conversation');
-const listEl = h('button', { type: 'button', class: 'linkbtn', id: 'chatlist', onclick: () => conversationsDialog() }, 'Conversations…');
-const topEl = h('div', { class: 'agentlog-top', id: 'agentlog-top', hidden: true }, newEl, listEl);
-// With Claude Code in the pane (terminal mode) the conversation is in the terminal; the log above it holds only the
-// cards that need a click (drafts, sign-off and push requests), and the app's own input is not shown.
-const TERM = terminal.available();
 // Above the terminal: Claude Code's own commands for a new conversation and for the earlier ones.
 const termTop = h('div', { class: 'agentlog-top', id: 'term-top' },
   h('button', { type: 'button', class: 'linkbtn', id: 'termnew', title: 'Types /clear', onclick: () => terminal.type('/clear', true) }, 'New conversation'),
   h('button', { type: 'button', class: 'linkbtn', id: 'termresume', onclick: () => conversationsDialog() }, 'Conversations…'));
+const noneEl = h('p', { class: 'grey', id: 'termnone' }, 'Claude Code is not running in this mode.');
 // A card stays while it waits for a click; a few seconds after it is settled (applied, discarded, signed, declined) it goes.
-if (TERM) new MutationObserver(() => setTimeout(() => {
-  for (const l of logEl.querySelectorAll('.alog-line')) if (!l.querySelector('button[data-act]')) l.remove();
-}, 4000)).observe(logEl, { childList: true, subtree: true });
-export const section = h('section', { class: 'agentlog' + (TERM ? ' termmode' : ''), id: 'agentlog', hidden: !agentApi() },
-  topEl, logEl, TERM ? termTop : null, TERM ? terminal.el : null, h('div', { class: 'agentlog-bottom' }, startersEl, h('div', { class: 'agentlog-row' }, inputEl, stopEl)));
-export const unavailable = noneEl;
+const going = new WeakSet();
+new MutationObserver(() => {
+  for (const l of logEl.querySelectorAll('.alog-line')) {
+    if (going.has(l) || l.querySelector('button[data-act]')) continue;
+    going.add(l); setTimeout(() => l.remove(), 4000);
+  }
+}).observe(logEl, { childList: true, subtree: true });
+export const section = h('section', { class: 'agentlog', id: 'agentlog' }, logEl, ...(RUNS ? [termTop, terminal.el] : [noneEl]));
 
-// What in the conversation needs the reviewer: a sign-off card or a draft with its buttons still showing, or a
-// question nobody has answered. Shown on the right strip when the chat is collapsed.
+// What in the pane needs the reviewer: a sign-off or push card, or a what-if draft, with its buttons still showing.
+// Shown on the right strip when the bar is collapsed.
 export function attention() {
-  if (!agentApi()) return null;
   if (logEl.querySelector('.alog-card button[data-act]')) return 'confirm';
   if (logEl.querySelector('.alog-draft button[data-act]')) return 'draft';
-  // a question waits while nothing from the reviewer comes after it (the agent may add lines of its own after asking)
-  const lines = [...logEl.querySelectorAll('.alog-line:not(.alog-working)')];
-  for (let i = lines.length - 1; i >= 0; i--) {
-    if (lines[i].classList.contains('alog-question')) return 'question';
-    if (lines[i].querySelector('.alog-lab').textContent === 'You') return null;
-  }
   return null;
 }
 export function onLogChange(fn) { new MutationObserver(fn).observe(logEl, { childList: true, subtree: true }); }
 
-const PLACEHOLDER = {
-  tile: 'Cap the charge at 1.00 unit a month',
-  module: 'Add a surrender charge that falls to zero over five years',
-  model: 'Add a module for surrender values after cashflows',
-};
-const STARTERS = {
-  tile: ['What does this tile do?', 'Why does it change in month 37?', 'Sign this off'],
-  module: ['Build the tiles that are not built', 'What is left to review here?'],
-  model: ['What is left to review?', 'Add a module'],
-};
-
 let current = null, loading = null, loaded = false;
-let busy = false, building = false;
-let hooks = { afterTurn: async () => {}, onBusy: () => {}, draftsChanged: async () => {}, titleOf: s => (s.level === 'model' ? 'Model' : s.id), reviewer: async () => '' };
+let busy = false;
+let hooks = { afterTurn: async () => {}, onBusy: () => {}, draftsChanged: async () => {}, reviewer: async () => '' };
 let subscribed = false;
-let lastKey = null;          // selection of the last message drawn, for the dividers
-let shown = 0;               // events drawn
-
-const keyOf = s => (s && s.level !== 'model' ? s.level + ':' + s.id : 'model');
 
 // app.js supplies: afterTurn() refreshes graph and status after a turn or a draft; onBusy() re-renders the views;
-// titleOf(scope) names a selection for a divider; reviewer() is the prefilled name on a sign-off card.
+// reviewer() is the prefilled name on a sign-off card; queueMark() and queueAdvance() move on in the review queue.
 export function configure(h2) { hooks = { ...hooks, ...h2 }; }
 export const isBusy = () => busy;
 // What the agent is working on right now ({level, id}), or null: the selection its running turn was sent with.
 let busyScope = null;
 export const workingOn = () => (busy ? busyScope : null);
 export const currentScope = () => current;
-
-function paintStarters() {
-  const empty = shown === 0 && !loading;
-  startersEl.hidden = !empty;
-  if (!empty || !current) { startersEl.replaceChildren(); return; }
-  startersEl.replaceChildren(...(STARTERS[current.level] || []).map(t =>
-    h('a', { href: '#', 'data-starter': t, onclick: e => { e.preventDefault(); inputEl.value = t; autosize(); inputEl.focus(); } }, t)));
-}
+// Whether there is a Claude Code to type into (the buttons that ask the agent for something need one).
+export const canType = () => RUNS;
 
 export function mount(scope) {
-  if (!agentApi()) { section.hidden = true; noneEl.hidden = false; return; }
-  section.hidden = false; noneEl.hidden = true;
-  inputEl.placeholder = PLACEHOLDER[scope.level] || '';
   current = scope;
-  if (TERM) { void window.api.term.select(scope).catch(() => {}); queueMicrotask(() => terminal.show()); }
+  if (RUNS) { void window.api.term.select(scope).catch(() => {}); queueMicrotask(() => terminal.show()); }
+  if (!agentApi()) return;
   if (!subscribed) { subscribed = true; agentApi().onEvent(onEvent); void refreshBusy(); }
   if (!loaded) { loaded = true; load(); }
-  paintStarters();
 }
 
-// Views are rebuilt on every render; keep the focus and scroll position of the log.
+// Views are rebuilt on every render; keep the scroll position of the cards.
 export function saveView() {
-  return { focus: document.activeElement === inputEl, top: logEl.scrollTop, bottom: logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 8 };
+  return { top: logEl.scrollTop, bottom: logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 8 };
 }
 export function restoreView(v) {
   if (!v) return;
   logEl.scrollTop = v.bottom ? logEl.scrollHeight : v.top;
-  if (v.focus && !inputEl.disabled) inputEl.focus();
 }
-export function prefill(text) { if (TERM) { terminal.type(text, false); return; } inputEl.value = text; autosize(); }
-
-// The input grows from two rows to about six.
-function autosize() {
-  inputEl.style.height = 'auto';
-  inputEl.style.height = Math.min(inputEl.scrollHeight + 2, 9.6 * 13 * 1.0 + 24) + 'px';
-}
+// Type text at Claude Code's prompt without sending it.
+export function prefill(text) { if (RUNS) terminal.type(text, false); }
 
 // ---------------------------------------------------------------- rendering
 
-function line(label, text, cls, ev) {
-  const e = h('div', { class: 'alog-line ' + (cls || ''), ...(ev && ev.at ? { title: new Date(ev.at).toLocaleString() } : {}) },
-    h('span', { class: 'alog-lab' }, label), h('span', { class: 'alog-txt' }, text));
-  return e;
+function line(text, cls, ev) {
+  return h('div', { class: 'alog-line ' + (cls || ''), ...(ev && ev.at ? { title: new Date(ev.at).toLocaleString() } : {}) }, h('span', { class: 'alog-txt' }, text));
 }
-
-// What was said is drawn as a speech bubble: the reviewer's on the right, the agent's on the left.
-function bubble(e) { e.querySelector('.alog-txt').classList.add('alog-bubble'); return e; }
 
 function append(node) {
   const atBottom = logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 24;
   logEl.append(node);
-  paintWorking();
   if (atBottom) logEl.scrollTop = logEl.scrollHeight;
-}
-
-function paintWorking() {
-  if (TERM) { workingEl.remove(); return; }
-  if (busy) { logEl.append(workingEl); logEl.scrollTop = logEl.scrollHeight; }
-  else workingEl.remove();
-  inputEl.disabled = busy;
-  newEl.disabled = busy || shown === 0; listEl.disabled = busy;
-  stopEl.hidden = !busy;
 }
 
 const lower = t => (/^The agent is not signed in/.test(t) ? t : t.charAt(0).toLowerCase() + t.slice(1));
@@ -166,58 +108,23 @@ export function whatIfLines(result) {
   });
 }
 
-// A default shown the way the workbook will show it: percentages as percentages, amounts with two decimals.
-function draftValue(v, format) {
-  if (typeof v !== 'number') return v === undefined || v === null ? '' : String(v);
-  if (format === 'percent' || format === 'rate' || format === 'irr') return (v * 100).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 4 }) + '%';
-  if (format === 'amount') return v.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  if (format === 'integer') return v.toLocaleString('en-GB', { maximumFractionDigits: 0 });
-  return fmtNumber(v);
-}
-
-// What a draft would add or change, as a small table: what it is called in words, its name in the code, and its
-// default, layer or units where it has one. A line of purpose or formula goes under the row it belongs to.
-function draftItems(d) {
-  const items = d.items || [];
-  const rows = [];
-  for (const it of items) {
-    if (typeof it === 'string') { rows.push(h('tr', { class: 'draftitem' }, h('td', { colspan: '3' }, it))); continue; }
-    const name = it.id && it.name && it.id !== it.name ? it.id : (it.name || it.id || it.table || '');
-    const words = it.label || it.title || (it.id && it.name && it.id !== it.name ? it.name : '') || it.purpose || '';
-    const value = it.default !== undefined && it.default !== null ? draftValue(it.default, it.format)
-      : it.example !== undefined && it.example !== null ? draftValue(it.example, it.format) : '';
-    const aside = value !== '' ? h('td', { class: 'dval' }, value) : h('td', { class: 'dside' }, it.layer || it.units || (it.columns ? `${it.columns.length} columns` : '') || it.type || '');
-    if (!name && !words) continue;
-    rows.push(h('tr', { class: 'draftitem' }, h('td', { class: 'dwords' }, words || name), h('td', { class: 'dname' }, words ? name : ''), aside));
-    const more = it.formula || it.expression || (it.label || it.title ? it.purpose : '') || it.spec || it.description || '';
-    if (more) rows.push(h('tr', { class: 'draftmore' }, h('td', { colspan: '3' }, String(more))));
-  }
-  if (!rows.length) return [];
-  const head = { tiles: 'Tiles to add', modules: 'Modules to add', params: 'Parameters to add', inputs: 'Inputs to add', cases: 'Cases to add', module_test: 'Module test' }[d.kind] || 'Changes';
-  return [h('div', { class: 'draftlist' }, h('div', { class: 'cardsec' }, head + (d.module ? ` (in ${d.module})` : '')), h('table', { class: 'drafttable' }, h('tbody', {}, rows)))];
-}
-
+// A what-if draft: what it would change, with Apply draft (code changes only) and Discard.
 function draftLine(ev, status) {
   const d = ev.draft || {};
-  const isWhatIf = d.kind === 'what_if';
-  const applyWord = isWhatIf ? 'Applied.' : 'Accepted.';
   const done = h('div', { class: 'alog-done' });
   const buttons = h('div', { class: 'alog-btns' });
   const errors = h('div', {});
   const setDone = word => { buttons.remove(); done.textContent = word; };
-  const canApply = !isWhatIf || !!(d.items && d.items[0] && d.items[0].code);
-  const slow = ['params', 'inputs', 'cases'].includes(d.kind);   // these rebuild stale workbooks: about ten seconds
+  const canApply = !!(d.items && d.items[0] && d.items[0].code);
   const yes = h('button', { type: 'button', class: 'small', 'data-act': 'accept', onclick: async () => {
     yes.disabled = no.disabled = true; errors.replaceChildren();
-    if (slow) done.textContent = 'Working…';
     try {
       const r = await agentApi().acceptDraft(d.id);
-      if (r && r.accepted) { setDone(applyWord); await hooks.afterTurn(); return; }
+      if (r && r.accepted) { setDone('Applied.'); await hooks.afterTurn(); return; }
     } catch (e) { errors.replaceChildren(h('div', { class: 'grey' }, couldNot(e.message))); }
-    done.textContent = '';
     yes.disabled = no.disabled = false;
     await hooks.afterTurn();
-  } }, isWhatIf ? 'Apply draft' : 'Accept');
+  } }, 'Apply draft');
   const no = h('button', { type: 'button', class: 'small', 'data-act': 'discard', onclick: async () => {
     yes.disabled = no.disabled = true; errors.replaceChildren();
     try { await agentApi().discardDraft(d.id); setDone('Discarded.'); await hooks.afterTurn(); return; }
@@ -225,21 +132,16 @@ function draftLine(ev, status) {
     yes.disabled = no.disabled = false;
   } }, 'Discard');
   buttons.append(...(canApply ? [yes] : []), no);
-  const lead = isWhatIf ? ev.text : String(ev.text || '').replace(/^Draft:\s*/i, '').replace(/\s*\([^)]*\)\s*(?=\.?$)/, '').replace(/^./, c => c.toUpperCase());
-  const body = [h('div', { class: 'draftlead' }, lead)];
-  if (isWhatIf && d.result) body.push(...whatIfLines(d.result).map(t => h('div', { class: 'alog-num' }, t)));
-  if (!isWhatIf) body.push(...draftItems(d));
-  if (!isWhatIf && (d.warnings || []).length) body.push(...d.warnings.map(w => h('div', { class: 'grey' }, w)));
-  if (status === 'accepted') body.push(h('div', { class: 'alog-done' }, applyWord));
-  else if (status === 'discarded') body.push(h('div', { class: 'alog-done' }, 'Discarded.'));
-  else if (status === 'proposed') body.push(buttons, done, errors);
-  const e = line('Agent', '', 'alog-draft', ev);
+  const body = [h('div', { class: 'draftlead' }, ev.text)];
+  if (d.result) body.push(...whatIfLines(d.result).map(t => h('div', { class: 'alog-num' }, t)));
+  if (status === 'proposed') body.push(buttons, done, errors);
+  const e = line('', 'alog-draft', ev);
   e.querySelector('.alog-txt').append(h('div', { class: 'draftcard' }, body));
   e.dataset.draft = d.id || '';
   return e;
 }
 
-// The sign-off the agent asks for, as a plain bordered card. Only this button records a sign-off made through the chat.
+// The sign-off the agent asks for, as a plain bordered card. Only this button records a sign-off the agent asked for.
 // status: 'proposed' (live buttons), or how it ended: 'signed', 'declined', 'expired', 'superseded', 'closed'.
 function signoffCard(ev, status, info = {}) {
   const r = ev.request || {};
@@ -306,7 +208,7 @@ function signoffCard(ev, status, info = {}) {
   else if (status === 'declined' || status === 'closed') done.textContent = 'Not signed.';
   else if (status === 'expired') done.textContent = 'Expired: the model changed after this was asked.';
   else if (status === 'superseded') done.textContent = 'Superseded by a newer request.';
-  const e = line('Agent', '', 'alog-signoff', ev);
+  const e = line('', 'alog-signoff', ev);
   e.querySelector('.alog-txt').append(h('div', {}, ev.text || ''), card);
   e.dataset.request = r.id || '';
   e.dataset.kind = r.kind || ''; e.dataset.name = r.name || '';
@@ -355,137 +257,39 @@ function pushCard(ev, status) {
   else if (status === 'declined' || status === 'closed') done.textContent = 'Not pushed.';
   else if (status === 'expired') done.textContent = 'Expired: the branch or remote changed after this was asked.';
   else if (status === 'superseded') done.textContent = 'Superseded by a newer request.';
-  const e = line('Agent', '', 'alog-signoff alog-push', ev);
+  const e = line('', 'alog-signoff alog-push', ev);
   e.querySelector('.alog-txt').append(h('div', {}, ev.text || ''), card);
   e.dataset.request = r.id || ''; e.dataset.kind = 'push'; e.dataset.name = 'push';
   e._settle = word => { if (e.querySelector('button[data-act]')) { buttons.remove(); done.textContent = word; } };
   return e;
 }
 
-// Questions from the agent as one form: each with its header, the suggested answers (one, or several when the
-// question allows it) and a box for an answer of the reviewer's own. Send answers is live once every question has
-// an answer. The form goes when it is answered or when the reviewer types a reply instead; the questions stay as text.
-let qcardN = 0;
-function questionCard(ev) {
-  const qs = ev.questions;
-  const group = 'q' + (++qcardN);
-  const send1 = h('button', { type: 'button', class: 'small', disabled: true }, qs.length === 1 ? 'Send answer' : 'Send answers');
-  const parts = qs.map((q, i) => {
-    const boxes = (q.options || []).map(o => {
-      const box = h('input', { type: q.multi ? 'checkbox' : 'radio', name: `${group}-${i}`, value: o.label });
-      return { box, row: h('label', { class: 'qopt' }, box, h('span', {}, h('span', { class: 'qlabel' }, o.label), o.description ? h('span', { class: 'grey' }, ' ' + o.description) : null)) };
-    });
-    const other = h('input', { type: 'text', class: 'qother', autocomplete: 'off', maxlength: 2000, placeholder: boxes.length ? 'Other' : 'Your answer', 'aria-label': 'Another answer' });
-    // typing an answer of your own replaces a single choice; with several allowed it is added to them
-    other.addEventListener('input', () => { if (!q.multi && other.value.trim()) boxes.forEach(b => { b.box.checked = false; }); paint(); });
-    other.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); if (!send1.disabled) send1.click(); } });
-    boxes.forEach(b => b.box.addEventListener('change', () => { if (!q.multi && b.box.checked) other.value = ''; paint(); }));
-    const answer = () => [...boxes.filter(b => b.box.checked).map(b => b.box.value), other.value.trim()].filter(Boolean).join(', ');
-    return { q, answer, node: h('div', { class: 'qblock' }, h('div', { class: 'cardsec' }, q.header || `Question ${i + 1}`), h('div', { class: 'qtext' }, q.question), boxes.map(b => b.row), other) };
-  });
-  function paint() { send1.disabled = busy || parts.some(p => !p.answer()); }
-  send1.addEventListener('click', () => {
-    if (parts.some(p => !p.answer())) return;
-    const text = parts.length === 1 ? parts[0].answer() : parts.map((p, i) => `${p.q.header || `Question ${i + 1}`}: ${p.answer()}`).join('\n');
-    void send(text);
-  });
-  const e = line('Agent', '', 'alog-question', ev);
-  e.querySelector('.alog-txt').append(h('div', { class: 'alog-qtext alog-bubble' }, markdown(ev.text || '')),
-    h('div', { class: 'alog-opts alog-card qcard' }, parts.map(p => p.node), h('div', { class: 'alog-btns' }, send1)));
-  return e;
-}
-
-// In terminal mode a draft is approved in the centre pane (the Draft to approve tab), so the bar keeps only the
-// cards that need the reviewer's own click: sign-off and push requests. What-if drafts stay here.
-const CARDS = new Set(['draft', 'signoff_request', 'push_request']);
-const inCentre = ev => TERM && ev.type === 'draft' && ev.draft && ev.draft.kind !== 'what_if';
-
-function divider(scope) {
-  return h('div', { class: 'alog-divider', 'data-scope': keyOf(scope) }, hooks.titleOf(scope));
-}
-
-function render(ev, draftStatus) {
-  if (TERM && (!CARDS.has(ev.type) || inCentre(ev))) return null;
-  switch (ev.type) {
-    case 'user':
-      logEl.querySelectorAll('.alog-opts').forEach(n => n.remove());
-      return bubble(line('You', ev.text, 'alog-you', ev));
-    case 'agent': return bubble(line('Agent', markdown(ev.text), 'alog-agent', ev));
-    case 'action': return line('', ev.text, 'alog-action', ev);
-    case 'question': {
-      if ((ev.questions || []).length) return questionCard(ev);
-      const e = bubble(line('Agent', markdown(ev.text), 'alog-question alog-agent', ev));
-      if ((ev.options || []).length) {
-        e.querySelector('.alog-txt').append(h('div', { class: 'alog-opts' }, ev.options.map(o =>
-          h('button', { type: 'button', class: 'small', onclick: () => send(String(o)) }, o))));
-      }
-      return e;
-    }
-    case 'draft': return draftLine(ev, draftStatus || 'proposed');
-    case 'signoff_request': return signoffCard(ev, draftStatus || 'proposed');
-    case 'push_request': return pushCard(ev, draftStatus || 'proposed');
-    case 'error': return line('', couldNot(ev.text), 'alog-error', ev);
-    case 'done': return ev.text ? line('', ev.text, 'alog-action', ev) : null;
-    default: return null;
-  }
-}
-
-// A divider goes in front of a message that was sent about a different selection than the one before it.
-function withDivider(ev, node) {
-  if (!node) return [];
-  if (ev.type === 'user' && ev.scope && keyOf(ev.scope) !== lastKey) { lastKey = keyOf(ev.scope); return [divider(ev.scope), node]; }
-  return [node];
+// Only what needs the reviewer's own click is drawn here. Every other draft is approved in the centre pane.
+function render(ev, status) {
+  if (ev.type === 'draft') return ev.draft && ev.draft.kind === 'what_if' ? draftLine(ev, status || 'proposed') : null;
+  if (ev.type === 'signoff_request') return signoffCard(ev, status || 'proposed');
+  if (ev.type === 'push_request') return pushCard(ev, status || 'proposed');
+  return null;
 }
 
 // ---------------------------------------------------------------- loading and events
 
-// The whole conversation of the model. A backend that only knows one conversation per selection is asked for the
-// selection's own history instead.
-async function readHistory(scope) {
-  const api = agentApi();
-  try { return await api.history(); } catch { return api.history(scope); }
-}
-
+// When the window opens (or reloads): what still waits for a click, read from the request and draft files, oldest first.
+const idOf = ev => (ev.request && ev.request.id) || (ev.draft && ev.draft.id) || '';
 async function load() {
-  logEl.replaceChildren(); lastKey = null; shown = 0;
+  logEl.replaceChildren();
   const queued = [];
   loading = { queued };
-  let hist = [], drafts = [], reqs = [];
-  try {
-    [hist, drafts, reqs] = await Promise.all([readHistory(current), agentApi().drafts().catch(() => []), agentApi().requests ? agentApi().requests().catch(() => []) : []]);
-  } catch (e) { hist = [{ type: 'error', text: e.message }]; }
+  const api = agentApi();
+  const [drafts, reqs] = await Promise.all([api.drafts().catch(() => []), api.requests().catch(() => [])]);
   loading = null;
-  const status = new Map((drafts || []).map(d => [d.id, d.status]));
-  const reqById = new Map((reqs || []).map(q => [q.id, q]));
-  const reqWord = { pending: 'proposed', confirmed: 'signed', declined: 'declined', expired: 'expired', superseded: 'superseded' };
-  const seen = new Set();
-  const sig = ev => [ev.type, ev.at, ev.text, ev.draft && ev.draft.id, ev.request && ev.request.id].join('|');
-  // Only the last question can still be answered, and only if nothing was said since.
-  let lastUser = -1, lastQ = -1, lastReq = -1;
-  hist.forEach((ev, i) => { if (ev.type === 'user') lastUser = i; if (ev.type === 'question') lastQ = i; if (ev.type === 'signoff_request' || ev.type === 'push_request') lastReq = i; });
-  const frag = [];
-  hist.forEach((ev, i) => {
-    seen.add(sig(ev));
-    let st;
-    if (ev.type === 'draft') st = status.get(ev.draft && ev.draft.id) || 'gone';
-    else if (ev.type === 'signoff_request' || ev.type === 'push_request') {
-      // the outcome comes from the request files, not from the log: a confirmed, declined, expired or superseded request has no live buttons
-      const q = reqById.get(ev.request && ev.request.id);
-      st = q ? (reqWord[q.status] || 'closed') : ((i === lastReq && lastReq > lastUser) ? 'proposed' : 'closed');
-      if (q) { ev = { ...ev, request: { ...ev.request, ...q }, reviewer: q.reviewer }; }
-    }
-    if (TERM && st !== 'proposed') return;
-    const node = render(ev, st);
-    if (node && ev.type === 'question' && !(i === lastQ && lastQ > lastUser)) node.querySelectorAll('.alog-opts').forEach(n => n.remove());
-    if (node) shown++;
-    frag.push(...withDivider(ev, node));
-  });
-  logEl.append(...frag);
-  for (const ev of queued) if (!seen.has(sig(ev))) { const n = render(ev); if (n) { shown++; logEl.append(...withDivider(ev, n)); } }
-  paintWorking();
-  paintStarters();
+  const waiting = [
+    ...(reqs || []).filter(q => q.status === 'pending').map(q => ({ type: q.kind === 'push' ? 'push_request' : 'signoff_request', scope: q.scope, at: q.at, text: q.text || '', request: q })),
+    ...(drafts || []).filter(d => d.status === 'proposed' && d.kind === 'what_if').map(d => ({ type: 'draft', scope: d.scope, at: d.at, text: d.summary || '', draft: d })),
+  ].sort((a, b) => String(a.at).localeCompare(String(b.at)));
+  const seen = new Set(waiting.map(idOf));
+  for (const ev of [...waiting, ...queued.filter(q => !seen.has(idOf(q)))]) { const n = render(ev); if (n) logEl.append(n); }
   logEl.scrollTop = logEl.scrollHeight;
-  void readChats();
 }
 
 function onEvent(ev) {
@@ -496,71 +300,41 @@ function onEvent(ev) {
     }
   }
   if (loading) loading.queued.push(ev);
-  else { const n = render(ev); if (n) { shown++; startersEl.hidden = true; append(withDividerFrag(ev, n)); } }
-  if (ev.type === 'user' || ev.type === 'turn_start') { busy = true; busyScope = ev.scope || null; paintWorking(); hooks.onBusy(); }
+  else { const n = render(ev); if (n) append(n); }
+  if (ev.type === 'user' || ev.type === 'turn_start') { busy = true; busyScope = ev.scope || null; hooks.onBusy(); }
   else if (ev.type === 'draft') hooks.draftsChanged();
-  else if (ev.type === 'done') { void refreshBusy().then(() => { void readChats(); return hooks.afterTurn(); }); }
-}
-function withDividerFrag(ev, node) {
-  const nodes = withDivider(ev, node);
-  if (nodes.length === 1) return nodes[0];
-  const f = document.createDocumentFragment(); f.append(...nodes); return f;
+  else if (ev.type === 'done') { void refreshBusy().then(() => hooks.afterTurn()); }
 }
 
 async function refreshBusy() {
-  let now = building;
-  try { now = now || (await agentApi().status()).busy.length > 0; } catch { /* keep */ }
-  setBusy(now);
-}
-function setBusy(now) {
-  if (now === busy) { paintWorking(); return; }
-  busy = now; if (!now) busyScope = null; paintWorking(); hooks.onBusy();
+  let now = false;
+  try { now = (await agentApi().status()).busy.length > 0; } catch { now = busy; }
+  if (now === busy) return;
+  busy = now; if (!now) busyScope = null; hooks.onBusy();
 }
 
-// ---------------------------------------------------------------- conversations
-
-let chats = null;            // [{id, current, title, started, last, messages}], or null when the agent keeps only one
-// Where conversations come from: Claude Code's own saved ones in terminal mode, the app's otherwise.
-const chatSource = () => (TERM
-  ? { list: () => window.api.term.sessions(), open: id => window.api.term.openSession(id), remove: id => window.api.term.deleteSession(id) }
-  : { list: () => agentApi().conversations(), open: id => agentApi().openConversation(id), remove: id => agentApi().deleteConversation(id) });
-
-async function readChats() {
-  try { chats = TERM || agentApi().conversations ? await chatSource().list() : null; } catch { chats = null; }
-  topEl.hidden = !chats || TERM;
-  if (chats) listEl.textContent = `Conversations (${chats.length})…`;
-  newEl.disabled = busy || shown === 0; listEl.disabled = busy;
-  return chats;
-}
-
-// The conversation on show is kept with the earlier ones and the chat starts empty.
-async function newConversation() {
-  if (busy || shown === 0) return;
-  try { await agentApi().newConversation(); } catch (e) { append(line('', couldNot(e.message), 'alog-error')); return; }
-  await load();
-  inputEl.focus();
-}
+// ---------------------------------------------------------------- conversations (Claude Code's own saved ones)
 
 const chatDate = c => (c.last || c.started ? new Date(c.last || c.started).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : '');
 
 async function conversationsDialog() {
-  if (busy && !TERM) return;
+  let chats = [];
   const listNode = h('div', { id: 'chats', class: 'chats' });
   const say = h('p', { class: 'warn', id: 'chatserror' });
-  const act = async (fn, reloadChat) => {
+  const read = async () => { try { chats = await window.api.term.sessions(); } catch { chats = []; } };
+  const act = async fn => {
     say.textContent = '';
     try { await fn(); } catch (e) { say.textContent = e.message; }
-    if (reloadChat) await load();
-    await readChats();
+    await read();
     paint();
   };
   function paint() {
-    const rows = (chats || []).map(c => {
+    const rows = chats.map(c => {
       const buttons = h('span', { class: 'chatacts' });
       const normal = () => buttons.replaceChildren(
-        c.current ? h('span', { class: 'grey' }, 'on show') : h('button', { type: 'button', class: 'linkbtn', 'data-act': 'open', onclick: async () => { await act(() => chatSource().open(c.id), true); document.getElementById('confirm').click(); } }, 'Open'),
+        c.current ? h('span', { class: 'grey' }, 'on show') : h('button', { type: 'button', class: 'linkbtn', 'data-act': 'open', onclick: async () => { await act(() => window.api.term.openSession(c.id)); document.getElementById('confirm').click(); } }, 'Open'),
         h('button', { type: 'button', class: 'linkbtn', 'data-act': 'delete', onclick: () => buttons.replaceChildren(
-          h('button', { type: 'button', class: 'linkbtn warn', 'data-act': 'reallydelete', onclick: () => act(() => chatSource().remove(c.id), c.current) }, 'Delete for good'),
+          h('button', { type: 'button', class: 'linkbtn warn', 'data-act': 'reallydelete', onclick: () => act(() => window.api.term.deleteSession(c.id)) }, 'Delete for good'),
           h('button', { type: 'button', class: 'linkbtn', 'data-act': 'keep', onclick: normal }, 'Keep')) }, 'Delete'));
       normal();
       return h('div', { class: 'chatrow', 'data-id': c.id },
@@ -569,53 +343,24 @@ async function conversationsDialog() {
     });
     listNode.replaceChildren(...(rows.length ? rows : [h('p', { class: 'grey' }, 'No conversations yet.')]));
   }
-  await readChats();
+  await read();
   paint();
   await formDialog({
     title: 'Conversations', confirm: 'Done', fields: [],
-    intro: [TERM ? 'Open starts Claude Code again on that conversation. Deleting removes a conversation for good, here and in Claude Code\'s own /resume list. Sign-offs, drafts and the record of changes kept with each tile and module are not touched.'
-      : 'Deleting removes a conversation from this list for good. Sign-offs, drafts and the record of changes kept with each tile and module are not touched.'],
+    intro: ['Open starts Claude Code again on that conversation. Deleting removes a conversation for good, here and in Claude Code\'s own /resume list. Sign-offs, drafts and the record of changes kept with each tile and module are not touched.'],
     sections: [listNode, say],
     submit: async () => null });
 }
 
-// ---------------------------------------------------------------- actions
+// ---------------------------------------------------------------- actions: they type into Claude Code in the pane
 
-export async function send(text, extra) {
-  const scope = current;
-  if (!scope || !text || !String(text).trim() || busy) return false;
-  if (TERM) { terminal.type(text, true); return true; }
-  setBusy(true);
-  try { await agentApi().send(scope, String(text), extra); }
-  catch (e) { append(line('', couldNot(e.message), 'alog-error')); }
-  await refreshBusy();
+export function send(text) {
+  if (!RUNS || !current || !text || !String(text).trim() || busy) return false;
+  terminal.type(text, true);
   return true;
 }
 
-export async function buildModule(id) {
-  if (busy) return;
-  if (TERM) { terminal.type(`Build the tiles of module ${id} that are not built yet.`, true); return; }
-  building = true; setBusy(true);
-  try { await agentApi().buildModule(id); }
-  catch (e) { append(line('', couldNot(e.message), 'alog-error')); }
-  building = false;
-  await refreshBusy();
-  await hooks.afterTurn();
+export function buildModule(id) {
+  if (!RUNS || busy) return;
+  terminal.type(`Build the tiles of module ${id} that are not built yet.`, true);
 }
-
-async function stop() {
-  try {
-    await agentApi().interrupt();
-  } catch (e) { append(line('', couldNot(e.message), 'alog-error')); }
-}
-
-// Enter sends; Shift+Enter makes a new line.
-inputEl.addEventListener('keydown', e => {
-  if (e.key !== 'Enter' || e.shiftKey || e.isComposing) return;
-  e.preventDefault();
-  const text = inputEl.value.trim();
-  if (!text || busy) return;
-  inputEl.value = ''; autosize();
-  void send(text);
-});
-inputEl.addEventListener('input', autosize);
