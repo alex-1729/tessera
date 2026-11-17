@@ -230,7 +230,7 @@ function createAgentService(options) {
       const prompt = `${turnPreamble(scope, { batchModule, notes: notes.splice(0) })}\n${text}`;
       let resume = sdkSession;
       for (let attempt = 0; attempt < 2; attempt++) {
-        const server = sdk.createSdkMcpServer({ name: 'tiles', version: '0.2.0', tools: sdkTools(sdk, z, handlers) });
+        const server = sdk.createSdkMcpServer({ name: 'tiles', version: '0.3.0', tools: sdkTools(sdk, z, handlers) });
         const q = sdk.query({
           prompt,
           options: {

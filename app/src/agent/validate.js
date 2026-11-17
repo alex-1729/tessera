@@ -268,7 +268,7 @@ function validateLayout(graph, moduleId, items = [], states = [], remove = [], s
           (titled.length ? `; the module's current sections are ${titled.map(s => `'${s.title}' (${(s.tiles || []).join(', ')})`).join(', ')}, so repeat them with the new tiles placed.` : '.'));
       }
     }
-    for (const st of states || []) {
+    for (const st of mod.timing === 'backward' ? [] : states || []) {
       if (!st || !st.name) continue;
       const uses = c => { const toks = new Set(String((c && c.expression) || '').match(/[A-Za-z_]\w*/g) || []); return toks.has(st.name) && toks.has(st.from); };
       if (!Array.isArray(checks) || !checks.length) {
@@ -323,6 +323,9 @@ function validateModuleDraft(graph, items) {
     if (!graph.layers.includes(it.layer)) problems.push(`${it.id} has layer '${it.layer}'; use one of ${graph.layers.join(', ')}.`);
     if (!it.title || !String(it.title).trim()) problems.push(`${it.id} needs a title.`);
     if (!existing.has(it.id) && !(it.purpose || '').trim()) problems.push(`${it.id} needs a one-line purpose.`);
+    if (it.timing !== undefined && !['step', 'backward', 'summary'].includes(it.timing)) problems.push(`${it.id} has timing '${it.timing}'; use step (each month), backward (each month from the last to the first) or summary (once, after the projection).`);
+    const was = graph.modules.find(m => m.id === it.id);
+    if (was && it.timing !== undefined && (was.timing || 'step') !== it.timing) problems.push(`${it.id} already exists with timing ${was.timing || 'step'}; a module's timing is set when it is created.`);
   }
   const all = new Set([...existing, ...ids]);
   for (const it of items || []) {

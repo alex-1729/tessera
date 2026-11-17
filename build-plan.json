@@ -295,6 +295,41 @@
           "status": "todo"
         }
       ]
+    },
+    {
+      "name": "Phase 9: A standard spine and backward reserves",
+      "steps": [
+        {
+          "id": 50,
+          "text": "The spine as a standard: decrements, policy values, per-unit cash items, cash flows, reserves, results, with fixed names",
+          "status": "done"
+        },
+        {
+          "id": 51,
+          "text": "Warn on a design that departs from the spine",
+          "status": "done"
+        },
+        {
+          "id": 52,
+          "text": "Backward timing in the tooling: tiles worked out from the last month to the first, in Python and in Excel",
+          "status": "done"
+        },
+        {
+          "id": 53,
+          "text": "Backward modules in the app's drafts and the agent's instructions; tooling 0.3.0",
+          "status": "done"
+        },
+        {
+          "id": 54,
+          "text": "Push the tilekit-v0.3.0 tag and pin the MYGA model to it",
+          "status": "todo"
+        },
+        {
+          "id": 55,
+          "text": "Redesign MYGA on the spine with a CARVM reserve, with the real agent",
+          "status": "todo"
+        }
+      ]
     }
   ]
 }

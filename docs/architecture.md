@@ -84,8 +84,9 @@ Errors block sign-off; warnings do not. Rule names in brackets.
 - Module file: the only imports are `import numpy as np`, `from tilekit import functions as tk` and `from __future__ import ...` [`imports`]. The only top-level statements are the module docstring, those imports and function definitions; no decorator or default argument value on any function in the file [`module-level`]. Both are reported against every tile of the module.
 - Layers: a tile reads nothing from a layer to the right of its own [`layers`]. Naming: a `rate` should end `_pa`/`_pm`, a beginning-of-month quantity `_bop`, an end-of-month one `_eop` (warnings) [`naming`].
 
-There are two tile timings, set per module in `tilekit.toml`:
+There are three tile timings, set per module in `tilekit.toml`:
 - `step` (default): evaluated once per month inside the time loop; arguments are that month's values.
+- `backward`: evaluated once per month in a second loop that runs from the last month to month 1, after the forward loop. A backward tile reads this month's value of any step tile, input, forward state or parameter, the backward tiles before it, and backward states. A state whose `from` tile is backward is a backward state: it holds NEXT month's value of that tile, and its `initial` is the value after the last month. On a module sheet its row reads the next month's column of its source, and the last month's cell is the typed value. A step tile that reads a backward tile or state is a graph error. `graph` reports `"timing": "backward"` on the module and `"backward": true` on the state. Used for reserves (the greatest present value over future surrender dates is a recursion from the end). `Graph.backward_order()`, `Graph.monthly_order()` (step and backward tiles) and `Graph.backward_states`; `engine.project` runs the three passes; `make_step` and `initial_state` are the forward step only.
 - `summary`: evaluated once after the loop; arguments are whole time series (axis 0 is time) and the result is a scalar per policy. Used for present values, IRR and totals.
 
 #### `tk.*` functions (`from tilekit import functions as tk`)
@@ -527,6 +528,23 @@ A tile's hand-calculation test (`tests/tiles/test_<tile>.py`) is also run by the
 
 **Drafts.** `drafts/<id>.json` kinds include `tests` (functions added to a tile's test file) and `module_test` (`module`, `file`, `items`, and `code` when it writes the whole file). Tiles drafts may carry `states`, `remove`, `sections`, `checks` and `replaces`.
 
+## The spine: the same modules in every model
+
+Decided with the owner on 2026-11-16: every model has the same modules in the same order, with fixed names, so that one model reads like the next. The standard is the first section of `app/standards/designing-models.md`; `SPINE` and `spineWarnings` in `app/src/agent/design.js` hold it in code.
+
+| Module id | Timing | Fixed names |
+|---|---|---|
+| `decrements` | step | state `units_bop` from `units_eop`; per cause `<cause>_rate_pa`, `<cause>_rate_pm`, `<cause>_units`; check `units_reconcile` |
+| `policy_values` (optional) | step | the product's own roll-forward |
+| `per_unit_items` | step | `<line>_pu` |
+| `cash_flows` (`weights`) | step | `<line>_cf` reading `<line>_pu` and `units_bop`, `units_eop` or a `<cause>_units`; `net_cashflow` |
+| `reserves` (`weights`) | backward | `reserve_pu`, `reserve_eop` |
+| `results` | summary | `total_<line>`, `pv_<line>` |
+
+A unit is one policy issued. Decrements read inputs and carried values only. Per-unit items never read this month's reserve. A cash flow line paid whether or not the policy is in force (an annuity's certain period) is weighted by policies issued and says so in an `Assumed:` line. Capital, treaty and assets are left out for now. Every departure is a warning on the design draft ("Departs from the spine: ..."), never a refusal. The spine was checked on paper against a MYGA, an FIA, a SPIA and an endowment; joint lives and income riders (more than one status of unit) are not covered.
+
+A modules draft (`propose_structure`) may give `timing` (`step`, `backward`, `summary`); it is written to `tilekit.toml` when it is not `step`, and cannot be changed on an existing module. A tiles draft for a backward module needs no reconciliation with its states.
+
 ## The design stage of scaffolding
 
 A model is designed whole before anything is built. The agent's `propose_design` tool (model level only) takes the whole model: `summary`, `order_in_month`, `results`, `modules` in calculation order (each with `id`, `title`, `layer`, `timing`, `purpose`, `weights`, its `tiles`, `states` and `checks`), `model_point_fields`, `inputs` (kind `field`, `lookup` or `time`), `params`, `tables` and `cases`. Each tile carries `name`, `label`, `reads`, `spec`, `timing`, `step` (`choose`, `convert`, `apply`, `limit`, `combine`), `measure` (`amount`, `proportion`, `weighted`, `rate`, `other`), `branches` (`[{when, case}]`) and `assumed`.
@@ -579,6 +597,7 @@ Removing a tile never deletes its record. When a draft that removes tiles is acc
 - The app never uses the model's own environment: it runs the tooling from its own copy. The pin is for the model's own tests, for other machines and for automated runs.
 - `status` reports `"tooling": {"running", "source": "git" | "path" | "other" | "none", "pinned", "ref", "match"}`. `pinned` is the version when the model names a version tag; `match` is false when that differs from the running version, or when the model follows a branch or commit instead of a version tag. `init` returns the same object as `"tooling"`.
 - Every `signoff.json` records `"tooling_version"`, the version that was running when the sign-off was made.
+- **0.3.0** (2026-11-16) adds the `backward` module timing and backward states. Nothing in a stamp changes, so sign-offs made with 0.2.0 stand. A model must be pinned to `tilekit-v0.3.0` before it can have a backward module.
 - **0.2.0** (2026-11-15) is everything since the `tilekit-v0.1.0` tag that changes what a sign-off means: hand checks, workbook layout 5 (per-policy constants as named cells, the `layout` stamp key), module sections and reconciliations, the tile-test summary at module level, and the tile rules on undefined values and on the tile's own test. Sign-offs made between the two tags by the app's copy of the tooling say `0.1.0` although they were made with what became 0.2.0.
 - Upgrading a model is a change to the tag in its `pyproject.toml`. Because the translator and layout versions are part of every stamp, an upgrade that changes either makes sign-offs stale.
 
