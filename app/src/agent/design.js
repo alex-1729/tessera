@@ -95,7 +95,7 @@ function validateDesign(graph, d, caseIds = []) {
     if (!m.purpose) problems.push(`The module ${m.id} needs a one-sentence purpose: the one question it answers for a reviewer.`);
     else if (m.purpose.split(/[.;]\s+\S/).length > 1) warnings.push(`The purpose of ${m.id} takes more than one sentence; a module answers one reviewer question, so check whether it is two modules.`);
     if (layers.length && !layers.includes(m.layer)) problems.push(`The module ${m.id} has layer '${m.layer}'; use one of ${layers.join(', ')}.`);
-    if (!['step', 'summary'].includes(m.timing)) problems.push(`The module ${m.id} has timing '${m.timing}'; use step (each month) or summary (once, after the projection).`);
+    if (!['step', 'summary', 'backward'].includes(m.timing)) problems.push(`The module ${m.id} has timing '${m.timing}'; use step (each month), backward (each month from the last to the first) or summary (once, after the projection).`);
     if (!m.tiles.length) problems.push(`The module ${m.id} has no functions.`);
     for (const t of m.tiles) {
       if (!claim(t.name, 'tile', 'a function')) continue;
@@ -137,6 +137,9 @@ function validateDesign(graph, d, caseIds = []) {
       if (kind[a] === 'tile' && home[a] > k) problems.push(`${n} (in ${m.id}) reads ${a} from ${d.modules[home[a]].id}, a later module. Modules are listed in calculation order and read only from earlier ones; move the function or reorder the modules.`);
       if (kind[a] === 'tile' && layers.length && layers.indexOf(d.modules[home[a]].layer) > layers.indexOf(m.layer)) problems.push(`${n} (layer ${m.layer}) reads ${a} from a later layer (${d.modules[home[a]].layer}).`);
       if (kind[a] === 'tile' && d.modules[home[a]].timing === 'summary' && m.timing === 'step') problems.push(`${n} runs each month but reads ${a}, which is only known after the projection.`);
+      if (kind[a] === 'tile' && d.modules[home[a]].timing === 'summary' && m.timing === 'backward') problems.push(`${n} runs each month but reads ${a}, which is only known after the projection.`);
+      if (kind[a] === 'tile' && d.modules[home[a]].timing === 'backward' && m.timing === 'step') problems.push(`${n} runs in the forward pass but reads ${a}, which is worked out backward afterwards. Read last month's value as a carried value of a forward module, or a tabulated value.`);
+      if (kind[a] === 'state' && (d.modules[home[a]].timing === 'backward') !== (m.timing === 'backward')) problems.push(`${n} reads the carried value ${a} of ${d.modules[home[a]].id}; a value carried ${d.modules[home[a]].timing === 'backward' ? 'backward (next month\'s)' : 'forward (last month\'s)'} is read only by modules that run the same way.`);
     }
     // one step per function: a cap or floor is its own function
     if (t.spec && t.step && t.step !== 'limit' && LIMIT_WORDS.test(t.spec)) warnings.push(`${n} is a '${t.step}' step but its spec limits a value ("${t.spec.match(LIMIT_WORDS)[0]}"). A cap or floor is its own function: the value before the limit, then the limit.`);
@@ -195,7 +198,7 @@ function validateDesign(graph, d, caseIds = []) {
     }
     for (const s of m.states) {
       const uses = c => { const toks = new Set(c.expression.match(/[A-Za-z_]\w*/g) || []); return toks.has(s.name) && toks.has(s.from); };
-      if (kind[s.name] === 'state' && !m.checks.some(uses)) problems.push(`The carried value ${s.name} makes a roll-forward in ${m.id}, so the module needs a reconciliation naming both ${s.name} and ${s.from}: opening plus movements minus closing is zero.`);
+      if (kind[s.name] === 'state' && m.timing !== 'backward' && !m.checks.some(uses)) problems.push(`The carried value ${s.name} makes a roll-forward in ${m.id}, so the module needs a reconciliation naming both ${s.name} and ${s.from}: opening plus movements minus closing is zero.`);
     }
   }
 
@@ -216,7 +219,72 @@ function validateDesign(graph, d, caseIds = []) {
     if (!c.name) problems.push(`The case ${c.id} needs a name.`);
     if (!c.purpose) problems.push(`The case ${c.id} needs a purpose: what it exercises.`);
   }
+  warnings.push(...spineWarnings(d));
   return { problems: [...new Set(problems)], warnings: [...new Set(warnings)] };
+}
+
+// ---------------------------------------------------------------- the spine: the same modules in every model
+
+const SPINE = [
+  { id: 'decrements', title: 'Decrements', timing: 'step', required: true },
+  { id: 'policy_values', title: 'Policy values', timing: 'step', required: false },
+  { id: 'per_unit_items', title: 'Per-unit cash items', timing: 'step', required: true },
+  { id: 'cash_flows', title: 'Cash flows', timing: 'step', required: true },
+  { id: 'reserves', title: 'Reserves', timing: 'backward', required: true },
+  { id: 'results', title: 'Results', timing: 'summary', required: true },
+];
+const WEIGHTING = new Set(['cash_flows', 'reserves']);
+
+// Where a design departs from the spine and its fixed names (app/standards/designing-models.md). Warnings only.
+function spineWarnings(d) {
+  const out = [];
+  const ids = SPINE.map(m => m.id);
+  const byId = Object.fromEntries(d.modules.map(m => [m.id, m]));
+  const names = m => new Set((m ? m.tiles : []).map(t => t.name));
+  for (const m of d.modules) if (!ids.includes(m.id)) out.push(`Departs from the spine: ${m.id} is not one of its modules (${ids.join(', ')}). Put its functions in the module of the spine they belong to.`);
+  for (const sp of SPINE) {
+    const m = byId[sp.id];
+    if (!m) { if (sp.required) out.push(`Departs from the spine: there is no ${sp.id} module (${sp.title}).`); continue; }
+    if (m.timing !== sp.timing) out.push(`Departs from the spine: ${sp.id} runs ${sp.timing === 'step' ? 'each month (step)' : sp.timing === 'summary' ? 'once at the end (summary)' : 'backward'}, not ${m.timing}.`);
+    if (m.weights !== WEIGHTING.has(sp.id)) out.push(`Departs from the spine: ${sp.id} ${WEIGHTING.has(sp.id) ? 'is marked weights: true' : 'is not a weighting module; only cash_flows and reserves are'}.`);
+  }
+  const present = d.modules.map(m => m.id).filter(id => ids.includes(id));
+  if (present.join() !== ids.filter(id => present.includes(id)).join()) out.push(`Departs from the spine: its modules come in the order ${ids.filter(id => present.includes(id)).join(', ')}.`);
+
+  const dec = byId.decrements, decNames = names(dec);
+  if (dec) {
+    if (!dec.states.some(s => s.name === 'units_bop' && s.from === 'units_eop')) out.push('Departs from the spine: decrements carries units_bop forward from units_eop.');
+    for (const n of decNames) {
+      const cause = (n.match(/^(.+)_units$/) || [])[1];
+      if (cause && !decNames.has(`${cause}_rate_pm`)) out.push(`Departs from the spine: ${n} has no ${cause}_rate_pm beside it in decrements.`);
+    }
+    if (![...decNames].some(n => /_units$/.test(n))) out.push('Departs from the spine: decrements has a <cause>_units function for each cause of leaving.');
+  }
+  const pu = names(byId.per_unit_items), cf = byId.cash_flows;
+  const unitNames = n => n === 'units_bop' || n === 'units_eop' || (/_units$/.test(n) && decNames.has(n));
+  if (cf) {
+    for (const t of cf.tiles) {
+      if (t.name === 'net_cashflow') continue;
+      const line = (t.name.match(/^(.+)_cf$/) || [])[1];
+      if (!line) { out.push(`Departs from the spine: ${t.name} is in cash_flows but is not a <line>_cf or net_cashflow; cash flows only weights the per-unit items and nets them.`); continue; }
+      if (!pu.has(`${line}_pu`) || !t.reads.includes(`${line}_pu`)) out.push(`Departs from the spine: ${t.name} reads ${line}_pu from per_unit_items.`);
+      if (!t.reads.some(unitNames) && !t.assumed.some(a => /policies issued/i.test(a))) out.push(`Departs from the spine: ${t.name} reads units_bop, units_eop or a <cause>_units. A payment made whether or not the policy is in force says so in an Assumed line ("weighted by policies issued").`);
+    }
+    if (!cf.tiles.some(t => t.name === 'net_cashflow')) out.push('Departs from the spine: cash_flows ends with net_cashflow.');
+    for (const n of pu) if (/_pu$/.test(n) && !cf.tiles.some(t => t.name === n.replace(/_pu$/, '_cf'))) out.push(`Departs from the spine: ${n} has no ${n.replace(/_pu$/, '_cf')} in cash_flows.`);
+  }
+  if (byId.per_unit_items && ![...pu].some(n => /_pu$/.test(n))) out.push('Departs from the spine: each line of per_unit_items is named <line>_pu.');
+  const resv = byId.reserves, resNames = names(resv);
+  if (resv) for (const n of ['reserve_pu', 'reserve_eop']) if (!resNames.has(n)) out.push(`Departs from the spine: reserves has ${n}.`);
+  if (byId.per_unit_items && resv) for (const t of byId.per_unit_items.tiles) for (const a of t.reads) if (resNames.has(a)) out.push(`Departs from the spine: ${t.name} reads this month's ${a}; a per-unit item reads last month's reserve, carried forward, or a tabulated value.`);
+  if (byId.results && cf) {
+    const lines = new Set([...cf.tiles.map(t => t.name.replace(/_cf$/, '')), 'net_cashflow']);
+    for (const t of byId.results.tiles) {
+      const line = (t.name.match(/^(?:total|pv)_(.+)$/) || [])[1];
+      if (!line || !lines.has(line)) out.push(`Departs from the spine: ${t.name} is in results but is not total_<line> or pv_<line> of a cash flow line.`);
+    }
+  }
+  return out;
 }
 
 function designCounts(d) {
@@ -273,5 +341,5 @@ function acceptDesignDraft(svc, draft) {
 }
 
 module.exports = {
-  STEPS, MEASURES, INPUT_KINDS, FILE, loadDesign, normalise, validateDesign, designSummary, designCounts, moduleDepartures, tileDepartures, acceptDesignDraft,
+  STEPS, MEASURES, INPUT_KINDS, FILE, SPINE, spineWarnings, loadDesign, normalise, validateDesign, designSummary, designCounts, moduleDepartures, tileDepartures, acceptDesignDraft,
 };

@@ -1208,6 +1208,42 @@ function miniDesign(layers) {
   };
 }
 
+// A design on the standard spine, with a backward reserve.
+function spineDesign(layers) {
+  const liab = layers.includes('Liability') ? 'Liability' : layers[0], res = layers.includes('Results') ? 'Results' : layers[layers.length - 1];
+  const t = (name, label, reads, step, measure, extra = {}) => ({ name, label, reads, spec: `${label} for the month.`, timing: 'end of month', step, measure, ...extra });
+  return {
+    summary: 'A deferred annuity on the standard spine.', order_in_month: ['Premium', 'Interest', 'Deaths'], results: ['pv_net_cashflow', 'total_net_cashflow', 'reserve_eop'],
+    modules: [
+      { id: 'decrements', title: 'Decrements', layer: liab, purpose: 'Who leaves in the month.', tiles: [
+        t('death_rate_pm', 'Death rate per month', ['mort_rate_pa', 'months_per_year'], 'convert', 'rate'),
+        t('death_units', 'Deaths', ['units_bop', 'death_rate_pm'], 'apply', 'proportion'),
+        t('units_eop', 'Closing units', ['units_bop', 'death_units'], 'combine', 'proportion')],
+        states: [{ name: 'units_bop', from: 'units_eop', initial: 1, label: 'Opening units' }], checks: [{ label: 'Units reconcile', expression: 'units_bop - death_units - units_eop' }] },
+      { id: 'policy_values', title: 'Policy values', layer: liab, purpose: 'What one policy is worth each month.', tiles: [
+        t('interest_credited', 'Interest credited', ['av_bop', 'guaranteed_rate_pa'], 'apply', 'amount'),
+        t('av_eop', 'Closing account value', ['av_bop', 'premium', 'interest_credited'], 'combine', 'amount')],
+        states: [{ name: 'av_bop', from: 'av_eop', initial: 0, label: 'Opening account value' }], checks: [{ label: 'Account value reconciles', expression: 'av_bop + premium + interest_credited - av_eop' }] },
+      { id: 'per_unit_items', title: 'Per-unit cash items', layer: liab, purpose: 'What each policy pays and receives.', tiles: [
+        t('premium_pu', 'Premium per policy', ['premium'], 'apply', 'amount'), t('death_benefit_pu', 'Death benefit per death', ['av_eop'], 'apply', 'amount')] },
+      { id: 'cash_flows', title: 'Cash flows', layer: liab, weights: true, purpose: 'What cash moves per policy issued.', tiles: [
+        t('premium_cf', 'Premium received', ['premium_pu', 'units_bop'], 'apply', 'weighted'), t('death_benefit_cf', 'Death benefits paid', ['death_benefit_pu', 'death_units'], 'apply', 'weighted'),
+        t('net_cashflow', 'Net cash flow', ['premium_cf', 'death_benefit_cf'], 'combine', 'weighted')] },
+      { id: 'reserves', title: 'Reserves', layer: liab, timing: 'backward', weights: true, purpose: 'What must be held for the policies in force.', tiles: [
+        t('reserve_pu', 'Reserve per policy', ['av_eop', 'reserve_pu_next', 'discount_rate_pa', 'months_per_year'], 'limit', 'amount',
+          { branches: [{ when: 'the account value is the greater', case: 'base' }, { when: 'next month\'s reserve discounted is the greater', case: 'long' }] }),
+        t('reserve_eop', 'Reserve in total', ['reserve_pu', 'units_eop'], 'apply', 'weighted')],
+        states: [{ name: 'reserve_pu_next', from: 'reserve_pu', initial: 0, label: 'Reserve next month' }] },
+      { id: 'results', title: 'Results', layer: res, timing: 'summary', purpose: 'What the cash flows are worth today.', tiles: [
+        t('pv_net_cashflow', 'Present value of net cash flow', ['net_cashflow', 'discount_rate_pa', 'months_per_year'], 'combine', 'other'),
+        t('total_net_cashflow', 'Total net cash flow', ['net_cashflow'], 'combine', 'other')] }],
+    model_point_fields: [{ name: 'premium', label: 'Premium' }, { name: 'guaranteed_rate_pa', label: 'Guaranteed rate' }],
+    inputs: [{ name: 'premium', label: 'Premium', kind: 'field' }, { name: 'guaranteed_rate_pa', label: 'Guaranteed rate', kind: 'field' }, { name: 'mort_rate_pa', label: 'Mortality rate per year', kind: 'lookup' }],
+    params: [{ name: 'months_per_year', label: 'Months in a year' }, { name: 'discount_rate_pa', label: 'Discount rate' }], tables: [{ name: 'mortality', label: 'Mortality table' }],
+    cases: [{ id: 'base', name: 'Base', purpose: 'A typical policy.' }, { id: 'long', name: 'Long', purpose: 'A long projection.' }],
+  };
+}
+
 async function designChecks(check) {
   const design = require('../src/agent/design');
   const dir = path.join(TMP_ROOT, `design-${++copies}`);
@@ -1250,6 +1286,29 @@ async function designChecks(check) {
   const lim = run(d);
   check('a limit hidden in another step is a warning', lim.problems.length === 0 && lim.warnings.some(w => /cap or floor is its own function/.test(w)), lim);
 
+  // the spine: the same modules, order and names in every model; departures are warnings, never problems
+  const onSpine = () => JSON.parse(JSON.stringify(spineDesign(g.layers)));
+  const spine = r => r.warnings.filter(w => /^Departs from the spine/.test(w));
+  const sp = run(onSpine());
+  check('a design on the spine, with a backward reserve, passes with no spine warning', sp.problems.length === 0 && spine(sp).length === 0, sp);
+  const offSpine = spine(good);
+  check('a design off the spine still passes, with a warning for each departure', good.problems.length === 0 && offSpine.some(w => /account_value is not one of its modules/.test(w)) &&
+    offSpine.some(w => /no per_unit_items module/.test(w)) && offSpine.some(w => /no reserves module/.test(w)) && offSpine.some(w => /carries units_bop forward/.test(w)), offSpine);
+  d = onSpine(); d.modules.reverse();
+  check('spine modules out of order are flagged', spine(run(d)).some(w => /come in the order decrements, policy_values/.test(w)), spine(run(d)));
+  d = onSpine(); d.modules[3].tiles[1].reads = ['death_benefit_pu'];
+  check('a cash flow line with no units is flagged unless it says it is weighted by policies issued', spine(run(d)).some(w => /death_benefit_cf reads units_bop/.test(w)), spine(run(d)));
+  d.modules[3].tiles[1].assumed = ['Paid whether or not the policy is in force: weighted by policies issued.'];
+  check('the certain-period exception is accepted when stated', !spine(run(d)).some(w => /death_benefit_cf reads units_bop/.test(w)), spine(run(d)));
+  d = onSpine(); d.modules[3].tiles.push({ ...d.modules[3].tiles[0], name: 'premium_tax', reads: ['premium_cf', 'months_per_year'] }); d.modules[3].tiles[2].reads.push('premium_tax');
+  check('anything in cash flows that is not a line or the net is flagged', spine(run(d)).some(w => /premium_tax is in cash_flows but is not/.test(w)), spine(run(d)));
+  d = onSpine(); d.modules[2].tiles[1].reads = ['av_eop', 'reserve_pu'];
+  check('a forward function cannot read a backward one', has(run(d), /worked out backward afterwards/), run(d));
+  d = onSpine(); d.modules[4].timing = 'step';
+  check('reserves that do not run backward are flagged', spine(run(d)).some(w => /reserves runs backward, not step/.test(w)), spine(run(d)));
+  d = onSpine(); d.modules[5].tiles.push({ ...d.modules[5].tiles[1], name: 'profit_margin', reads: ['net_cashflow', 'discount_rate_pa'] }); d.results.push('profit_margin');
+  check('a result that is not a total or present value of a line is flagged', spine(run(d)).some(w => /profit_margin is in results but is not/.test(w)), spine(run(d)));
+
   // the tool: model level only, a draft, and design.json on accept
   const e = serviceFor(dir);
   const hm = e.service.handlersFor({ level: 'model', id: 'model' });
@@ -1276,10 +1335,19 @@ async function designChecks(check) {
       { name: 'credited_rate_pm', args: ['months_per_year', 'credited_rate_pa'] }]).map(x => x.replace('Departs from the agreed design: ', '')).join('|') ===
     'interest_credited also reads premium.|deaths is in decrements there, not account_value.|novel_x is not in it for account_value.', design.tileDepartures(saved, 'account_value', [{ name: 'interest_credited', args: ['av_bop', 'credited_rate_pm', 'premium'] }]));
   check('with no design there is nothing to depart from', design.tileDepartures(null, 'x', [{ name: 'a', args: [] }]).length === 0 && design.moduleDepartures(null, [{ id: 'a' }]).length === 0);
+  // a module's timing travels with a modules draft into tilekit.toml
+  const bm = await hm.propose_structure({ summary: 'The reserve block.', modules: [{ id: 'reserves', title: 'Reserves', layer: saved.modules[0].layer, purpose: 'What must be held.', feeds: [], timing: 'backward' }] });
+  const bacc = await e.service.acceptDraft(draftIdOf(bm.text));
+  const g2 = await tk('graph');
+  check('a modules draft can make a backward module', bacc.accepted && (g2.modules.find(m => m.id === 'reserves') || {}).timing === 'backward' &&
+    /timing = "backward"/.test(fs.readFileSync(path.join(dir, 'tilekit.toml'), 'utf8')), bacc);
+  const badT = await hm.propose_structure({ summary: 'x', modules: [{ id: 'odd_one', title: 'Odd', layer: saved.modules[0].layer, purpose: 'p', feeds: [], timing: 'sideways' }] });
+  check('an unknown module timing is refused', badT.isError && /timing 'sideways'/.test(badT.text), badT);
   const refused = await e.service.handlersFor({ level: 'module', id: 'account_value' }).propose_design(fresh());
   check('the design is proposed at model level only', refused.isError && /model level/.test(refused.text), refused);
   const prompt = require('../src/agent/prompt').systemPrompt({ modelDir: dir });
-  check('the prompt has the design stage and its standards', /propose_design/.test(prompt) && /House standards for designing a model/.test(prompt) && /One reviewer question per module/.test(prompt));
+  check('the prompt has the design stage and its standards', /propose_design/.test(prompt) && /House standards for designing a model/.test(prompt) && /One reviewer question per module/.test(prompt) &&
+    /## The spine/.test(prompt) && /same spine of modules/.test(prompt) && /backward module a state reads NEXT month/.test(prompt) && prompt.length < 60000);
   check('propose_design is in the tool list given to Claude Code', (await e.service.cliTools()).some(t => t.name === 'propose_design'));
 }
 

@@ -14,7 +14,7 @@ from types import ModuleType
 from tilekit.errors import TilekitError
 
 FORMATS = ("amount", "units", "percent", "rate", "irr", "number", "integer", "small")
-TIMINGS = ("step", "summary")
+TIMINGS = ("step", "backward", "summary")
 
 
 @dataclass(frozen=True)

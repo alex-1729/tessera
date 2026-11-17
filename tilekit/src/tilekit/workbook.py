@@ -168,7 +168,7 @@ class Line:
     """One row: a time row (months across) or, with `scalar`, a single cell in column C."""
     key: str | None  # what formulas call this row ({key}); None for a row nothing refers to
     label: str
-    # ("values", data) | ("formula", template) | ("state", initial, source) | ("link", name) | ("heading",)
+    # ("values", data) | ("formula", template) | ("state", initial, source, backward) | ("link", name) | ("heading",)
     content: tuple
     fmt: str  # number format code
     # input (bold blue: a true input) | elsewhere (bold dark green: pasted from another tile or module) |
@@ -394,8 +394,10 @@ def _line_cells(line, plan, locator, renames):
     if kind == "formula":
         return [fill_step(line.content[1], sheet, k, locator, renames) for k in range(months)]
     if kind == "state":
-        _, initial, source = line.content
+        _, initial, source, backward = line.content
         loc = locator.find(sheet, source)
+        if backward:  # next month's value of the source; its value after the last month is `initial`
+            return ["=" + _cell(loc, month_col(k + 1), sheet) for k in range(months - 1)] + [_plain(initial)]
         return [_plain(initial)] + ["=" + _cell(loc, month_col(k - 1), sheet) for k in range(1, months)]
     if kind == "link":
         loc = locator.home[line.content[1]]
@@ -502,8 +504,9 @@ def render_sheet(plan, locator, renames):
         elif line.style == "grey":
             cmds.append(_cmd("home.fontColor", range=f"B{row}:{value_end}{row}", color=GREY))
         if line.content[0] == "state":
-            cmds.append(_cmd("home.bold", range=f"C{row}"))
-            cmds.append(_cmd("home.fontColor", range=f"C{row}", color=BLUE))
+            at = last if line.content[3] else "C"  # the typed value: month 1, or the last month of a backward state
+            cmds.append(_cmd("home.bold", range=f"{at}{row}"))
+            cmds.append(_cmd("home.fontColor", range=f"{at}{row}", color=BLUE))
         if line.name:
             cmds.append(_cmd("home.fontColor", range=f"{name_at}{row}", color=MAROON))
         if line.define and line.name:
@@ -893,7 +896,8 @@ def _comparison_lines(info, data, name):
 def _state_line(info, data, name, define=True):
     state = info.states[name]
     values = data.series(name)
-    return Line(name, state.label, ("state", state.initial, state.source), number_format(state.format, values),
+    backward = name in info.graph.backward_states
+    return Line(name, state.label, ("state", state.initial, state.source, backward), number_format(state.format, values),
                 style="calc", name=name, define=define, python=values)
 
 

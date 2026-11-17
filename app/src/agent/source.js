@@ -495,6 +495,7 @@ function insertModuleToml(tomlText, mod) {
   const blocks = tomlModules(tomlText);
   const block = ['[[module]]', `id = ${tomlString(mod.id)}`, `title = ${tomlString(mod.title)}`,
     `layer = ${tomlString(mod.layer)}`, `python = ${tomlString(mod.python)}`];
+  if (mod.timing && mod.timing !== 'step') block.push(`timing = ${tomlString(mod.timing)}`);
   if (mod.purpose) block.push(`purpose = ${tomlString(mod.purpose)}`);
   if (mod.feeds && mod.feeds.length) block.push(`feeds = [${mod.feeds.map(tomlString).join(', ')}]`);
   let at;

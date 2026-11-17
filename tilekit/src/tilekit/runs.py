@@ -260,7 +260,7 @@ class StoredRun:
             self.results = {k: data[k] for k in data.files}
         self.summary = set(summary_names(model))
         stored = set(self.results)
-        graph_names = set(self.summary) | set(model.graph.step_order())
+        graph_names = set(self.summary) | set(model.graph.monthly_order())
         missing = sorted(graph_names - stored)
         if missing:
             raise TilekitError(f"Run '{name}' was made with a different model (no stored results for {missing}); "
@@ -295,7 +295,7 @@ def _headline_names(model):
     names = (data.get("runs") or {}).get("headline") or []
     if not isinstance(names, list) or not all(isinstance(n, str) for n in names):
         raise TilekitError("tilekit.toml: [runs] headline must be a list of quantity names")
-    known = set(model.graph.step_order()) | {s.name for s in model.config.states} | \
+    known = set(model.graph.monthly_order()) | {s.name for s in model.config.states} | \
         {i.name for i in model.config.input_series}
     unknown = [n for n in names if n not in known]
     if unknown:

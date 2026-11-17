@@ -276,13 +276,23 @@ class Graph:
     used_by: dict  # name -> tiles that take it as an argument
     edges: tuple[tuple[str, str], ...]  # (argument quantity, tile reading it)
     modules: dict  # module id -> ModuleInfo
-    timings: dict  # tile name -> "step" | "summary"
+    timings: dict  # tile name -> "step" | "backward" | "summary"
     # module id -> ((title or None, tiles), ...): every tile of the module once, the configured sections in the
     # order given and then one untitled section of the tiles not listed (dependency order); see `module_sections`
     sections: dict = dataclasses.field(default_factory=dict)
+    # states whose source is a backward tile: the state holds NEXT month's value of its source, and its `initial`
+    # is the value after the last month
+    backward_states: frozenset = frozenset()
 
     def step_order(self):
         return [n for n in self.order if self.timings[n] == "step"]
+
+    def backward_order(self):
+        return [n for n in self.order if self.timings[n] == "backward"]
+
+    def monthly_order(self):
+        """Every tile with one value a month: the step tiles and the backward tiles."""
+        return [n for n in self.order if self.timings[n] != "summary"]
 
     def summary_order(self):
         return [n for n in self.order if self.timings[n] == "summary"]
@@ -311,14 +321,23 @@ def build_graph(model):
         source = tiles_by_name.get(state.source)
         if source is None:
             raise TilekitError(f"State '{state.name}' comes from '{state.source}', which is not a tile")
-        if timings[source.name] != "step":
+        if timings[source.name] == "summary":
             raise TilekitError(f"State '{state.name}' comes from summary tile '{state.source}'; it must be a step tile")
+    backward_states = frozenset(s.name for s in model.config.states if timings[s.source] == "backward")
 
     for tile in tiles:
         if timings[tile.name] == "step":
             bad = [a for a in tile.args if kinds[a] == "tile" and timings[a] == "summary"]
             if bad:
                 raise TilekitError(f"Step tile '{tile.name}' reads summary tiles {bad}; summaries are only known after the loop")
+            bad = [a for a in tile.args if (kinds[a] == "tile" and timings[a] == "backward") or a in backward_states]
+            if bad:
+                raise TilekitError(f"Step tile '{tile.name}' reads backward quantities {bad}; they are worked out after "
+                                   "the forward loop, from the last month to the first")
+        if timings[tile.name] == "backward":
+            bad = [a for a in tile.args if kinds[a] == "tile" and timings[a] == "summary"]
+            if bad:
+                raise TilekitError(f"Backward tile '{tile.name}' reads summary tiles {bad}; summaries are only known after the loops")
 
     order, cycle = topological_order(tiles, kinds)
     if cycle:
@@ -372,6 +391,7 @@ def build_graph(model):
         modules=infos,
         timings=timings,
         sections=sections,
+        backward_states=backward_states,
     )
 
 
@@ -417,7 +437,7 @@ def validate_checks(module, kinds, timings):
             if kind not in CHECK_KINDS:
                 raise TilekitError(f"tilekit.toml: check '{check.name}' of module '{module.id}' reads '{name}', "
                                    "which is not a tile, input, state or parameter of the model")
-            if kind == "tile" and timings[name] != "step":
+            if kind == "tile" and timings[name] == "summary":
                 raise TilekitError(f"tilekit.toml: check '{check.name}' of module '{module.id}' reads the summary "
                                    f"tile '{name}'; checks hold month by month, so they read step quantities only")
 
@@ -443,6 +463,7 @@ def graph_json(model):
     for state in config.states:
         quantities[state.name] = {"kind": "state", "label": state.label, "format": state.format,
                                   "from": state.source, "initial": state.initial,
+                                  **({"backward": True} if state.name in graph.backward_states else {}),
                                   "used_by": graph.used_by[state.name]}
     for name in graph.order:
         tile = graph.tiles[name]
