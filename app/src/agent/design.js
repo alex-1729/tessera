@@ -155,7 +155,7 @@ function validateDesign(graph, d, caseIds = []) {
     const reads = t.reads.filter(a => measure[a]);
     const mixes = reads.some(a => measure[a] === 'amount') && reads.some(a => measure[a] === 'proportion');
     if (mixes && !m.weights) problems.push(`${n} multiplies a per-policy amount (${reads.filter(a => measure[a] === 'amount').join(', ')}) by an in-force or decrement proportion (${reads.filter(a => measure[a] === 'proportion').join(', ')}) in ${m.id}. Only a module marked weights: true does that, normally the cash flow module.`);
-    if (t.measure === 'weighted' && !m.weights) problems.push(`${n} is a weighted amount but ${m.id} is not marked weights: true.`);
+    if (t.measure === 'weighted' && !m.weights && m.timing !== 'summary') problems.push(`${n} is a weighted amount but ${m.id} is not marked weights: true.`);
     if (mixes && t.measure !== 'weighted') problems.push(`${n} reads a per-policy amount and a proportion, so its measure is weighted.`);
   }
 
@@ -273,15 +273,30 @@ function spineWarnings(d) {
     if (!cf.tiles.some(t => t.name === 'net_cashflow')) out.push('Departs from the spine: cash_flows ends with net_cashflow.');
     for (const n of pu) if (/_pu$/.test(n) && !cf.tiles.some(t => t.name === n.replace(/_pu$/, '_cf'))) out.push(`Departs from the spine: ${n} has no ${n.replace(/_pu$/, '_cf')} in cash_flows.`);
   }
+  for (const m of d.modules) {
+    if (m.id === 'per_unit_items' || m.id === 'reserves') continue;
+    for (const t of m.tiles) if (/_pu$/.test(t.name)) out.push(`Departs from the spine: ${t.name} is named as a per-unit item but is in ${m.id}. What a policy pays or receives, and everything worked out to price it (a charge, an adjustment, a floor), belongs in per_unit_items${m.id === 'policy_values' ? '; policy_values holds only the roll-forwards' : ''}.`);
+  }
+  const pv = byId.policy_values;
+  if (pv) {
+    const rolled = new Set(pv.states.flatMap(s => [s.name, s.from]));
+    const feeds = new Set();   // functions a roll-forward depends on, directly or through other policy_values functions
+    const stack = [...rolled];
+    const byName = Object.fromEntries(pv.tiles.map(t => [t.name, t]));
+    while (stack.length) { const n = stack.pop(); if (feeds.has(n)) continue; feeds.add(n); for (const a of (byName[n] || { reads: [] }).reads) if (byName[a]) stack.push(a); }
+    const loose = pv.tiles.filter(t => !feeds.has(t.name) && !/_pu$/.test(t.name)).map(t => t.name);
+    if (loose.length) out.push(`Departs from the spine: ${loose.join(', ')} ${loose.length === 1 ? 'is' : 'are'} in policy_values but no roll-forward there depends on ${loose.length === 1 ? 'it' : 'them'}. policy_values holds only the product's roll-forwards and what feeds them; what prices a benefit belongs in per_unit_items.`);
+  }
   if (byId.per_unit_items && ![...pu].some(n => /_pu$/.test(n))) out.push('Departs from the spine: each line of per_unit_items is named <line>_pu.');
   const resv = byId.reserves, resNames = names(resv);
   if (resv) for (const n of ['reserve_pu', 'reserve_eop']) if (!resNames.has(n)) out.push(`Departs from the spine: reserves has ${n}.`);
   if (byId.per_unit_items && resv) for (const t of byId.per_unit_items.tiles) for (const a of t.reads) if (resNames.has(a)) out.push(`Departs from the spine: ${t.name} reads this month's ${a}; a per-unit item reads last month's reserve, carried forward, or a tabulated value.`);
   if (byId.results && cf) {
     const lines = new Set([...cf.tiles.map(t => t.name.replace(/_cf$/, '')), 'net_cashflow']);
+    const helper = n => byId.results.tiles.some(t => t.reads.includes(n));   // read by another result: a discount rate
     for (const t of byId.results.tiles) {
       const line = (t.name.match(/^(?:total|pv)_(.+)$/) || [])[1];
-      if (!line || !lines.has(line)) out.push(`Departs from the spine: ${t.name} is in results but is not total_<line> or pv_<line> of a cash flow line.`);
+      if ((!line || !lines.has(line)) && !helper(t.name)) out.push(`Departs from the spine: ${t.name} is in results but is not total_<line> or pv_<line> of a cash flow line.`);
     }
   }
   return out;
