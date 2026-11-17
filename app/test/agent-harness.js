@@ -1309,6 +1309,16 @@ async function designChecks(check) {
   d = onSpine(); d.modules[5].tiles.push({ ...d.modules[5].tiles[1], name: 'profit_margin', reads: ['net_cashflow', 'discount_rate_pa'] }); d.results.push('profit_margin');
   check('a result that is not a total or present value of a line is flagged', spine(run(d)).some(w => /profit_margin is in results but is not/.test(w)), spine(run(d)));
 
+  d = onSpine(); d.modules[1].tiles.push({ ...d.modules[1].tiles[0], name: 'surrender_charge_pu', reads: ['av_eop', 'guaranteed_rate_pa'] }); d.modules[2].tiles[1].reads.push('surrender_charge_pu');
+  check('a per-unit item priced in policy_values is flagged', spine(run(d)).some(w => /surrender_charge_pu is named as a per-unit item but is in policy_values/.test(w)), spine(run(d)));
+  d = onSpine(); d.modules[1].tiles.push({ ...d.modules[1].tiles[0], name: 'surrender_value', reads: ['av_eop', 'guaranteed_rate_pa'] }); d.modules[2].tiles[1].reads.push('surrender_value');
+  check('a policy_values function that no roll-forward depends on is flagged', spine(run(d)).some(w => /surrender_value is in policy_values but no roll-forward there depends on it/.test(w)), spine(run(d)));
+  d = onSpine(); d.modules[5].tiles.unshift({ ...d.modules[5].tiles[0], name: 'discount_rate_pm', reads: ['discount_rate_pa', 'months_per_year'], step: 'convert', measure: 'rate' }); d.modules[5].tiles[1].reads = ['net_cashflow', 'discount_rate_pm'];
+  const withRate = run(d);
+  check('results may hold the monthly discount rate its present values read', withRate.problems.length === 0 && spine(withRate).length === 0, withRate);
+  d = onSpine(); d.modules[5].tiles.forEach(x => { x.measure = 'weighted'; });
+  check('totals of weighted series do not make results a weighting module', run(d).problems.length === 0 && spine(run(d)).length === 0, run(d));
+
   // the tool: model level only, a draft, and design.json on accept
   const e = serviceFor(dir);
   const hm = e.service.handlersFor({ level: 'model', id: 'model' });

@@ -541,6 +541,8 @@ Decided with the owner on 2026-11-16: every model has the same modules in the sa
 | `reserves` (`weights`) | backward | `reserve_pu`, `reserve_eop` |
 | `results` | summary | `total_<line>`, `pv_<line>` |
 
+After the first real design (MYGA, 2026-11-16) three rules were tightened. `policy_values` holds only the roll-forwards and what feeds them: a function there that no carried value depends on, or any `_pu` name outside `per_unit_items` and `reserves`, is a departure, so a surrender value's charge, adjustment and floor are priced in `per_unit_items`. `results` may hold a helper that its other functions read (the monthly discount rate for `tk.npv`); there is no discount factor series. A summary module may hold `weighted` measures without being a weighting module. The standard also says reserves value guaranteed benefits on their own guaranteed basis, not the projected one.
+
 A unit is one policy issued. Decrements read inputs and carried values only. Per-unit items never read this month's reserve. A cash flow line paid whether or not the policy is in force (an annuity's certain period) is weighted by policies issued and says so in an `Assumed:` line. Capital, treaty and assets are left out for now. Every departure is a warning on the design draft ("Departs from the spine: ..."), never a refusal. The spine was checked on paper against a MYGA, an FIA, a SPIA and an endowment; joint lives and income riders (more than one status of unit) are not covered.
 
 A modules draft (`propose_structure`) may give `timing` (`step`, `backward`, `summary`); it is written to `tilekit.toml` when it is not `step`, and cannot be changed on an existing module. A tiles draft for a backward module needs no reconciliation with its states.
