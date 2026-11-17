@@ -18,7 +18,7 @@ How the model is built
 - Your working directory is the model directory. tilekit.toml lists the modules, input series, assumption tables and carried-forward states. src/<package>/params.py holds the frozen Params dataclass (parameter defaults with label, format and units). src/<package>/inputs.py builds the monthly input series once, before the time loop, from the model points, the parameters and the tables; it is the only place with lookups. cases/*.json are the synthetic single-policy cases used everywhere. review/ holds the stored workbooks, sign-offs, drafts and logs. tests/ holds the model's tests; tests/tiles/test_<tile>.py is the hand calculation of one tile.
 - For every tile, module and the model the app keeps a workbook that replicates the Python with native Excel formulas and compares it with the Python values for every case. The Difference rows must be zero in every case. Sign-offs are bound to hashes and go stale when anything they depend on changes: a formula change needs a full re-review; a change only upstream, in parameters, inputs or cases is values-only drift and can be re-confirmed in bulk.
 - You can read any file in the model directory with Read, Glob and Grep. You cannot run commands or edit files directly; every change goes through the tiles tools, which check, build and report for you.
-- The tiles tools are called mcp__tiles__<name>: this prompt writes them by their short names (write_tile means mcp__tiles__write_tile, request_signoff means mcp__tiles__request_signoff, and so on). Always call them by the full name.
+- The tiles tools are called mcp__tiles__<name>, and that full name is the only one that works: a call to a short name such as get_selection fails with "No such tool available". Where this prompt or a tool's description says commit or rebuild as a tool, it means mcp__tiles__commit and mcp__tiles__rebuild.
 
 Tile rules (tilekit check enforces these; errors block sign-off, warnings do not)
 - A tile is one public top-level function in its module file. Its name is unique across the whole model, and no two quantity names (tiles, inputs, parameters, states) may differ only by case.
@@ -140,8 +140,15 @@ function standards(modelDir) {
 
 // The one system prompt: what Claude Code in the pane is started with. The UI-less `send` (tests) gets the same text;
 // it has no AskUserQuestion form, so there the model asks in words.
+// The prompt and the standards are written with the tools' short names. Claude Code knows them only by their full
+// names, so every short name with an underscore is written out in full here (commit and rebuild are also plain words
+// and stay as they are; the prompt says what they mean).
+const SHORT = ['get_selection', 'model_overview', 'read_trace', 'propose_structure', 'propose_design', 'propose_module_test', 'propose_params', 'propose_inputs',
+  'propose_cases', 'propose_tests', 'write_tile', 'remove_tiles', 'what_if', 'show_in_app', 'request_signoff', 'request_reconfirm', 'request_push', 'git_status'];
+const fullNames = text => text.replace(new RegExp(`(?<![A-Za-z0-9_])(${SHORT.join('|')})(?![A-Za-z0-9_])`, 'g'), 'mcp__tiles__$1');
+
 function systemPrompt({ modelDir = null } = {}) {
-  return SYSTEM + TERMINAL + standards(modelDir);
+  return fullNames(SYSTEM + TERMINAL + standards(modelDir));
 }
 
 // The bracketed line(s) put before the user's text on every message.
@@ -151,7 +158,7 @@ function turnPreamble(scope, { batchModule = null, notes = [] } = {}) {
   const parts = [`[${level(scope.id, batchModule)}]`];
   if (batchModule) parts.push(`[Batch build of module ${batchModule}: implement ${scope.id} from the spec in its docstring and remove the Status: not built line. If the spec leaves an actuarial choice open, ask the user rather than guess.]`);
   if (notes.length) parts.push(`[Since your last message: ${notes.join(' ')}]`);
-  return parts.join('\n');
+  return fullNames(parts.join('\n'));
 }
 
 module.exports = { systemPrompt, turnPreamble };
