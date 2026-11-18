@@ -1,0 +1,12 @@
+{
+  "name": "tessera",
+  "owner": { "name": "Alex" },
+  "metadata": { "description": "Skills for building actuarial models that are reviewed in the Tessera app" },
+  "plugins": [
+    {
+      "name": "tessera-modelling",
+      "source": "./plugins/tessera-modelling",
+      "description": "How to build a Tessera model: tile rules, the standard module spine, design standards and hand-calculation tests"
+    }
+  ]
+}

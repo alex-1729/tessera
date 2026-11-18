@@ -1,0 +1,6 @@
+{
+  "name": "tessera-modelling",
+  "description": "How to build a Tessera model: tile rules, the standard module spine, design standards and hand-calculation tests",
+  "version": "0.3.0",
+  "author": { "name": "Alex" }
+}

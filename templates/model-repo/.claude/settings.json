@@ -1,0 +1,18 @@
+{
+  "extraKnownMarketplaces": {
+    "tessera": {
+      "source": { "source": "github", "repo": "alex-1729/tessera" }
+    }
+  },
+  "enabledPlugins": {
+    "tessera-modelling@tessera": true
+  },
+  "permissions": {
+    "deny": [
+      "Bash(uv run tilekit signoff:*)",
+      "Bash(uv run tilekit reconfirm:*)",
+      "Bash(tilekit signoff:*)",
+      "Bash(tilekit reconfirm:*)"
+    ]
+  }
+}
