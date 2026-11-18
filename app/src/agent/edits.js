@@ -158,7 +158,7 @@ async function applyTileCode(ctx, { name, code, testCode, approved }) {
     if (testCode) { if (testBefore === null) fs.rmSync(testFile, { force: true }); else fs.writeFileSync(testFile, testBefore); }
   };
   let after;
-  try { after = src.spliceFunction(before, q.source, code); } catch (e) { return fail(e.message); }
+  try { after = src.ensureTkImport(src.spliceFunction(before, q.source, code), code); } catch (e) { return fail(e.message); }
   fs.writeFileSync(file, after);
   if (testCode) {
     fs.mkdirSync(path.dirname(testFile), { recursive: true });
@@ -282,7 +282,7 @@ async function whatIf(ctx, { name, code, params }) {
   try {
     if (code) {
       const file = path.join(tmp, q.source.file);
-      fs.writeFileSync(file, src.spliceFunction(read(file), q.source, code));
+      fs.writeFileSync(file, src.ensureTkImport(src.spliceFunction(read(file), q.source, code), code));
     }
     if (params && Object.keys(params).length) {
       const dir = path.join(tmp, 'cases');

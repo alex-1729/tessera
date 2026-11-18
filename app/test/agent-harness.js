@@ -161,6 +161,13 @@ async function offline() {
     check('code validation accepts a multi-line signature', src.tileCodeProblems('units_amc', multi).length === 0, src.tileCodeProblems('units_amc', multi));
   });
 
+  await guard('the tk import', async () => {
+    const file = '"""Results."""\n\nimport numpy as np\n\n\ndef a(x):\n    return x\n';
+    const withTk = src.ensureTkImport(file, 'def pv(r, c):\n    return tk.npv(r, c)\n');
+    check('a tile that calls tk gets the tooling import in its module file, once', /^import numpy as np\nfrom tilekit import functions as tk$/m.test(withTk) &&
+      src.ensureTkImport(withTk, 'return tk.irr(c)') === withTk && src.ensureTkImport(file, 'return np.sum(x, axis=0)') === file, withTk);
+  });
+
   await guard('draft validation', async () => {
     const g = await runnerFor(REAL_MODEL)('graph'); // read-only
     const bad = val.validateTileDraft(g, 'unit_projection', [

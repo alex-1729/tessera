@@ -7,7 +7,6 @@
 import { h, link, plainFormula, fmtDate } from './util.js';
 import * as L from './logic.js';
 import { modelMap } from './maps.js';
-import { tileMap } from './tilemap.js';
 import * as agent from './agentlog.js';
 import { policiesSection, runsSection } from './real.js';
 
@@ -224,8 +223,6 @@ export function moduleView(ctx, id) {
   left.push(h('h2', { class: 'title', id: 'title' }, mod.title));
   left.push(h('p', { class: 'lede', id: 'sentence' }, L.moduleSentence(S, id)));
   // every link between the module's tiles, which the strip above cannot show
-  const map = mod.tiles.length > 1 ? tileMap(S, id, ctx.panelWidth()) : null;
-  if (map) left.push(sec('How the tiles link'), map);
   right.push(sec('Module checks'));
   right.push(checksTable(ms.checks));
   const blockers = L.moduleBlockers(S, id);

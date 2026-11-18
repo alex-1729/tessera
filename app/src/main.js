@@ -105,6 +105,9 @@ function buildMenu(settings, onSetting, withAgent, actions = {}) {
       { id: 'centreCode', label: 'Code', accelerator: 'CmdOrCtrl+2', click: () => actions.centre && actions.centre('code') },
       { id: 'centreTest', label: 'Test', accelerator: 'CmdOrCtrl+3', click: () => actions.centre && actions.centre('test') },
       { type: 'separator' },
+      { id: 'navBack', label: 'Back', accelerator: 'CmdOrCtrl+[', click: () => actions.nav && actions.nav('back') },
+      { id: 'navForward', label: 'Forward', accelerator: 'CmdOrCtrl+]', click: () => actions.nav && actions.nav('forward') },
+      { type: 'separator' },
       { id: 'showLeftBar', label: 'Show left bar', type: 'checkbox', accelerator: 'CmdOrCtrl+Shift+[', checked: settings.showLeftBar !== false, click: i => onSetting('showLeftBar', i.checked) },
       { id: 'showRightBar', label: 'Show right bar', type: 'checkbox', accelerator: 'CmdOrCtrl+Shift+]', checked: settings.showRightBar !== false, click: i => onSetting('showRightBar', i.checked) },
       ...(withAgent ? [{ type: 'separator' }, { label: 'Agent model', submenu: [
@@ -170,7 +173,7 @@ async function start(options = {}) {
     else if (k === 'sections') {
       if (!v || typeof v !== 'object' || Array.isArray(v) || !Object.entries(v).every(([n, on]) => /^[a-z]{1,20}$/.test(n) && typeof on === 'boolean')) throw new Error('Invalid value.');
     } else if (k === 'centre') {
-      if (!v || typeof v !== 'object' || Array.isArray(v) || !Object.entries(v).every(([n, on]) => ['tile', 'module', 'model'].includes(n) && ['spreadsheet', 'code', 'test'].includes(on))) throw new Error('Invalid value.');
+      if (!v || typeof v !== 'object' || Array.isArray(v) || !Object.entries(v).every(([n, on]) => ['tile', 'module', 'model'].includes(n) && (['spreadsheet', 'code', 'test'].includes(on) || (n === 'module' && on === 'map')))) throw new Error('Invalid value.');
     } else throw new Error('Unknown setting.');
     setSetting(k, v);
     return true;
@@ -447,7 +450,7 @@ async function start(options = {}) {
     catch (e) { if (typeof cfg.pickFolder !== 'function') await dialog.showMessageBox(win, { type: 'error', message: 'Could not open that folder', detail: String(e.message || e), buttons: ['OK'] }); else throw e; return null; }
   };
   Menu.setApplicationMenu(buildMenu(settings, onSettingChosen, !cfg.fixtures || !!options.agentStub || !!options.agentOptions,
-    { openModel: () => { void openModelDialog(); }, newModel: () => sendMenu('newModel'), commit: () => sendMenu('commit'), modelSettings: () => sendMenu('modelSettings'), centre: seg => sendMenu('centre:' + seg), queue: a => sendMenu('queue:' + a) }));
+    { openModel: () => { void openModelDialog(); }, newModel: () => sendMenu('newModel'), commit: () => sendMenu('commit'), modelSettings: () => sendMenu('modelSettings'), centre: seg => sendMenu('centre:' + seg), nav: dir => sendMenu('nav:' + dir), queue: a => sendMenu('queue:' + a) }));
   // Commit and Model settings act on the open model, which must be in the app's list.
   function syncModelMenu() {
     const menu = Menu.getApplicationMenu();

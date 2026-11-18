@@ -99,8 +99,11 @@ export function tileMap(S, moduleId, avail = 700) {
     });
   }
   for (const e of edges) {
-    const pts = lay.routes.get(e); if (!pts) continue;
-    pts[pts.length - 1] = [pts[pts.length - 1][0], pts[pts.length - 1][1] - 1];
+    if (!lay.routes.get(e)) continue;
+    // one straight line, from the middle of the foot of the box read to the middle of the head of the box reading it
+    // (boxes are drawn over the lines, so a line that crosses a box passes behind it)
+    const a = lay.pos.get(e.from), b = lay.pos.get(e.to);
+    const pts = [[a.x + a.w / 2, a.y + a.h], [b.x + b.w / 2, b.y - 1]];
     svg.append(s('path', { d: polyline(pts), fill: 'none', stroke: e.light ? SOFT : INK, 'stroke-width': 1, 'stroke-dasharray': e.carried ? '5 3' : null, 'marker-end': e.light ? 'url(#arrg)' : 'url(#arr)' }));
   }
   backs.forEach((e, i) => {

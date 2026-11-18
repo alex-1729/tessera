@@ -181,6 +181,14 @@ function ensureNumpyImport(fileText) {
   return head + '\n\nimport numpy as np' + rest;
 }
 
+// A tile that calls tk.npv, tk.irr or tk.round_half_away needs the tooling's functions imported in its module file.
+const TK_IMPORT = 'from tilekit import functions as tk';
+function ensureTkImport(fileText, code) {
+  if (!/\btk\.\w/.test(String(code || '')) || /^from tilekit import functions as tk\s*$/m.test(fileText)) return fileText;
+  const text = ensureNumpyImport(fileText);
+  return text.replace(/^import numpy as np[ \t]*$/m, `import numpy as np\n${TK_IMPORT}`);
+}
+
 function appendFunctions(fileText, codes) {
   let text = ensureNumpyImport(String(fileText).replace(/\s+$/, ''));
   for (const c of codes) text += '\n\n\n' + c;
@@ -511,6 +519,6 @@ function insertModuleToml(tomlText, mod) {
 
 module.exports = {
   FORMATS, SNAKE, normaliseCode, tileCodeProblems, tileDescription, descriptionProblems, spliceFunction, removeFunction, skeleton, appendFunctions,
-  ensureNumpyImport, tomlModules, tomlPackage, insertModuleToml, wrap, setModuleLayout, dropTilesFromSections, layoutLines,
+  ensureNumpyImport, ensureTkImport, tomlModules, tomlPackage, insertModuleToml, wrap, setModuleLayout, dropTilesFromSections, layoutLines,
   chooseConvertProblems, tileBody,
 };
