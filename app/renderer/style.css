@@ -393,6 +393,8 @@ body.launching #mods, body.launching #tiles, body.launching #main, body.launchin
 .cpath { min-width: 0; overflow-wrap: anywhere; }
 .pushck { margin: 8px 0 2px; }
 
+.mapview { padding: 14px 24px 28px; }
+.mapview svg { max-width: 100%; height: auto; }
 /* the agreed design on the model page */
 .designmod { margin: 2px 0; font: 12px/1.5 var(--sans); }
 .designmod summary { cursor: pointer; font-weight: 600; }

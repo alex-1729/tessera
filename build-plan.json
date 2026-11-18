@@ -292,7 +292,7 @@
         {
           "id": 49,
           "text": "Try the design stage with the real agent on the MYGA model",
-          "status": "todo"
+          "status": "done"
         }
       ]
     },
@@ -327,6 +327,11 @@
         {
           "id": 55,
           "text": "Redesign MYGA on the spine with a CARVM reserve, with the real agent",
+          "status": "done"
+        },
+        {
+          "id": 56,
+          "text": "Review and sign off the MYGA model: 84 functions, six modules, placeholder assumptions to replace",
           "status": "todo"
         }
       ]

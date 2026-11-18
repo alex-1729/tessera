@@ -5,6 +5,7 @@ import { tileView, moduleView, modelView } from './views.js';
 import * as agent from './agentlog.js';
 import { initResize } from './resize.js';
 import { draftView } from './draftview.js';
+import { tileMap } from './tilemap.js';
 initResize();
 import * as RD from './real.js';
 import { createSpecLine } from './specline.js';
@@ -151,13 +152,21 @@ const approvable = () => (S.drafts || []).filter(d => d.kind !== 'what_if');
 function centreOf(level) {
   if (draftOpen && approvable().length) return 'draft';
   const c = (settings.centre || {})[level];
+  // a module opens on its map (how its tiles link) until another segment is chosen for modules
+  if (level === 'module') return hasMap() ? (['spreadsheet', 'code', 'test', 'map'].includes(c) ? c : 'map') : (c === 'code' || c === 'test' ? c : 'spreadsheet');
   return c === 'code' || (c === 'test' && level !== 'model') ? c : 'spreadsheet';
+}
+// A module with more than one tile has a map of how they link, shown in the centre.
+function hasMap() {
+  const r = parseRoute();
+  const m = r.view === 'module' && S.graph ? S.graph.modules.find(x => x.id === r.id) : null;
+  return !!m && m.tiles.length > 1;
 }
 function setCentre(seg) {
   const level = levelNow();
   if (seg === 'draft') { draftOpen = approvable().length > 0; void paintCentre(); return; }
   draftOpen = false;
-  if (!SEGS.includes(seg) || (seg === 'test' && level === 'model')) return;
+  if (seg === 'map' ? !(level === 'module' && hasMap()) : (!SEGS.includes(seg) || (seg === 'test' && level === 'model'))) return;
   settings.centre = { ...(settings.centre || {}), [level]: seg };
   api.setSetting('centre', settings.centre).catch(() => {});
   void paintCentre();
@@ -170,7 +179,15 @@ async function paintCentre() {
   $('seg-draft').hidden = !n; $('seg-draft').textContent = n > 1 ? `Draft to approve (${n})` : 'Draft to approve';
   for (const b of document.querySelectorAll('button.seg')) b.setAttribute('aria-selected', String(b.dataset.seg === seg));
   $('seg-test').hidden = level === 'model';
+  $('seg-map').hidden = !(level === 'module' && hasMap());
   $('codewrap').hidden = seg === 'spreadsheet';
+  if (seg === 'map') {
+    const wrap = $('codewrap');
+    const map = tileMap(S, route.id, Math.max(400, wrap.clientWidth - 48));
+    wrap.replaceChildren(h('div', { class: 'mapview', id: 'mapview' }, h('h3', { class: 'sec' }, 'How the tiles link'), map || h('p', { class: 'grey' }, 'This module has no tiles to map.')));
+    wrap.scrollTop = 0;
+    return;
+  }
   if (seg === 'draft') {
     // a draft that could not be applied says why (the model's files are put back as they were)
     const done = async fn => {
@@ -516,6 +533,8 @@ async function boot() {
     else if (a === 'commit') { const id = needId(); if (id) void commitDialog(id, async () => {}); }
     else if (a === 'modelSettings') { const id = needId(); if (id) void settingsDialog(id, async () => {}); }
     else if (a.startsWith('centre:') && openModel) setCentre(a.slice(7));
+    else if (a === 'nav:back') history.back();
+    else if (a === 'nav:forward') history.forward();
     else if (a.startsWith('queue:') && openModel && parseRoute().view !== 'launch') { if (a === 'queue:show') queue.toggle(); else queue.step(a === 'queue:next' ? 1 : -1); }
   });
   window.addEventListener('hashchange', () => render());

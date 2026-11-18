@@ -271,7 +271,7 @@ const check = (name, ok, detail) => { summary.checks.push({ name, ok: !!ok, ...(
 
     // remembered per level
     await go('#/module/' + await ev(`window.__app.S.graph.modules[0].id`)); await settle();
-    check('centre: a module has a Test segment (its module test) and starts on Spreadsheet (per-level choice)', !(await ev(`document.getElementById('seg-test').hidden`)) && (await segSel()).join() === 'spreadsheet' && !(await codeShown()));
+    check('centre: a module has a Test segment (its module test) and a Map segment, and starts on its map (per-level choice)', !(await ev(`document.getElementById('seg-test').hidden`)) && !(await ev(`document.getElementById('seg-map').hidden`)) && (await segSel()).join() === 'map' && await ev(`!!document.querySelector('#codewrap #mapview svg.tilemap')`));
     await ev(`window.dispatchEvent(new KeyboardEvent('keydown',{key:'3',metaKey:true,bubbles:true}))`); await sleep(400);
     check('centre: Cmd+3 selects the module\'s Test', (await segSel()).join() === 'test' && await codeShown());
     await ev(`document.getElementById('seg-code').click()`); await sleep(500);
@@ -324,7 +324,7 @@ const check = (name, ok, detail) => { summary.checks.push({ name, ok: !!ok, ...(
 
     // every tile's tests, for the module
     const heads = () => ev(`[...document.querySelectorAll('#panel h3.sec')].map(h=>h.textContent)`);
-    check('module view: the tile map, then Module checks, Tile tests, Reconciliations, Cases', (await heads()).join('|').startsWith('How the tiles link|Module checks|Tile tests|Reconciliations|Cases'), JSON.stringify(await heads()));
+    check('module view: Module checks, Tile tests, Reconciliations, Cases (the tile map is in the centre)', (await heads()).join('|').startsWith('Module checks|Tile tests|Reconciliations|Cases'), JSON.stringify(await heads()));
     const line = () => ev(`document.getElementById('tiletestsline').textContent`);
     check('module view: one line sums up the tile tests and says what is missing', (await line()) ===
       "3 of 4 tiles' tests pass. Not run: units_eop. Not yet in a workbook: units_eop. No check taken from a case: units_eop.", await line());
@@ -940,7 +940,7 @@ const check = (name, ok, detail) => { summary.checks.push({ name, ok: !!ok, ...(
   await has('module: reconfirm button', 'Re-confirm values-only (1)');
   await has('module: checks', 'Sheet agrees with Python');
   check('module: the tile strip has the tiles and the inputs', await ev(`(()=>{const t=document.getElementById('tiles').innerText;return ['units_allocated','units_eop','units_amc','inputs'].every(x=>t.includes(x))})()`));
-  check('module: tile boxes on the strip are links, and the left bar maps every tile of the module with its links', await ev(`(()=>{const n=document.querySelectorAll('#tiles a.t[href^="#/tile/"]').length; const m=document.querySelector('#panel #tilemap svg.tilemap'); return n >= 4 && !!m && m.querySelectorAll('a[href^="#/tile/"]').length === n && m.querySelectorAll('path[marker-end]').length >= n - 1})()`));
+  check('module: tile boxes on the strip are links, and the centre maps every tile of the module with its links', await ev(`(()=>{const n=document.querySelectorAll('#tiles a.t[href^="#/tile/"]').length; const m=document.querySelector('#codewrap #mapview svg.tilemap'); return n >= 4 && !!m && m.querySelectorAll('a[href^="#/tile/"]').length === n && m.querySelectorAll('path[marker-end]').length >= n - 1})()`));
   await shot('module');
 
   // tile
